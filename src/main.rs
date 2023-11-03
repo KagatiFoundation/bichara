@@ -24,9 +24,10 @@ SOFTWARE.
 
 pub mod tokenizer;
 pub mod error;
+pub mod parser;
 
 fn main() {
-    let mut t: tokenizer::Tokenizer = tokenizer::Tokenizer::new(String::from("\"this is string\" err + 23 + dsds + int a = 23; \"hello\" + fddf \"hola\";;"));
+    let mut t: tokenizer::Tokenizer = tokenizer::Tokenizer::new(String::from("\"ramesh;"));
     let tokens: Vec<tokenizer::Token> = t.start_scan();
     for token in tokens {
         println!("{:?}", token);

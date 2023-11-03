@@ -30,6 +30,8 @@ use std::{collections::HashMap, str::FromStr};
 extern crate lazy_static;
 use lazy_static::lazy_static;
 
+use crate::error;
+
 #[derive(Copy, Clone, PartialEq, Hash, Eq, Debug)]
 pub enum TokenKind {
     _T_LITERAL_START_, // literal types
@@ -128,6 +130,7 @@ impl TokenKind {
             Self::T_EQEQ => "==",
             Self::T_LBRACE => "{",
             Self::T_RBRACE => "}",
+            Self::T_DOT => ".",
             _ => "",
         }
     }
@@ -149,6 +152,7 @@ impl FromStr for TokenKind {
             ":" => Ok(Self::T_COLON),
             "," => Ok(Self::T_COMMA),
             ";" => Ok(Self::T_SEMICOLON),
+            "." => Ok(Self::T_DOT),
             _ => Ok(Self::T_NONE),
         }
     }
@@ -194,13 +198,13 @@ lazy_static! {
     };
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct TokenPos {
     pub line: usize,
     pub column: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Token {
     pub kind: TokenKind,
     pub lexeme: String,
@@ -224,12 +228,24 @@ impl Token {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum ErrorType {
+    UnterminatedString,
+    InvalidNumericValue
+}
+
+#[derive(Debug, PartialEq)]
+enum TokenizationResult {
+    Success(Token),
+    Error(ErrorType, TokenPos)
+}
+
 pub struct Tokenizer {
     line: usize,
     source: String,
     keywords: HashMap<String, TokenKind>,
     curr_char: char, // current char
-    read_curr: usize, // position from the start
+    curr_char_pos: usize, // position from the start
     col_counter: usize, // column counter
 }
 
@@ -241,7 +257,7 @@ impl Tokenizer {
             source,
             keywords,
             curr_char: ' ', // space 
-            read_curr: 0,
+            curr_char_pos: 0,
             col_counter: 1
         }
     }
@@ -249,121 +265,136 @@ impl Tokenizer {
 
 impl Tokenizer {
     pub fn start_scan(&mut self) -> Vec<Token> {
-        let mut result: Vec<Token> = Vec::new();
+        let mut tokens: Vec<Token> = Vec::new();
         let source_len: usize = self.source.len();
-        self.advance_to_next_char();
+        self.advance_to_next_char_pos();
         loop {
-            let mut token: Token = self.get_token();
-            if token.lexeme.is_empty() {
-                token.lexeme = String::from(token.kind.as_str());
+            let mut result: TokenizationResult = self.get_token();
+            match result {
+                TokenizationResult::Success(mut token) => {
+                    if token.lexeme.is_empty() {
+                        token.lexeme = String::from(token.kind.as_str());
+                    }
+                    if token.kind == TokenKind::T_EOF {
+                        tokens.push(token);
+                        break;
+                    }
+                    if token.kind != TokenKind::T_NONE {
+                        tokens.push(token);
+                    } 
+                },
+                TokenizationResult::Error(err_type, pos) => {
+                    match err_type {
+                        ErrorType::UnterminatedString => {
+                            error::error(pos, "missing terminating '\"' character");
+                        },
+                        _ => {
+                            error::error(pos, "just the error");
+                        }
+                    }
+                }
             }
-            if token.kind == TokenKind::T_EOF {
-                result.push(token);
-                break;
-            }
-            if token.kind != TokenKind::T_NONE {
-                result.push(token);
-            } 
         }
-        result
+        tokens
     }
 
-    fn get_token(&mut self) -> Token {
+    fn get_token(&mut self) -> TokenizationResult {
         let mut token: Token = Token::new(TokenKind::T_NONE, String::from(""), TokenPos{line: 0, column: 0});
         let col: usize = self.col_counter - 1;
         let line: usize = self.line;
+        let token_pos: TokenPos = TokenPos { line, column: col };
         match self.curr_char {
             '+' => {
                 token.kind = TokenKind::T_PLUS;
-                self.advance_to_next_char();
+                self.advance_to_next_char_pos();
                 match self.curr_char {
                     '+' => {
                         token.kind = TokenKind::T_INCR;
-                        self.advance_to_next_char();
+                        self.advance_to_next_char_pos();
                     },
                     '=' => {
                         token.kind = TokenKind::T_PLUSEQ;
-                        self.advance_to_next_char();
+                        self.advance_to_next_char_pos();
                     }
                     _ => {}
                 }
             },
             '-' => {
                 token.kind = TokenKind::T_MINUS;
-                self.advance_to_next_char();
+                self.advance_to_next_char_pos();
                 match self.curr_char {
                     '-' => {
                         token.kind = TokenKind::T_DECR;
-                        self.advance_to_next_char();
+                        self.advance_to_next_char_pos();
                     },
                     '=' => {
                         token.kind = TokenKind::T_MINUSEQ;
-                        self.advance_to_next_char();
+                        self.advance_to_next_char_pos();
                     }
                     '>' => {
                         token.kind = TokenKind::T_ARROW;
-                        self.advance_to_next_char();
+                        self.advance_to_next_char_pos();
                     }
                     _ => {}
                 }
             },
             '*' => {
                 token.kind = TokenKind::T_STAR;
-                self.advance_to_next_char();
+                self.advance_to_next_char_pos();
                 if self.curr_char == '=' {
                     token.kind = TokenKind::T_STAREQ;
-                    self.advance_to_next_char();
+                    self.advance_to_next_char_pos();
                 }
             },
             '/' => {
                 token.kind = TokenKind::T_SLASH;
-                self.advance_to_next_char();
+                self.advance_to_next_char_pos();
                 if self.curr_char == '=' {
                     token.kind = TokenKind::T_SLASHEQ;
-                    self.advance_to_next_char();
+                    self.advance_to_next_char_pos();
                 }
             },
             '!' => {
                 token.kind = TokenKind::T_BANG;
-                self.advance_to_next_char();
+                self.advance_to_next_char_pos();
                 if self.curr_char == '=' {
                     token.kind = TokenKind::T_NEQ;
-                    self.advance_to_next_char();
+                    self.advance_to_next_char_pos();
                 }
             },
             '%' => {
                 token.kind = TokenKind::T_PERCENT;
-                self.advance_to_next_char();
+                self.advance_to_next_char_pos();
                 if self.curr_char == '=' {
                     token.kind = TokenKind::T_PERCENTEQ;
-                    self.advance_to_next_char();
+                    self.advance_to_next_char_pos();
                 }
             },
             '^' => {
                 token.kind = TokenKind::T_CARET;
-                self.advance_to_next_char();
+                self.advance_to_next_char_pos();
                 if self.curr_char == '=' {
                     token.kind = TokenKind::T_CARETEQ;
-                    self.advance_to_next_char();
+                    self.advance_to_next_char_pos();
                 }
             },
             '&' => {
                 token.kind = TokenKind::T_AMPERSAND;
-                self.advance_to_next_char();
+                self.advance_to_next_char_pos();
                 if self.curr_char == '=' {
                     token.kind = TokenKind::T_AMPERSANDEQ;
-                    self.advance_to_next_char();
+                    self.advance_to_next_char_pos();
                 }
             },
             '>' => {
                 token.kind = TokenKind::T_GTHAN;
-                self.advance_to_next_char();
+                self.advance_to_next_char_pos();
                 match self.curr_char {
                     '>' => {
                         token.kind = TokenKind::T_RSHIFT;
-                        self.advance_to_next_char();
+                        self.advance_to_next_char_pos();
                         if self.curr_char == '=' {
-                            self.advance_to_next_char();
+                            self.advance_to_next_char_pos();
                             token.kind = TokenKind::T_RSHIFTEQ;
                         }
                     },
@@ -373,13 +404,13 @@ impl Tokenizer {
             },
             '<' => {
                 token.kind = TokenKind::T_LTHAN;
-                self.advance_to_next_char();
+                self.advance_to_next_char_pos();
                 match self.curr_char {
                     '<' => {
                         token.kind = TokenKind::T_LSHIFT;
-                        self.advance_to_next_char();
+                        self.advance_to_next_char_pos();
                         if self.curr_char == '=' {
-                            self.advance_to_next_char();
+                            self.advance_to_next_char_pos();
                             token.kind = TokenKind::T_LSHIFTEQ;
                         }
                     }
@@ -389,14 +420,14 @@ impl Tokenizer {
             },
             '|' => {
                 token.kind = TokenKind::T_PIPE;
-                self.advance_to_next_char();
+                self.advance_to_next_char_pos();
                 match self.curr_char {
                     '|' => {
                         token.kind = TokenKind::T_OR;
-                        self.advance_to_next_char();
+                        self.advance_to_next_char_pos();
                     },
                     '=' => {
-                        self.advance_to_next_char();
+                        self.advance_to_next_char_pos();
                         token.kind = TokenKind::T_PIPEEQ;
                     },
                     _ => {}
@@ -404,14 +435,14 @@ impl Tokenizer {
             },
             '&' => {
                 token.kind = TokenKind::T_AMPERSAND;
-                self.advance_to_next_char();
+                self.advance_to_next_char_pos();
                 match self.curr_char {
                     '&' => {
                         token.kind = TokenKind::T_AND;
-                        self.advance_to_next_char();
+                        self.advance_to_next_char_pos();
                     },
                     '=' => {
-                        self.advance_to_next_char();
+                        self.advance_to_next_char_pos();
                         token.kind = TokenKind::T_AMPERSANDEQ;
                     },
                     _ => {}
@@ -419,36 +450,60 @@ impl Tokenizer {
             },
             '~' => {
                 token.kind = TokenKind::L_TILDE;
-                self.advance_to_next_char();
+                self.advance_to_next_char_pos();
                 if self.curr_char == '=' {
-                    self.advance_to_next_char();
+                    self.advance_to_next_char_pos();
                     token.kind = TokenKind::T_TILDEEQ;
                 }
             },
             '=' => {
                 token.kind = TokenKind::T_EQUAL;
-                self.advance_to_next_char();
+                self.advance_to_next_char_pos();
                 if self.curr_char == '=' {
-                    self.advance_to_next_char();
+                    self.advance_to_next_char_pos();
                     token.kind = TokenKind::T_EQEQ;
                 }
             },
             '0'..='9' => {
-                let __start: usize = self.read_curr - 1;
+                token.kind = TokenKind::T_INT_NUM;
+                let __start: usize = self.curr_char_pos - 1;
                 let mut __end: usize = __start;
+                let mut period_detected: bool = false;
                 while self.curr_char.is_ascii_digit() {
-                    self.advance_to_next_char();
+                    self.advance_to_next_char_pos();
                     __end += 1;
                 }
+                if self.curr_char == '.' {
+                    self.advance_to_next_char_pos(); // skip '.'
+                    if self.curr_char.is_ascii_digit() {
+                        period_detected = true;
+                        __end += 1;
+                        while self.curr_char.is_ascii_digit() {
+                            self.advance_to_next_char_pos();
+                            __end += 1;
+                        }
+                    } else {
+                        return TokenizationResult::Error(ErrorType::InvalidNumericValue, token_pos);
+                    }
+                }
+                let invalid_num_end: bool = self.curr_char.is_alphabetic() || self.curr_char == '_';
+                if invalid_num_end {
+                    while self.curr_char.is_alphanumeric() || self.curr_char == '_' {
+                        self.advance_to_next_char_pos();
+                    }
+                    return TokenizationResult::Error(ErrorType::InvalidNumericValue, token_pos);
+                }
                 let number: &str = &self.source[__start..__end];
-                token.kind = TokenKind::T_INT_NUM;
+                if period_detected {
+                    token.kind = TokenKind::T_DOUBLE_NUM;
+                }
                 token.lexeme = String::from(number);
             }, 
             '_' | 'a'..='z' | 'A'..='Z' => {
-                let __start: usize = self.read_curr - 1;
+                let __start: usize = self.curr_char_pos - 1;
                 let mut __end: usize = __start;
                 while self.curr_char.is_alphanumeric() || self.curr_char == '_' {
-                    self.advance_to_next_char();
+                    self.advance_to_next_char_pos();
                     __end += 1;
                 }
                 token.kind = TokenKind::T_IDENTIFIER;
@@ -460,17 +515,18 @@ impl Tokenizer {
                 token.lexeme = String::from(name);
             },
             '"' => {
-                self.advance_to_next_char(); // skip '"'
-                let __start: usize = self.read_curr - 1;
+                self.advance_to_next_char_pos(); // skip '"'
+                let __start: usize = self.curr_char_pos - 1;
                 let mut __end: usize = __start;
                 while self.curr_char != '"' && !self.is_at_end() {
-                    self.advance_to_next_char();
+                    self.advance_to_next_char_pos();
                     __end += 1;
                 }
                 if self.is_at_end() {
-                    println!("Unterminated string error...");
+                    self.advance_to_next_char_pos();
+                    return TokenizationResult::Error(ErrorType::UnterminatedString, token_pos);
                 } else {
-                    self.advance_to_next_char();
+                    self.advance_to_next_char_pos();
                     let str_val: &str = &self.source[__start..__end];
                     token.kind = TokenKind::T_STRING;
                     token.lexeme = String::from(str_val);
@@ -478,30 +534,30 @@ impl Tokenizer {
             },
             '(' | ')' | '{' | '}' | '[' | ']' | '#' | '.' | '?' | ':' | ',' | ';' => {
                 token.kind = TokenKind::from_str(self.curr_char.to_string().as_str()).unwrap();
-                self.advance_to_next_char();
+                self.advance_to_next_char_pos();
             },
-            ' ' | '\n' | '\t' => self.advance_to_next_char(),
+            ' ' | '\n' | '\t' => self.advance_to_next_char_pos(),
             '\0' => token.kind = TokenKind::T_EOF,
             _ => {}
         }
         token.pos = TokenPos{ line, column: col };
-        token
+        TokenizationResult::Success(token)
     }
 
     #[inline]
     fn is_at_end(&self) -> bool {
-        self.read_curr >= self.source.len()
+        self.curr_char_pos >= self.source.len()
     }
 
     #[inline]
-    fn advance_to_next_char(&mut self) {
-        if self.read_curr < self.source.len() {
-            self.curr_char = self.source.as_bytes()[self.read_curr] as char;
+    fn advance_to_next_char_pos(&mut self) {
+        if self.curr_char_pos < self.source.len() {
+            self.curr_char = self.source.as_bytes()[self.curr_char_pos] as char;
             if self.curr_char == '\n' {
                 self.line += 1;
                 self.col_counter = 0;
             }
-            self.read_curr += 1;
+            self.curr_char_pos += 1;
             self.col_counter += 1;
         } else {
             self.curr_char = '\0';
@@ -525,6 +581,13 @@ mod tests {
         assert_eq!(tokens[3].kind, TokenKind::T_INT_NUM);
         assert_eq!(tokens[4].kind, TokenKind::T_SEMICOLON);
         assert_eq!(tokens[5].kind, TokenKind::T_EOF);
+    }
+
+    #[test]
+    fn test_unterminated_string_error() {
+        let mut tok: Tokenizer = Tokenizer::new(String::from("\"ramesh;"));
+        tok.advance_to_next_char_pos();
+        assert!(matches!(tok.get_token(), TokenizationResult::Error(_, _)));
     }
     
     #[test]

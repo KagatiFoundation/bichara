@@ -21,13 +21,3 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-
-use crate::tokenizer::TokenPos;
-
-pub fn error(pos: TokenPos, msg: &str) {
-    println!("error: {}:{} {}", pos.line, pos.column, msg);
-}
-
-pub fn warning(pos: TokenPos, msg: &str) {
-    println!("warning: {}:{} {}", pos.line, pos.column, msg);
-}
