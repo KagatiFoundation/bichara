@@ -22,13 +22,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-pub mod tokenizer;
-pub mod error;
+use crate::tokenizer::Token;
 
-fn main() {
-    let mut t: tokenizer::Tokenizer = tokenizer::Tokenizer::new(String::from("\"this is string\" err + 23 + dsds + int a = 23; \"hello\" + fddf \"hola\";;"));
-    let tokens: Vec<tokenizer::Token> = t.start_scan();
-    for token in tokens {
-        println!("{:?}", token);
-    }
+pub fn syntax_error(token: Token) {
+    println!("Syntax Error: {:?}", token);
 }
