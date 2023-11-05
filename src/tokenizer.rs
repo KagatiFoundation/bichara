@@ -25,12 +25,13 @@ SOFTWARE.
 #![allow(unused)]
 #![allow(non_camel_case_types)]
 
-use std::{collections::HashMap, str::FromStr};
+use core::num;
+use std::{collections::HashMap, str::FromStr, cmp};
 
 extern crate lazy_static;
 use lazy_static::lazy_static;
 
-use crate::error;
+use crate::{error, utils};
 
 #[derive(Copy, Clone, PartialEq, Hash, Eq, Debug)]
 pub enum TokenKind {
@@ -198,7 +199,7 @@ lazy_static! {
     };
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct TokenPos {
     pub line: usize,
     pub column: usize,
@@ -242,22 +243,22 @@ enum TokenizationResult {
 
 pub struct Tokenizer {
     line: usize,
-    source: String,
+    source: &'static [u8],
     keywords: HashMap<String, TokenKind>,
     curr_char: char, // current char
-    curr_char_pos: usize, // position from the start
+    next_char_pos: usize, // position from the start
     col_counter: usize, // column counter
 }
 
 impl Tokenizer {
-    pub fn new(source: String) -> Tokenizer {
+    pub fn new(source: &'static str) -> Tokenizer {
         let mut keywords: HashMap<String, TokenKind> = HashMap::new();
         Tokenizer {
             line: 1, 
-            source,
+            source: source.as_bytes(),
             keywords,
             curr_char: ' ', // space 
-            curr_char_pos: 0,
+            next_char_pos: 0,
             col_counter: 1
         }
     }
@@ -464,50 +465,16 @@ impl Tokenizer {
                     token.kind = TokenKind::T_EQEQ;
                 }
             },
-            '0'..='9' => {
-                token.kind = TokenKind::T_INT_NUM;
-                let __start: usize = self.curr_char_pos - 1;
-                let mut __end: usize = __start;
-                let mut period_detected: bool = false;
-                while self.curr_char.is_ascii_digit() {
-                    self.advance_to_next_char_pos();
-                    __end += 1;
-                }
-                if self.curr_char == '.' {
-                    self.advance_to_next_char_pos(); // skip '.'
-                    if self.curr_char.is_ascii_digit() {
-                        period_detected = true;
-                        __end += 1;
-                        while self.curr_char.is_ascii_digit() {
-                            self.advance_to_next_char_pos();
-                            __end += 1;
-                        }
-                    } else {
-                        return TokenizationResult::Error(ErrorType::InvalidNumericValue, token_pos);
-                    }
-                }
-                let invalid_num_end: bool = self.curr_char.is_alphabetic() || self.curr_char == '_';
-                if invalid_num_end {
-                    while self.curr_char.is_alphanumeric() || self.curr_char == '_' {
-                        self.advance_to_next_char_pos();
-                    }
-                    return TokenizationResult::Error(ErrorType::InvalidNumericValue, token_pos);
-                }
-                let number: &str = &self.source[__start..__end];
-                if period_detected {
-                    token.kind = TokenKind::T_DOUBLE_NUM;
-                }
-                token.lexeme = String::from(number);
-            }, 
+            '0'..='9' => return self.parse_number_from(token_pos), 
             '_' | 'a'..='z' | 'A'..='Z' => {
-                let __start: usize = self.curr_char_pos - 1;
+                let __start: usize = self.next_char_pos - 1;
                 let mut __end: usize = __start;
                 while self.curr_char.is_alphanumeric() || self.curr_char == '_' {
                     self.advance_to_next_char_pos();
                     __end += 1;
                 }
                 token.kind = TokenKind::T_IDENTIFIER;
-                let name: &str = &self.source[__start..__end];
+                let name: &str = std::str::from_utf8(&self.source[__start..__end]).unwrap();
                 let keyword: Option<&TokenKind> = KEYWORDS.get(name);
                 if let Some(key) = keyword {
                     token.kind = *key;
@@ -516,7 +483,7 @@ impl Tokenizer {
             },
             '"' => {
                 self.advance_to_next_char_pos(); // skip '"'
-                let __start: usize = self.curr_char_pos - 1;
+                let __start: usize = self.next_char_pos - 1;
                 let mut __end: usize = __start;
                 while self.curr_char != '"' && !self.is_at_end() {
                     self.advance_to_next_char_pos();
@@ -527,7 +494,7 @@ impl Tokenizer {
                     return TokenizationResult::Error(ErrorType::UnterminatedString, token_pos);
                 } else {
                     self.advance_to_next_char_pos();
-                    let str_val: &str = &self.source[__start..__end];
+                    let str_val: &str = std::str::from_utf8(&self.source[__start..__end]).unwrap();
                     token.kind = TokenKind::T_STRING;
                     token.lexeme = String::from(str_val);
                 }
@@ -544,22 +511,63 @@ impl Tokenizer {
         TokenizationResult::Success(token)
     }
 
+    fn parse_number_from(&mut self, pos: TokenPos) -> TokenizationResult {
+        let mut token: Token = Token::new(TokenKind::T_NONE, String::from(""), pos);
+        token.kind = TokenKind::T_INT_NUM;
+        let mut __start: usize = self.next_char_pos - 1;
+        let mut __end: usize = __start;
+        let mut period_detected: bool = false;
+        while self.curr_char.is_ascii_digit() {
+            self.advance_to_next_char_pos();
+            __end += 1;
+        }
+        if self.curr_char == '.' {
+            self.advance_to_next_char_pos(); // skip '.'
+            if self.curr_char.is_ascii_digit() {
+                period_detected = true;
+                __end += 1;
+                while self.curr_char.is_ascii_digit() {
+                    self.advance_to_next_char_pos();
+                    __end += 1;
+                }
+            } else {
+                return TokenizationResult::Error(ErrorType::InvalidNumericValue, pos);
+            }
+        }
+        let invalid_num_end: bool = self.curr_char.is_alphabetic() || self.curr_char == '_';
+        if invalid_num_end {
+            while self.curr_char.is_alphanumeric() || self.curr_char == '_' {
+                self.advance_to_next_char_pos();
+            }
+            return TokenizationResult::Error(ErrorType::InvalidNumericValue, pos);
+        }
+        let number: &str = std::str::from_utf8(&self.source[__start..__end]).unwrap();
+        let mut num_result: String = String::from("");
+        if period_detected {
+            token.kind = TokenKind::T_DOUBLE_NUM;
+        }
+        token.lexeme = String::from(number);
+        TokenizationResult::Success(token)
+    }
+
     #[inline]
     fn is_at_end(&self) -> bool {
-        self.curr_char_pos >= self.source.len()
+        self.next_char_pos >= self.source.len()
     }
 
     #[inline]
     fn advance_to_next_char_pos(&mut self) {
-        if self.curr_char_pos < self.source.len() {
-            self.curr_char = self.source.as_bytes()[self.curr_char_pos] as char;
+        #[allow(clippy::comparison_chain)]
+        if self.next_char_pos < self.source.len() {
+            self.curr_char = self.source[self.next_char_pos] as char;
             if self.curr_char == '\n' {
                 self.line += 1;
                 self.col_counter = 0;
             }
-            self.curr_char_pos += 1;
+            self.next_char_pos += 1;
             self.col_counter += 1;
-        } else {
+        }
+        else {
             self.curr_char = '\0';
         }
     }
@@ -572,7 +580,7 @@ mod tests {
 
     #[test]
     fn test_int_var_decl_tokenization() {
-        let mut tok: Tokenizer = Tokenizer::new(String::from("int a = 4;"));
+        let mut tok: Tokenizer = Tokenizer::new("int a = 4;");
         let tokens: Vec<Token> = tok.start_scan();
         assert!(tokens.len() == 6);
         assert_eq!(tokens[0].kind, TokenKind::KW_INT);
@@ -584,23 +592,61 @@ mod tests {
     }
 
     #[test]
-    fn test_unterminated_string_error() {
-        let mut tok: Tokenizer = Tokenizer::new(String::from("\"ramesh;"));
+    fn test_should_report_unterminated_string_error() {
+        let mut tok: Tokenizer = Tokenizer::new("\"ramesh;");
         tok.advance_to_next_char_pos();
-        assert!(matches!(tok.get_token(), TokenizationResult::Error(_, _)));
+        assert!(matches!(tok.get_token(), TokenizationResult::Error(ErrorType::UnterminatedString, _)));
+    }
+
+    #[test]
+    fn test_should_report_invalid_numeric_value_error() {
+        let mut tok: Tokenizer = Tokenizer::new("2323.");
+        tok.advance_to_next_char_pos();
+        assert!(matches!(tok.get_token(), TokenizationResult::Error(ErrorType::InvalidNumericValue, _)));
     }
     
     #[test]
-    fn test_int_var_decl_int_len_correct() {
-        let mut tok: Tokenizer = Tokenizer::new(String::from("int a = 433434;"));
+    fn test_should_report_invalid_numeric_value_error2() {
+        let mut tok: Tokenizer = Tokenizer::new("2323sdsd");
+        tok.advance_to_next_char_pos();
+        assert!(matches!(tok.get_token(), TokenizationResult::Error(ErrorType::InvalidNumericValue, _)));
+    }
+    
+    #[test]
+    fn test_should_report_invalid_numeric_value_error3() {
+        let mut tok: Tokenizer = Tokenizer::new(".98989");
+        let tokens: Vec<Token> = tok.start_scan();
+        assert_eq!(tokens[0].kind, TokenKind::T_DOT);
+        assert_eq!(tokens[1].kind, TokenKind::T_INT_NUM);
+    }
+    
+    #[test]
+    fn test_int_var_decl_len_correct() {
+        let mut tok: Tokenizer = Tokenizer::new("int a = 433434;");
         let tokens: Vec<Token> = tok.start_scan();
         assert!(tokens.len() == 6);
         assert_eq!(tokens[3].lexeme.len(), 6);
     }
+    
+    #[test]
+    fn test_float_var_decl_len_correct() {
+        let mut tok: Tokenizer = Tokenizer::new("double a = 4334.34;");
+        let tokens: Vec<Token> = tok.start_scan();
+        assert!(tokens.len() == 6);
+        assert_eq!(tokens[3].lexeme, "4334.34");
+        assert_eq!(tokens[3].lexeme.len(), 7);
+    }
+    
+    #[test]
+    fn test_float_var_decl_len_correct2() {
+        let mut tok: Tokenizer = Tokenizer::new("double a = 4334.34ss;");
+        let tokens: Vec<Token> = tok.start_scan();
+        assert!(tokens.len() == 5);
+    }
 
     #[test]
     fn test_char_ptr_var_decl_tokenization() {
-        let mut tok: Tokenizer = Tokenizer::new(String::from("char* name = \"ram\";"));
+        let mut tok: Tokenizer = Tokenizer::new("char* name = \"ram\";");
         let tokens: Vec<Token> = tok.start_scan();
         assert!(tokens.len() == 7);
         assert_eq!(tokens[0].kind, TokenKind::KW_CHAR);
@@ -616,7 +662,7 @@ mod tests {
 
     #[test]
     fn test_func_decl_tokenization() {
-        let mut tok: Tokenizer = Tokenizer::new(String::from("int main(void) { return 0; }"));
+        let mut tok: Tokenizer = Tokenizer::new("int main(void) { return 0; }");
         let tokens: Vec<Token> = tok.start_scan();
         assert!(tokens.len() == 11);
         assert_eq!(tokens[1].kind, TokenKind::T_IDENTIFIER);
@@ -625,7 +671,7 @@ mod tests {
 
     #[test]
     fn test_empty_source() {
-        let mut tok: Tokenizer = Tokenizer::new(String::from(""));
+        let mut tok: Tokenizer = Tokenizer::new("");
         let tokens: Vec<Token> = tok.start_scan();
         assert_eq!(tokens.len(), 1); // only EOF is present
         assert_eq!(tokens[0].kind, TokenKind::T_EOF); // only EOF is present
@@ -633,7 +679,7 @@ mod tests {
 
     #[test]
     fn test_only_whitespace_source() {
-        let mut tok: Tokenizer = Tokenizer::new(String::from("               "));
+        let mut tok: Tokenizer = Tokenizer::new("               ");
         let tokens: Vec<Token> = tok.start_scan();
         assert_eq!(tokens.len(), 1); // only EOF is present
         assert_eq!(tokens[0].kind, TokenKind::T_EOF); // only EOF is present

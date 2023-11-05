@@ -25,11 +25,8 @@ SOFTWARE.
 pub mod tokenizer;
 pub mod error;
 pub mod parser;
+pub mod utils;
 
 fn main() {
-    let mut t: tokenizer::Tokenizer = tokenizer::Tokenizer::new(String::from("\"ramesh;"));
-    let tokens: Vec<tokenizer::Token> = t.start_scan();
-    for token in tokens {
-        println!("{:?}", token);
-    }
+    
 }
