@@ -55,6 +55,11 @@
                       | &lt;declarator&gt; : &lt;constant-expression&gt;
                       | : &lt;constant-expression&gt;
 
+&lt;declaration&gt; ::=  {&lt;declaration-specifier&gt;}+ {&lt;init-declarator&gt;}* ;
+
+&lt;init-declarator&gt; ::= &lt;declarator&gt;
+                    | &lt;declarator&gt; = &lt;initializer&gt;
+
 &lt;declarator&gt; ::= {&lt;pointer&gt;}? &lt;direct-declarator&gt;
 
 &lt;pointer&gt; ::= * {&lt;type-qualifier&gt;}* {&lt;pointer&gt;}?
@@ -195,11 +200,6 @@
                | &lt;identifier&gt; = &lt;constant-expression&gt;
 
 &lt;typedef-name&gt; ::= &lt;identifier&gt;
-
-&lt;declaration&gt; ::=  {&lt;declaration-specifier&gt;}+ {&lt;init-declarator&gt;}* ;
-
-&lt;init-declarator&gt; ::= &lt;declarator&gt;
-                    | &lt;declarator&gt; = &lt;initializer&gt;
 
 &lt;initializer&gt; ::= &lt;assignment-expression&gt;
                 | { &lt;initializer-list&gt; }

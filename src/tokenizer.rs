@@ -205,7 +205,7 @@ pub struct TokenPos {
     pub column: usize,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Token {
     pub kind: TokenKind,
     pub lexeme: String,
