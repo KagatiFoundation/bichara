@@ -35,63 +35,21 @@ pub enum LitType {
     Float(f32),
 }
 
-pub trait Expr {}
-
-#[derive(Clone, Debug)]
-pub struct LitExpr {
-    value: LitType
+pub struct ASTNode {
+    pub operation: TokenKind,
+    pub left: Option<Box<ASTNode>>,
+    pub right: Option<Box<ASTNode>>,
+    pub value: LitType
 }
 
-#[derive(Clone, Debug)]
-pub struct BinExpr {
-    left: Box<ExprNode>,
-    right: Box<ExprNode>,
-    op: String,
-}
+impl ASTNode {
+    pub fn new(op: TokenKind, left: ASTNode, right: ASTNode, value: LitType) -> Self {
+        Self { operation: op, left: Some(Box::new(left)), right: Some(Box::new(right)), value }
+    }
 
-impl Expr for LitExpr{}
-
-impl Expr for BinExpr{}
-
-#[derive(Clone, Debug)]
-pub enum ExprNode {
-    LiteralExpression(LitExpr),   
-    BinaryExpression(BinExpr), 
-}
-
-pub trait Stmt{}
-
-pub struct VarDeclStmt {
-    name: String,
-    value: Box<dyn Expr>,
-}
-
-enum Declaration {
-    VarDeclaration,
-    FunctionDeclaration
-}
-
-pub struct StmtNode {
-    decl: Declaration
-}
-
-pub enum ASTNode {
-    ExpressionNode(ExprNode),
-    StatementNode(StmtNode)
-}
-
-#[derive(Debug)]
-pub enum ErrorKind {
-    UnexpectedToken,
-    ParenNotClosed,
-    BraceNotClosed,
-    UnexpectedEOF
-}
-
-#[derive(Debug)]
-pub enum ParseResult {
-    Success(ExprNode),
-    Error(ErrorKind, Option<Token>), // usize for token index
+    pub fn make_leaf(op: TokenKind, value: LitType) -> Self {
+        Self { operation: op, left: None, right: None, value }
+    }
 }
 
 // Actual parser
@@ -103,80 +61,68 @@ pub struct Parser {
 impl Parser {
     #[inline]
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self {
-            tokens,
-            current: 0,
-        }
+        Self { tokens, current: 0, }
     }
 
-    pub fn start_parser(&mut self) -> Vec<ExprNode> {
-        let mut exprs: Vec<ExprNode> = vec![];
-        while !self.is_at_end() {
-            match self.parse_expr() {
-                ParseResult::Success(expr_node) => {
-                    exprs.push(expr_node);
-                },
-                ParseResult::Error(_, _) => todo!(),
+    pub fn parse_addition(&mut self) -> ASTNode {
+        let mut left: ASTNode = self.parse_multiplicative();
+        let mut right: ASTNode;
+        if let Some(top) = self.peek() {
+            let mut kind: TokenKind = top.kind;
+            loop {
+                self.skip();
+                right = self.parse_multiplicative();
+                left = ASTNode::new(Parser::is_arith_op(kind), left, right, LitType::Integer(0));
+                if let Some(now) = self.peek() { kind = now.kind; } 
+                else { break; }
             }
         }
-        exprs
+        left
     }
 
-    pub fn parse_expr(&mut self) -> ParseResult {
-        if self.is_at_end() { ParseResult::Error(ErrorKind::UnexpectedEOF, self.peek()) } 
-        else { self.parse_addition() }
-    }
-
-    pub fn parse_addition(&mut self) -> ParseResult {
-        let left_side_res: ParseResult = self.parse_primary();
-        match left_side_res {
-            ParseResult::Success(ref left_side_expr) => {
-                if let Some(top) = self.peek() {
-                    if top.kind == TokenKind::T_PLUS || top.kind == TokenKind::T_MINUS {
-                        let operator: String = top.lexeme.clone();
-                        self.current += 1; // skip the operator
-                        let right_side_result: ParseResult = self.parse_addition();
-                        match right_side_result {
-                            ParseResult::Success(right_side_expr) => {
-                                return ParseResult::Success(
-                                    ExprNode::BinaryExpression(
-                                        BinExpr { 
-                                            left: Box::new(left_side_expr.clone()), 
-                                            right: Box::new(right_side_expr), 
-                                            op: operator, 
-                                    })
-                                );
-                            },
-                            ParseResult::Error(_, _) => return right_side_result,
-                        }
-                    }
-                }
-            },
-            ParseResult::Error(_, _) => return left_side_res,
-        }
-        left_side_res
-    }
-
-    pub fn parse_primary(&mut self) -> ParseResult {
+    pub fn parse_multiplicative(&mut self) -> ASTNode {
+        let mut left: ASTNode = self.parse_primary();
+        let mut right: ASTNode;
         if let Some(top) = self.peek() {
-            self.skip(); // skip primary token
+            let mut kind: TokenKind = top.kind;
+            while kind == TokenKind::T_STAR || kind == TokenKind::T_SLASH {
+                self.skip();
+                right = self.parse_primary();
+                left = ASTNode::new(Parser::is_arith_op(kind), left, right, LitType::Integer(0));
+                if let Some(now) = self.peek() { kind = now.kind; } 
+                else { break; }
+            }
+        }
+        left
+    }
+
+    pub fn parse_primary(&mut self) -> ASTNode {
+        if let Some(top) = self.peek() {
+            self.skip(); // skip the primary token
             match top.kind {
                 TokenKind::T_INT_NUM => {
                     let int_val: i32 = top.lexeme.parse().unwrap();
-                    ParseResult::Success(self.create_literal_expr(LitType::Integer(int_val)))
+                    return ASTNode::make_leaf(TokenKind::T_INT_NUM, LitType::Integer(int_val));
                 },
                 TokenKind::T_FLOAT_NUM => {
                     let float_val: f32 = top.lexeme.parse().unwrap();
-                    ParseResult::Success(self.create_literal_expr(LitType::Float(float_val)))
+                    return ASTNode::make_leaf(TokenKind::T_FLOAT_NUM, LitType::Float(float_val));
+                },
+                _ => {
+                    panic!("syntax error on line {}!", top.pos.line);
                 }
-                _ => ParseResult::Error(ErrorKind::UnexpectedToken, Some(top)),
             }
-        } else {ParseResult::Error(ErrorKind::UnexpectedEOF, None)}
+        }
+        panic!("unexpected EOF!");
     }
 
-    #[inline]
-    pub fn create_literal_expr(&self, val: LitType) -> ExprNode {
-        ExprNode::LiteralExpression(LitExpr { value: val })
+    pub fn is_arith_op(tk: TokenKind) -> TokenKind {
+        match tk {
+            TokenKind::T_PLUS | TokenKind::T_STAR | TokenKind::T_MINUS | TokenKind::T_SLASH => tk,
+            _ => {
+                panic!("unknown arithmetic operator");
+            }
+        }
     }
 
     #[inline]
@@ -200,44 +146,4 @@ impl Parser {
 mod tests {
     use super::*;
     use crate::tokenizer::*;
-
-    #[test]
-    fn test_should_create_bin_expr() {
-        let mut t: Tokenizer = Tokenizer::new("4 + 5"); 
-        let toks: Vec<Token> = t.start_scan();
-        let mut p: Parser = Parser::new(toks);
-        let e: ParseResult = p.parse_expr();
-        assert!(matches!(e, ParseResult::Success(ExprNode::BinaryExpression(_))));
-    }
-
-    #[test]
-    fn test_should_result_in_invalid_bin_expr() {
-        let mut t: Tokenizer = Tokenizer::new("4 + 5 +"); 
-        let toks: Vec<Token> = t.start_scan();
-        let mut p: Parser = Parser::new(toks);
-        let e: ParseResult = p.parse_expr();
-        assert!(matches!(e, ParseResult::Error(ErrorKind::UnexpectedEOF, None)));
-    }
-    
-    #[test]
-    fn test_should_result_in_invalid_bin_expr2() {
-        let mut t: Tokenizer = Tokenizer::new("+ 2 + 4"); 
-        let toks: Vec<Token> = t.start_scan();
-        let mut p: Parser = Parser::new(toks);
-        let e: ParseResult = p.parse_expr();
-        assert!(matches!(e, ParseResult::Error(ErrorKind::UnexpectedToken, Some(
-            Token{kind: TokenKind::T_PLUS, lexeme: _, pos: TokenPos{line: 1, column: 1}}
-        ))));
-    }
-    
-    #[test]
-    fn test_should_result_in_invalid_bin_expr3() {
-        let mut t: Tokenizer = Tokenizer::new("4 + 5 + + 4"); 
-        let toks: Vec<Token> = t.start_scan();
-        let mut p: Parser = Parser::new(toks);
-        let e: ParseResult = p.parse_expr();
-        assert!(matches!(e, ParseResult::Error(ErrorKind::UnexpectedToken, Some(
-            Token { kind: TokenKind::T_PLUS, lexeme: _, pos: TokenPos { line: 1, column: 9 } }
-        ))));
-    }
 }
