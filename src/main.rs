@@ -26,7 +26,12 @@ pub mod tokenizer;
 pub mod error;
 pub mod parser;
 pub mod utils;
+pub mod codegen;
 
 fn main() {
-    
+    let mut tt: tokenizer::Tokenizer = tokenizer::Tokenizer::new("5 + 4 - 4");
+    let mut p: parser::Parser = parser::Parser::new(tt.start_scan());
+    let mut ast: parser::ASTNode = p.parse_addition();
+    let mut cg: codegen::ASTTraverser = codegen::ASTTraverser::new();
+    cg.generate_code(&mut ast);
 }
