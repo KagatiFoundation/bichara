@@ -25,7 +25,8 @@ SOFTWARE.
 extern crate lazy_static;
 use lazy_static::lazy_static;
 
-use crate::{parser::{ASTNode, LitType}, tokenizer::TokenKind};
+use crate::parser::*;
+use crate::enums::*;
 
 lazy_static! {
     // all available registers
@@ -37,7 +38,7 @@ pub struct ASTTraverser {
 }
 
 impl ASTTraverser {
-    #[inline]
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self { free_regs: vec![1, 1, 1, 1] }
     }
@@ -59,52 +60,17 @@ impl ASTTraverser {
             rightreg = self.gen_from_ast(ast.right.as_ref().unwrap());
         }
         match ast.operation {
-            TokenKind::T_PLUS => self.gen_add(leftreg, rightreg),
-            TokenKind::T_MINUS => self.gen_sub(leftreg, rightreg),
-            TokenKind::T_INT_NUM => self.gen_load(&ast.value),
+            ASTNodeKind::AST_ADD => self.gen_add(leftreg, rightreg),
+            ASTNodeKind::AST_SUBTRACT => self.gen_sub(leftreg, rightreg),
+            ASTNodeKind::AST_INTLIT => self.gen_load(&ast.value),
             _ => panic!("unknown AST operator..."),
         }
     }
 
-    fn gen_printint(&mut self, reg: usize) {
-        println!("\tmov\trdi, {}\n", REGISTERS[reg]);
-        println!("\tcall\tprintint\n");
-        self.free_reg(reg);
-    }
-
-    fn alloc_reg(&mut self) -> usize {
-        for (idx, i) in self.free_regs.iter().enumerate() {
-            if *i == 1 { 
-                self.free_regs[idx] = 0;
-                return idx; 
-            }
-        }
-        panic!("out of registers");
-    }
-
-    fn free_reg(&mut self, pos: usize) {
-        if self.free_regs[pos] != 0 {
-            panic!("error trying to free a register");
-        }
-        self.free_regs[pos] = 1;
-    }
-
-    #[inline]
-    fn free_all_regs(&mut self) {
-        self.free_regs = vec![1, 1, 1, 1];
-    }
-
-    #[inline]
-    fn gen_load(&mut self, value: &LitType) -> usize {
-        let r: usize = self.alloc_reg();
-        println!("\tmov\t{}, {:?}", REGISTERS[r], value);
-        r
-    }
-
     fn gen_add(&mut self, r1: usize, r2: usize) -> usize {
         println!("\tadd\t{}, {}\n", REGISTERS[r1], REGISTERS[r2]);
-        self.free_reg(r1);
-        r2
+        self.free_reg(r2);
+        r1
     }
     
     fn gen_sub(&mut self, r1: usize, r2: usize) -> usize {
@@ -113,7 +79,18 @@ impl ASTTraverser {
         r1
     }
 
-    fn gen_preamble(&self) {
+    fn gen_load(&mut self, value: &LitType) -> usize {
+        let r: usize = self.alloc_reg();
+        println!("\tmov\t{}, {:?}", REGISTERS[r], value);
+        r
+    }
+
+    fn gen_store_global(&self, reg: usize, id: &str) -> usize {
+        println!("\tmovq\t[{}], {}\n", id, REGISTERS[reg]);
+        reg
+    }
+
+    pub fn gen_preamble(&self) {
         println!("\tglobal\tmain\n
         \textern\tprintf\n \
         \tsection\t.text\n \
@@ -137,10 +114,32 @@ impl ASTTraverser {
         \tmov	rbp, rsp\n");
     }
 
-    #[inline]
-    fn gen_postamble(&self) {
+    pub fn gen_postamble(&self) {
         println!("\tmov	eax, 0\n \
         \tpop	rbp\n \
         \tret\n");
+    }
+    
+    fn gen_printint(&mut self, reg: usize) {
+        println!("\tmov\trdi, {}\n", REGISTERS[reg]);
+        println!("\tcall\tprintint\n");
+        self.free_reg(reg);
+    }
+    
+    fn alloc_reg(&mut self) -> usize {
+        for (idx, i) in self.free_regs.iter().enumerate() {
+            if *i == 1 { 
+                self.free_regs[idx] = 0;
+                return idx; 
+            }
+        }
+        panic!("out of registers");
+    }
+
+    fn free_reg(&mut self, pos: usize) {
+        if self.free_regs[pos] != 0 {
+            panic!("error trying to free the register");
+        }
+        self.free_regs[pos] = 1;
     }
 }

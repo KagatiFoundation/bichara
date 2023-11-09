@@ -22,16 +22,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+use codegen::ASTTraverser;
+
 pub mod tokenizer;
 pub mod error;
 pub mod parser;
 pub mod utils;
 pub mod codegen;
+pub mod symtable;
+pub mod enums;
 
 fn main() {
-    let mut tt: tokenizer::Tokenizer = tokenizer::Tokenizer::new("5 + 4 - 4");
+    let mut tt: tokenizer::Tokenizer = tokenizer::Tokenizer::new("int a; a = 4");
     let mut p: parser::Parser = parser::Parser::new(tt.start_scan());
-    let mut ast: parser::ASTNode = p.parse_addition();
-    let mut cg: codegen::ASTTraverser = codegen::ASTTraverser::new();
-    cg.generate_code(&mut ast);
+    let ast: ASTTraverser = ASTTraverser::new();
 }
