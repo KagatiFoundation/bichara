@@ -27,29 +27,13 @@ use std::vec;
 use crate::tokenizer::*;
 use crate::symtable::*; 
 use crate::enums::*;
-
-pub struct ASTNode {
-    pub operation: ASTNodeKind, // operation to be performed on this AST node
-    pub left: Option<Box<ASTNode>>,
-    pub right: Option<Box<ASTNode>>,
-    pub value: LitType
-}
-
-impl ASTNode {
-    pub fn new(op: ASTNodeKind, left: ASTNode, right: ASTNode, value: LitType) -> Self {
-        Self { operation: op, left: Some(Box::new(left)), right: Some(Box::new(right)), value }
-    }
-
-    pub fn make_leaf(op: ASTNodeKind, value: LitType) -> Self {
-        Self { operation: op, left: None, right: None, value }
-    }
-}
+use crate::ast::ASTNode;
 
 // Actual parser
 pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
-    sym_table: Symtable,
+    pub sym_table: Symtable, // symbol table for global identifiers
 }
 
 impl Parser {
@@ -58,7 +42,7 @@ impl Parser {
         Self { tokens, current: 0, sym_table: Symtable::new() }
     }
 
-    pub fn parse_stmt(&mut self) -> Vec<ASTNode> {
+    pub fn parse_stmts(&mut self) -> Vec<ASTNode> {
         let mut result: Vec<ASTNode> = vec![];
         for token in self.tokens.clone() {
             if token.kind == TokenKind::KW_INT {
@@ -69,23 +53,22 @@ impl Parser {
                     result.push(assign);
                 }
             }
-            else if token.kind == TokenKind::T_EOF {
-                break;
-            }
+            else if token.kind == TokenKind::T_EOF { break; }
         }
         result
     }
 
-    pub fn parse_assignment(&mut self) -> Option<ASTNode> {
+    fn parse_assignment(&mut self) -> Option<ASTNode> {
         // expect 'id'
         if let Some(id) = self.peek() {
             if id.kind != TokenKind::T_IDENTIFIER {
                 panic!("expected id");
             }
-            if self.sym_table.find(&id.lexeme) == 0xFFFFFFFF {
+            let id_idx: usize = self.sym_table.find(&id.lexeme);
+            if id_idx == 0xFFFFFFFF {
                 panic!("variable does not exist");
             }
-            let right: ASTNode = ASTNode::make_leaf(ASTNodeKind::AST_ADD, LitType::String(id.lexeme));
+            let right: ASTNode = ASTNode::make_leaf(ASTNodeKind::AST_LVIDENT, LitType::Integer(id_idx as i32));
             self.current += 1; // skip 'id'
             // expect '='
             if let Some(eq) = self.peek() {
@@ -95,12 +78,21 @@ impl Parser {
                 self.current += 1; // skip '='
             }
             let left: ASTNode  = self.parse_addition();
-            return Some(ASTNode::new(ASTNodeKind::AST_LVIDENT, left, right, LitType::Integer(-1)));
+            let result: Option<ASTNode> = Some(ASTNode::new(ASTNodeKind::AST_ASSIGN, left, right, LitType::Integer(-1)));
+            // self.current += 1; // skip value
+            // expect ';'
+            if let Some(semi) = self.peek() {
+                if semi.kind != TokenKind::T_SEMICOLON {
+                    panic!("expected ;");
+                }
+                self.current += 1; // skip ';'
+            }
+            return result;
         }
         None
     }
 
-    pub fn parse_var_decl(&mut self) {
+    fn parse_var_decl(&mut self) {
         if let Some(top) = self.peek() {
             if top.kind != TokenKind::KW_INT {
                 panic!("expected the token to be KW_INT");
@@ -133,7 +125,7 @@ impl Parser {
             loop {
                 self.skip();
                 right = self.parse_multiplicative();
-                left = ASTNode::new(Parser::is_arith_op(kind), left, right, LitType::Integer(0));
+                left = ASTNode::new(Parser::get_arith_op(kind), left, right, LitType::Integer(0));
                 if let Some(now) = self.peek() { kind = now.kind; } 
                 else { break; }
             }
@@ -149,7 +141,7 @@ impl Parser {
             while kind == TokenKind::T_STAR || kind == TokenKind::T_SLASH {
                 self.skip();
                 right = self.parse_primary();
-                left = ASTNode::new(Parser::is_arith_op(kind), left, right, LitType::Integer(0));
+                left = ASTNode::new(Parser::get_arith_op(kind), left, right, LitType::Integer(0));
                 if let Some(now) = self.peek() { kind = now.kind; } 
                 else { break; }
             }
@@ -173,7 +165,7 @@ impl Parser {
         panic!("unexpected EOF!");
     }
 
-    fn is_arith_op(tk: TokenKind) -> ASTNodeKind {
+    fn get_arith_op(tk: TokenKind) -> ASTNodeKind {
         match tk {
             TokenKind::T_PLUS => ASTNodeKind::AST_ADD,
             TokenKind::T_MINUS => ASTNodeKind::AST_SUBTRACT,
@@ -204,6 +196,5 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::tokenizer::*;
+    
 }

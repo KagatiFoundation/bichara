@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+#[derive(Clone)]
 pub struct Symtable {
     syms: Vec<String>, // tracks all the global symbols
     counter: usize, // next free slot in the table
@@ -44,7 +45,7 @@ impl Symtable {
     fn next(&mut self) -> usize {
         self.counter += 1;
         if self.counter >= NSYMBOLS {
-            panic!("Too many global symbols");
+            panic!("too many global symbols");
         }
         self.counter
     }
@@ -57,5 +58,12 @@ impl Symtable {
         pos = self.next();
         self.syms.push(String::from(name));
         pos
+    }
+
+    pub fn get(&self, idx: usize) -> &str {
+        if idx >= self.syms.len() {
+            panic!("index '{}' out of bounds for range '{}'", idx, self.syms.len());
+        }
+        self.syms.get(idx).unwrap()
     }
 }

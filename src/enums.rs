@@ -165,6 +165,7 @@ impl FromStr for TokenKind {
 }
 
 // AST Node Types
+#[derive(Debug)]
 pub enum ASTNodeKind {
     AST_ADD, // an AST node with "+" as the root node
     AST_SUBTRACT, // an AST node with "-" as the root node

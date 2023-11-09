@@ -25,45 +25,66 @@ SOFTWARE.
 extern crate lazy_static;
 use lazy_static::lazy_static;
 
-use crate::parser::*;
 use crate::enums::*;
+use crate::symtable::*;
 
 lazy_static! {
     // all available registers
     static ref REGISTERS: Vec<&'static str> = vec!["r8", "r9", "r10", "r11"];
 }
 
+// Abstract Syntax Tree Node
+pub struct ASTNode {
+    pub operation: ASTNodeKind, // operation to be performed on this AST node
+    pub left: Option<Box<ASTNode>>,
+    pub right: Option<Box<ASTNode>>,
+    pub value: LitType
+}
+
+impl ASTNode {
+    pub fn new(op: ASTNodeKind, left: ASTNode, right: ASTNode, value: LitType) -> Self {
+        Self { operation: op, left: Some(Box::new(left)), right: Some(Box::new(right)), value }
+    }
+
+    pub fn make_leaf(op: ASTNodeKind, value: LitType) -> Self {
+        Self { operation: op, left: None, right: None, value }
+    }
+}
+
 pub struct ASTTraverser {
-    free_regs: Vec<i32>
+    free_regs: Vec<i32>,
+    sym_table: Symtable
 }
 
 impl ASTTraverser {
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        Self { free_regs: vec![1, 1, 1, 1] }
+    pub fn new(syms: Symtable) -> Self {
+        Self { free_regs: vec![1, 1, 1, 1], sym_table: syms }
     }
 
-    pub fn generate_code(&mut self, ast: &mut ASTNode) {
+    pub fn traverse(&mut self, ast: &ASTNode) {
         self.gen_preamble();
-        let reg: usize = self.gen_from_ast(ast);
-        self.gen_printint(reg);
+        let _reg: usize = self.gen_from_ast(ast, 0xFFFFFFFF);
         self.gen_postamble();
     }
 
-    fn gen_from_ast(&mut self, ast: &ASTNode) -> usize {
+    fn gen_from_ast(&mut self, ast: &ASTNode, reg: usize) -> usize {
         let mut leftreg: usize = 0;
         let mut rightreg: usize = 0;
         if ast.left.is_some() {
-            leftreg = self.gen_from_ast(ast.left.as_ref().unwrap());
+            leftreg = self.gen_from_ast(ast.left.as_ref().unwrap(), 0xFFFFFFFF);
         }
         if ast.right.is_some() {
-            rightreg = self.gen_from_ast(ast.right.as_ref().unwrap());
+            rightreg = self.gen_from_ast(ast.right.as_ref().unwrap(), leftreg);
         }
         match ast.operation {
             ASTNodeKind::AST_ADD => self.gen_add(leftreg, rightreg),
             ASTNodeKind::AST_SUBTRACT => self.gen_sub(leftreg, rightreg),
             ASTNodeKind::AST_INTLIT => self.gen_load(&ast.value),
-            _ => panic!("unknown AST operator..."),
+            ASTNodeKind::AST_IDENT => self.gen_load_global(&ast.value),
+            ASTNodeKind::AST_LVIDENT => self.gen_store_global(reg, &ast.value),
+            ASTNodeKind::AST_ASSIGN => rightreg,
+            _ => panic!("unknown AST operator '{:?}'", ast.operation),
         }
     }
 
@@ -85,8 +106,25 @@ impl ASTTraverser {
         r
     }
 
-    fn gen_store_global(&self, reg: usize, id: &str) -> usize {
-        println!("\tmovq\t[{}], {}\n", id, REGISTERS[reg]);
+    fn gen_load_global(&mut self, id: &LitType) -> usize {
+        let reg: usize = self.alloc_reg();
+        let sym: String = match id {
+            LitType::String(_id) => _id.clone(),
+            _ => String::from(""),
+        };
+        println!("\tmov\t{}, [{}]\n", REGISTERS[reg], sym);
+        reg
+    }
+
+    fn gen_store_global(&self, reg: usize, id: &LitType) -> usize {
+        let sym: String = match id {
+            LitType::Integer(idx) =>  {
+                self.sym_table.get(*idx as usize).to_string()
+            },
+            LitType::String(_id) => _id.clone(),
+            _ => String::from(""),
+        };
+        println!("\tmovq\t[{}], {}\n", sym, REGISTERS[reg]);
         reg
     }
 
@@ -95,19 +133,6 @@ impl ASTTraverser {
         \textern\tprintf\n \
         \tsection\t.text\n \
         LC0:\tdb\t\"%d\",10,0\n \
-        printint:\n \
-        \tpush\trbp\n \
-        \tmov\trbp, rsp\n \
-        \tsub\trsp, 16\n \
-        \tmov\t[rbp-4], edi\n \
-        \tmov\teax, [rbp-4]\n \
-        \tmov\tesi, eax\n \
-        \tlea	rdi, [rel LC0]\n \
-        \tmov	eax, 0\n \
-        \tcall	printf\n \
-        \tnop\n \
-        \tleave\n \
-        \tret\n \
         \n \
         main:\n \
         \tpush\trbp\n \
@@ -118,12 +143,6 @@ impl ASTTraverser {
         println!("\tmov	eax, 0\n \
         \tpop	rbp\n \
         \tret\n");
-    }
-    
-    fn gen_printint(&mut self, reg: usize) {
-        println!("\tmov\trdi, {}\n", REGISTERS[reg]);
-        println!("\tcall\tprintint\n");
-        self.free_reg(reg);
     }
     
     fn alloc_reg(&mut self) -> usize {
