@@ -22,6 +22,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+use crate::ast::ASTTraverser;
+
 pub mod tokenizer;
 pub mod error;
 pub mod parser;
@@ -31,11 +33,12 @@ pub mod symtable;
 pub mod enums;
 
 fn main() {
-    let mut tt: tokenizer::Tokenizer = tokenizer::Tokenizer::new("int a; a = 4;");
-    let mut p: parser::Parser = parser::Parser::new(tt.start_scan());
+    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("5+5");
+    let tokens: Vec<tokenizer::Token> = tokener.start_scan();
+    let mut p: parser::Parser = parser::Parser::new(tokens);
     let nodes: Vec<ast::ASTNode> = p.parse_stmts();
-    let mut ast: ast::ASTTraverser = ast::ASTTraverser::new(p.sym_table.clone());
+    let mut ast_traverser: ASTTraverser = ASTTraverser::new(symtable::Symtable::new());
     for node in &nodes {
-        ast.traverse(node);
+        ast_traverser.traverse(node);
     }
 }

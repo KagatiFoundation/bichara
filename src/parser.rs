@@ -27,7 +27,14 @@ use std::vec;
 use crate::tokenizer::*;
 use crate::symtable::*; 
 use crate::enums::*;
-use crate::ast::ASTNode;
+use crate::ast::*;
+
+extern crate lazy_static;
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref PRECENDENCE: Vec<u8> = vec![0];
+}
 
 // Actual parser
 pub struct Parser {
@@ -44,137 +51,46 @@ impl Parser {
 
     pub fn parse_stmts(&mut self) -> Vec<ASTNode> {
         let mut result: Vec<ASTNode> = vec![];
-        for token in self.tokens.clone() {
-            if token.kind == TokenKind::KW_INT {
-                self.parse_var_decl();
-            } 
-            else if token.kind == TokenKind::T_IDENTIFIER {
-                if let Some(assign) = self.parse_assignment() {
-                    result.push(assign);
-                }
-            }
-            else if token.kind == TokenKind::T_EOF { break; }
+        if let Some(binary) = self.parse_binary() {
+            result.push(binary);
         }
         result
     }
 
-    fn parse_assignment(&mut self) -> Option<ASTNode> {
-        // expect 'id'
-        if let Some(id) = self.peek() {
-            if id.kind != TokenKind::T_IDENTIFIER {
-                panic!("expected id");
-            }
-            let id_idx: usize = self.sym_table.find(&id.lexeme);
-            if id_idx == 0xFFFFFFFF {
-                panic!("variable does not exist");
-            }
-            let right: ASTNode = ASTNode::make_leaf(ASTNodeKind::AST_LVIDENT, LitType::Integer(id_idx as i32));
-            self.current += 1; // skip 'id'
-            // expect '='
-            if let Some(eq) = self.peek() {
-                if eq.kind != TokenKind::T_EQUAL {
-                    panic!("expected =");
-                }
-                self.current += 1; // skip '='
-            }
-            let left: ASTNode  = self.parse_addition();
-            let result: Option<ASTNode> = Some(ASTNode::new(ASTNodeKind::AST_ASSIGN, left, right, LitType::Integer(-1)));
-            // self.current += 1; // skip value
-            // expect ';'
-            if let Some(semi) = self.peek() {
-                if semi.kind != TokenKind::T_SEMICOLON {
-                    panic!("expected ;");
-                }
-                self.current += 1; // skip ';'
-            }
-            return result;
+    pub fn parse_binary(&mut self) -> Option<ASTNode> {
+        let left: Option<ASTNode> = self.parse_primary();
+        if self.tokens[self.current].kind == TokenKind::T_EOF {
+            return left;
         }
-        None
+        let kind: ASTNodeKind = self.parse_arith_operator(); 
+        let right: Option<ASTNode> = self.parse_binary();
+        Some(ASTNode::new(kind, left.unwrap(), right.unwrap(), LitType::Integer(0)))
     }
 
-    fn parse_var_decl(&mut self) {
-        if let Some(top) = self.peek() {
-            if top.kind != TokenKind::KW_INT {
-                panic!("expected the token to be KW_INT");
-            }
-            self.current += 1; // skip 'int' keyword
-            // we now expect the next token to be a identifier kind
-            if let Some(id) = self.peek() {
-                if id.kind != TokenKind::T_IDENTIFIER {
-                    panic!("expected the token to be T_IDENTIFIER");
-                }
-                self.current += 1; // skip id
-                // expect semicolon next
-                if let Some(semi) = self.peek() {
-                    if semi.kind != TokenKind::T_SEMICOLON {
-                        panic!("expected the token to be T_SEMICOLON");
-                    }
-                    self.current += 1; // skip ';'
-                    self.sym_table.add(&id.lexeme);
-                    println!("\tcommon\t{} 8:8\n", id.lexeme);
-                }
+    fn parse_primary(&mut self) -> Option<ASTNode> {
+        let current_token: &Token = &self.tokens[self.current];
+        self.current += 1;
+        match current_token.kind {
+            TokenKind::T_INT_NUM => Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::Integer(current_token.lexeme.parse::<i32>().unwrap()))),
+            TokenKind::T_FLOAT_NUM => Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::Float(current_token.lexeme.parse::<f32>().unwrap()))),
+            _ => {
+                println!("{:?}", current_token);
+                panic!("please provide an integer number");
             }
         }
     }
 
-    fn parse_addition(&mut self) -> ASTNode {
-        let mut left: ASTNode = self.parse_multiplicative();
-        let mut right: ASTNode;
-        if let Some(top) = self.peek() {
-            let mut kind: TokenKind = top.kind;
-            loop {
-                self.skip();
-                right = self.parse_multiplicative();
-                left = ASTNode::new(Parser::get_arith_op(kind), left, right, LitType::Integer(0));
-                if let Some(now) = self.peek() { kind = now.kind; } 
-                else { break; }
-            }
-        }
-        left
-    }
-
-    fn parse_multiplicative(&mut self) -> ASTNode {
-        let mut left: ASTNode = self.parse_primary();
-        let mut right: ASTNode;
-        if let Some(top) = self.peek() {
-            let mut kind: TokenKind = top.kind;
-            while kind == TokenKind::T_STAR || kind == TokenKind::T_SLASH {
-                self.skip();
-                right = self.parse_primary();
-                left = ASTNode::new(Parser::get_arith_op(kind), left, right, LitType::Integer(0));
-                if let Some(now) = self.peek() { kind = now.kind; } 
-                else { break; }
-            }
-        }
-        left
-    }
-
-    fn parse_primary(&mut self) -> ASTNode {
-        if let Some(top) = self.peek() {
-            self.skip(); // skip the primary token
-            match top.kind {
-                TokenKind::T_INT_NUM => {
-                    let int_val: i32 = top.lexeme.parse().unwrap();
-                    return ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::Integer(int_val));
-                },
-                _ => {
-                    panic!("syntax error on line {}!", top.pos.line);
-                }
-            }
-        }
-        panic!("unexpected EOF!");
-    }
-
-    fn get_arith_op(tk: TokenKind) -> ASTNodeKind {
-        match tk {
+    fn parse_arith_operator(&mut self) -> ASTNodeKind {
+        let token_type: TokenKind = self.tokens[self.current].kind;
+        let result: ASTNodeKind = match token_type {
             TokenKind::T_PLUS => ASTNodeKind::AST_ADD,
             TokenKind::T_MINUS => ASTNodeKind::AST_SUBTRACT,
             TokenKind::T_STAR => ASTNodeKind::AST_MULTIPLY,
             TokenKind::T_SLASH => ASTNodeKind::AST_DIVIDE,
-            _ => {
-                panic!("unknown arithmetic operator");
-            }
-        }
+            _ => panic!("Please provide an arithmetic operator. {:?} is not an arithmetic operator", token_type)
+        };
+        self.current += 1;
+        result
     }
 
     #[inline]
@@ -196,5 +112,18 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    
+    use super::*; 
+
+    // test depth 1 binary tree
+    #[test]
+    fn test_depth_one_bin_tree() {
+        let mut tokener: Tokenizer = Tokenizer::new("5+5");
+        let tokens: Vec<Token> = tokener.start_scan();
+        let mut p: Parser = Parser::new(tokens);
+        let nodes: Vec<ASTNode> = p.parse_stmts();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].operation, ASTNodeKind::AST_ADD);
+        assert_eq!(nodes[0].left.as_ref().unwrap().value, LitType::Integer(5));
+        assert_eq!(nodes[0].right.as_ref().unwrap().value, LitType::Integer(5));
+    }
 }

@@ -38,6 +38,21 @@ pub enum LitType {
     Float(f32),
 }
 
+impl PartialEq for LitType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Integer(l0), Self::Integer(r0)) => l0 == r0,
+            (Self::Long(l0), Self::Long(r0)) => l0 == r0,
+            (Self::Short(l0), Self::Short(r0)) => l0 == r0,
+            (Self::Char(l0), Self::Char(r0)) => l0 == r0,
+            (Self::String(l0), Self::String(r0)) => l0 == r0,
+            (Self::Double(l0), Self::Double(r0)) => l0 == r0,
+            (Self::Float(l0), Self::Float(r0)) => l0 == r0,
+            _ => false,
+        }
+    }
+}
+
 // Token Type Of The Program
 #[derive(Copy, Clone, PartialEq, Hash, Eq, Debug)]
 pub enum TokenKind {
@@ -165,14 +180,14 @@ impl FromStr for TokenKind {
 }
 
 // AST Node Types
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum ASTNodeKind {
     AST_ADD, // an AST node with "+" as the root node
     AST_SUBTRACT, // an AST node with "-" as the root node
     AST_MULTIPLY, // an AST node with "*" as the root node
     AST_DIVIDE, // an AST node with "/" as the root node
-    AST_INTLIT, // an AST node with literal integer value
-    AST_IDENT, // an AST node with a identifier name
+    AST_INTLIT, // a leaf AST node with literal integer value
+    AST_IDENT, // a leaf AST node with an identifier name
     AST_LVIDENT, 
     AST_ASSIGN
 }

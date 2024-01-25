@@ -29,11 +29,11 @@ use crate::enums::*;
 use crate::symtable::*;
 
 lazy_static! {
-    // all available registers
-    static ref REGISTERS: Vec<&'static str> = vec!["r8", "r9", "r10", "r11"];
+    // All available non-extended registers of ARM64
+    static ref REGISTERS: Vec<&'static str> = vec!["w8", "w9", "w10", "w11", "w12", "w13", "w14", "w15", "w16"];
 }
 
-// Abstract Syntax Tree Node
+#[derive(Debug)]
 pub struct ASTNode {
     pub operation: ASTNodeKind, // operation to be performed on this AST node
     pub left: Option<Box<ASTNode>>,
@@ -63,9 +63,7 @@ impl ASTTraverser {
     }
 
     pub fn traverse(&mut self, ast: &ASTNode) {
-        self.gen_preamble();
         let _reg: usize = self.gen_from_ast(ast, 0xFFFFFFFF);
-        self.gen_postamble();
     }
 
     fn gen_from_ast(&mut self, ast: &ASTNode, reg: usize) -> usize {
@@ -80,43 +78,47 @@ impl ASTTraverser {
         match ast.operation {
             ASTNodeKind::AST_ADD => self.gen_add(leftreg, rightreg),
             ASTNodeKind::AST_SUBTRACT => self.gen_sub(leftreg, rightreg),
-            ASTNodeKind::AST_INTLIT => self.gen_load(&ast.value),
-            ASTNodeKind::AST_IDENT => self.gen_load_global(&ast.value),
-            ASTNodeKind::AST_LVIDENT => self.gen_store_global(reg, &ast.value),
-            ASTNodeKind::AST_ASSIGN => rightreg,
+            ASTNodeKind::AST_INTLIT => self.gen_load_intlit_into_reg(&ast.value),
             _ => panic!("unknown AST operator '{:?}'", ast.operation),
         }
     }
 
     fn gen_add(&mut self, r1: usize, r2: usize) -> usize {
-        println!("\tadd\t{}, {}\n", REGISTERS[r1], REGISTERS[r2]);
+        println!("add {}, {}, {}\n", REGISTERS[r1], REGISTERS[r1], REGISTERS[r2]);
         self.free_reg(r2);
         r1
     }
     
     fn gen_sub(&mut self, r1: usize, r2: usize) -> usize {
-        println!("\tsub\t{}, {}\n", REGISTERS[r1], REGISTERS[r2]);
+        println!("sub {}, {}, {}\n", REGISTERS[r1], REGISTERS[r1], REGISTERS[r2]);
         self.free_reg(r2);
         r1
     }
 
-    fn gen_load(&mut self, value: &LitType) -> usize {
+    // Load a integer literal into a register
+    fn gen_load_intlit_into_reg(&mut self, value: &LitType) -> usize {
         let r: usize = self.alloc_reg();
-        println!("\tmov\t{}, {:?}", REGISTERS[r], value);
+        match value {
+            LitType::Integer(int_val) => println!("mov {}, {}", REGISTERS[r], int_val),
+            _ => println!("mov {}, {:?}", REGISTERS[r], value),
+        }
         r
     }
 
-    fn gen_load_global(&mut self, id: &LitType) -> usize {
+    // Load a value from a variable into a register.
+    // Return the number of the register
+    fn gen_load_from_global(&mut self, id: &LitType) -> usize {
         let reg: usize = self.alloc_reg();
         let sym: String = match id {
             LitType::String(_id) => _id.clone(),
             _ => String::from(""),
         };
-        println!("\tmov\t{}, [{}]\n", REGISTERS[reg], sym);
+        println!("mov {}, [{}]\n", REGISTERS[reg], sym);
         reg
     }
 
-    fn gen_store_global(&self, reg: usize, id: &LitType) -> usize {
+    // Store a register's value into a variable
+    fn gen_store_to_global(&self, reg: usize, id: &LitType) -> usize {
         let sym: String = match id {
             LitType::Integer(idx) =>  {
                 self.sym_table.get(*idx as usize).to_string()
@@ -124,25 +126,23 @@ impl ASTTraverser {
             LitType::String(_id) => _id.clone(),
             _ => String::from(""),
         };
-        println!("\tmovq\t[{}], {}\n", sym, REGISTERS[reg]);
+        println!("mov [{}], {}\n", sym, REGISTERS[reg]);
         reg
     }
 
     pub fn gen_preamble(&self) {
-        println!("\tglobal\tmain\n
-        \textern\tprintf\n \
-        \tsection\t.text\n \
-        LC0:\tdb\t\"%d\",10,0\n \
-        \n \
-        main:\n \
-        \tpush\trbp\n \
-        \tmov	rbp, rsp\n");
+        println!("
+        global _start\n
+        section .text\n \
+        _start:\n");
     }
 
     pub fn gen_postamble(&self) {
-        println!("\tmov	eax, 0\n \
-        \tpop	rbp\n \
-        \tret\n");
+        println!("
+        mov	rax, 0x02000001\n \
+        mov rdi, 0\n \
+        syscall\n \
+        ");
     }
     
     fn alloc_reg(&mut self) -> usize {
