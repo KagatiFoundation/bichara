@@ -1,2 +1,3 @@
 # bichara
-Poor C Compiler in Rust
+
+Poor C-like language Compiler in Rust.

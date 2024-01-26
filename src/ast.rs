@@ -23,10 +23,11 @@ SOFTWARE.
 */
 
 extern crate lazy_static;
+use std::{cell::RefCell, rc::Rc};
+
 use lazy_static::lazy_static;
 
-use crate::enums::*;
-use crate::symtable::*;
+use crate::{enums::*, register::{self, RegisterManager}};
 
 lazy_static! {
     // All available non-extended registers of ARM64
@@ -52,21 +53,20 @@ impl ASTNode {
 }
 
 pub struct ASTTraverser {
-    free_regs: Vec<i32>,
-    sym_table: Symtable
+    reg_manager: Rc<RefCell<register::RegisterManager>>
 }
 
-impl ASTTraverser {
+impl<'a> ASTTraverser {
     #[allow(clippy::new_without_default)]
-    pub fn new(syms: Symtable) -> Self {
-        Self { free_regs: vec![1, 1, 1, 1], sym_table: syms }
+    pub fn new(reg_manager: Rc<RefCell<RegisterManager>>) -> Self {
+        Self { reg_manager }
     }
 
-    pub fn traverse(&mut self, ast: &ASTNode) {
-        let _reg: usize = self.gen_from_ast(ast, 0xFFFFFFFF);
+    pub fn traverse(&mut self, ast: &ASTNode) -> usize {
+        self.gen_from_ast(ast, 0xFFFFFFFF)
     }
 
-    fn gen_from_ast(&mut self, ast: &ASTNode, reg: usize) -> usize {
+    fn gen_from_ast(&mut self, ast: &ASTNode, _reg: usize) -> usize {
         let mut leftreg: usize = 0;
         let mut rightreg: usize = 0;
         if ast.left.is_some() {
@@ -84,81 +84,37 @@ impl ASTTraverser {
     }
 
     fn gen_add(&mut self, r1: usize, r2: usize) -> usize {
-        println!("add {}, {}, {}\n", REGISTERS[r1], REGISTERS[r1], REGISTERS[r2]);
-        self.free_reg(r2);
+        println!("add {}, {}, {}\n", self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r2));
+        self.reg_manager.borrow_mut().deallocate(r2);
         r1
     }
     
     fn gen_sub(&mut self, r1: usize, r2: usize) -> usize {
-        println!("sub {}, {}, {}\n", REGISTERS[r1], REGISTERS[r1], REGISTERS[r2]);
-        self.free_reg(r2);
+        println!("sub {}, {}, {}\n", self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r2));
+        self.reg_manager.borrow_mut().deallocate(r2);
         r1
     }
 
     // Load a integer literal into a register
     fn gen_load_intlit_into_reg(&mut self, value: &LitType) -> usize {
-        let r: usize = self.alloc_reg();
+        let r: usize = self.reg_manager.borrow_mut().allocate();
         match value {
-            LitType::Integer(int_val) => println!("mov {}, {}", REGISTERS[r], int_val),
-            _ => println!("mov {}, {:?}", REGISTERS[r], value),
+            LitType::Integer(int_val) => println!("mov {}, {}", self.reg_manager.borrow().name(r), int_val),
+            _ => println!("mov {}, {:?}", self.reg_manager.borrow().name(r), value),
         }
         r
     }
 
-    // Load a value from a variable into a register.
+    // Load value from a variable into a register.
     // Return the number of the register
-    fn gen_load_from_global(&mut self, id: &LitType) -> usize {
-        let reg: usize = self.alloc_reg();
+    fn _gen_load_from_global(&mut self, id: &LitType) -> usize {
+        let reg: usize = self.reg_manager.borrow_mut().allocate();
+        let reg_name = self.reg_manager.borrow().name(reg);
         let sym: String = match id {
             LitType::String(_id) => _id.clone(),
             _ => String::from(""),
         };
-        println!("mov {}, [{}]\n", REGISTERS[reg], sym);
+        println!("adr {}, ={}\nmov {}, [{}]\n", reg_name, sym, reg_name, reg_name);
         reg
-    }
-
-    // Store a register's value into a variable
-    fn gen_store_to_global(&self, reg: usize, id: &LitType) -> usize {
-        let sym: String = match id {
-            LitType::Integer(idx) =>  {
-                self.sym_table.get(*idx as usize).to_string()
-            },
-            LitType::String(_id) => _id.clone(),
-            _ => String::from(""),
-        };
-        println!("mov [{}], {}\n", sym, REGISTERS[reg]);
-        reg
-    }
-
-    pub fn gen_preamble(&self) {
-        println!("
-        global _start\n
-        section .text\n \
-        _start:\n");
-    }
-
-    pub fn gen_postamble(&self) {
-        println!("
-        mov	rax, 0x02000001\n \
-        mov rdi, 0\n \
-        syscall\n \
-        ");
-    }
-    
-    fn alloc_reg(&mut self) -> usize {
-        for (idx, i) in self.free_regs.iter().enumerate() {
-            if *i == 1 { 
-                self.free_regs[idx] = 0;
-                return idx; 
-            }
-        }
-        panic!("out of registers");
-    }
-
-    fn free_reg(&mut self, pos: usize) {
-        if self.free_regs[pos] != 0 {
-            panic!("error trying to free the register");
-        }
-        self.free_regs[pos] = 1;
     }
 }

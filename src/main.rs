@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use crate::ast::ASTTraverser;
+use std::{cell::RefCell, rc::Rc};
 
 pub mod tokenizer;
 pub mod error;
@@ -31,14 +31,11 @@ pub mod utils;
 pub mod ast;
 pub mod symtable;
 pub mod enums;
+pub mod register;
 
 fn main() {
-    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("5+5");
+    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("int a; a = 5;");
     let tokens: Vec<tokenizer::Token> = tokener.start_scan();
-    let mut p: parser::Parser = parser::Parser::new(tokens);
-    let nodes: Vec<ast::ASTNode> = p.parse_stmts();
-    let mut ast_traverser: ASTTraverser = ASTTraverser::new(symtable::Symtable::new());
-    for node in &nodes {
-        ast_traverser.traverse(node);
-    }
+    let mut p: parser::Parser = parser::Parser::new(&tokens, Rc::new(RefCell::new(register::RegisterManager::new())));
+    p.parse_stmts();
 }

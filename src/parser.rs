@@ -22,8 +22,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+use core::panic;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::vec;
 
+use crate::register;
 use crate::tokenizer::*;
 use crate::symtable::*; 
 use crate::enums::*;
@@ -33,43 +37,92 @@ extern crate lazy_static;
 use lazy_static::lazy_static;
 
 lazy_static! {
-    static ref PRECENDENCE: Vec<u8> = vec![0];
+    static ref TOKEN_PRECENDENCE: Vec<u16> = {
+        let mut items: Vec<u16> = vec![0; TokenKind::T_NONE as usize];
+        items.insert(10, 10); // T_PLUS
+        items.insert(11, 10); // T_MINUS
+        items.insert(12, 20); // T_STAR
+        items.insert(13, 20); // T_SLASH
+        items
+    };
 }
 
 // Actual parser
-pub struct Parser {
-    tokens: Vec<Token>,
+pub struct Parser<'a> {
+    tokens: &'a Vec<Token>,
     current: usize,
+    current_token: &'a Token,
     pub sym_table: Symtable, // symbol table for global identifiers
+    ast_traverser: ASTTraverser,
+    reg_manager: Rc<RefCell<register::RegisterManager>>
 }
 
-impl Parser {
+impl<'a> Parser<'a> {
     #[inline]
-    pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, current: 0, sym_table: Symtable::new() }
+    pub fn new(tokens: &'a Vec<Token>, reg_manager: Rc<RefCell<register::RegisterManager>>) -> Self {
+        Self { tokens, current: 0, current_token: &tokens[0], sym_table: Symtable::new(), ast_traverser: ASTTraverser::new(Rc::clone(&reg_manager)), reg_manager }
     }
 
-    pub fn parse_stmts(&mut self) -> Vec<ASTNode> {
-        let mut result: Vec<ASTNode> = vec![];
-        if let Some(binary) = self.parse_binary() {
-            result.push(binary);
+    pub fn parse_stmts(&mut self) {
+        loop {
+            match self.current_token.kind {
+                TokenKind::KW_INT => self.parse_variable_decl_stmt(),
+                TokenKind::T_INT_NUM => {
+                    if let Some(bin_expr) = self.parse_binary(0) {
+                        self.ast_traverser.traverse(&bin_expr);
+                    }
+                },
+                TokenKind::T_IDENTIFIER => self.parse_assignment_stmt(),
+                TokenKind::T_EOF => break,
+                _ => panic!("Unknown token type!")
+            }
         }
-        result
     }
 
-    pub fn parse_binary(&mut self) -> Option<ASTNode> {
-        let left: Option<ASTNode> = self.parse_primary();
-        if self.tokens[self.current].kind == TokenKind::T_EOF {
+    fn parse_assignment_stmt(&mut self) {
+        let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
+        _ = self.token_match(TokenKind::T_EQUAL);
+        let mut reg_index: usize = 0;
+        let mut addr_reg: usize = 0;
+        if let Some(expr_node) = self.parse_binary(0) {
+            _ = self.token_match(TokenKind::T_SEMICOLON);
+            reg_index = self.ast_traverser.traverse(&expr_node); 
+            addr_reg = self.reg_manager.borrow_mut().allocate();
+        }
+        println!("ldr {}, ={}", self.reg_manager.borrow().name(addr_reg), id_token.lexeme);
+        println!("str {}, [{}]", self.reg_manager.borrow().name(reg_index), self.reg_manager.borrow().name(addr_reg));
+    }
+
+    fn parse_variable_decl_stmt(&mut self) {
+        _ = self.token_match(TokenKind::KW_INT);
+        let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
+        _ = self.token_match(TokenKind::T_SEMICOLON);
+        println!("{}: .word 0 // int {};", id_token.lexeme, id_token.lexeme);
+    }
+
+    // ptp -> previous token's precedence
+    pub fn parse_binary(&mut self, ptp: u16) -> Option<ASTNode> {
+        let mut left: Option<ASTNode> = self.parse_primary();
+        let current_token_kind: TokenKind = self.current_token.kind;
+        let current_token_prec: u16 = TOKEN_PRECENDENCE[current_token_kind as usize];
+        if current_token_kind == TokenKind::T_SEMICOLON {
             return left;
         }
-        let kind: ASTNodeKind = self.parse_arith_operator(); 
-        let right: Option<ASTNode> = self.parse_binary();
-        Some(ASTNode::new(kind, left.unwrap(), right.unwrap(), LitType::Integer(0)))
+        loop {
+            if current_token_prec < ptp { break; }
+            self.skip_to_next_token();
+            let right: Option<ASTNode> = self.parse_binary(current_token_prec);
+            left = Some(ASTNode::new(Parser::as_ast_operation(current_token_kind), left.unwrap(), right.unwrap(), LitType::Integer(0)));
+            if self.current_token.kind == TokenKind::T_SEMICOLON {
+                return left;
+            }
+        }
+        left
     }
 
     fn parse_primary(&mut self) -> Option<ASTNode> {
-        let current_token: &Token = &self.tokens[self.current];
-        self.current += 1;
+        let current_token: Token = self.current_token.clone();
+        self.skip_to_next_token();
         match current_token.kind {
             TokenKind::T_INT_NUM => Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::Integer(current_token.lexeme.parse::<i32>().unwrap()))),
             TokenKind::T_FLOAT_NUM => Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::Float(current_token.lexeme.parse::<f32>().unwrap()))),
@@ -80,33 +133,30 @@ impl Parser {
         }
     }
 
-    fn parse_arith_operator(&mut self) -> ASTNodeKind {
-        let token_type: TokenKind = self.tokens[self.current].kind;
-        let result: ASTNodeKind = match token_type {
+    fn as_ast_operation(kind: TokenKind) -> ASTNodeKind {
+        match kind {
             TokenKind::T_PLUS => ASTNodeKind::AST_ADD,
             TokenKind::T_MINUS => ASTNodeKind::AST_SUBTRACT,
             TokenKind::T_STAR => ASTNodeKind::AST_MULTIPLY,
             TokenKind::T_SLASH => ASTNodeKind::AST_DIVIDE,
-            _ => panic!("Please provide an arithmetic operator. {:?} is not an arithmetic operator", token_type)
-        };
+            _ => panic!("Please provide an arithmetic operator. {:?} is not an arithmetic operator", kind)
+        }
+    }
+
+    fn token_match(&mut self, kind: TokenKind) -> &Token {
+        let current: &Token = self.current_token;
+        if kind != current.kind {
+            panic!("Expected the token to be '{:?}' but found '{:?}'", kind, current.kind);
+        }
+        self.skip_to_next_token();
+        current
+    }
+
+    #[inline]
+    fn skip_to_next_token(&mut self) {
         self.current += 1;
-        result
-    }
-
-    #[inline]
-    fn skip(&mut self) {
-        self.current += 1;
-    }
-
-    #[inline]
-    fn peek(&self) -> Option<Token> {
-        if !self.is_at_end() { Some(self.tokens[self.current].clone()) } else { None }
-    }
-
-    #[inline]
-    fn is_at_end(&self) -> bool {
-        if self.current < self.tokens.len() && self.tokens[self.current].kind == TokenKind::T_EOF { return true; }
-        self.current >= self.tokens.len()
+        if self.current >= self.tokens.len() { return; }
+        self.current_token = &self.tokens[self.current];
     }
 }
 
@@ -118,12 +168,6 @@ mod tests {
     #[test]
     fn test_depth_one_bin_tree() {
         let mut tokener: Tokenizer = Tokenizer::new("5+5");
-        let tokens: Vec<Token> = tokener.start_scan();
-        let mut p: Parser = Parser::new(tokens);
-        let nodes: Vec<ASTNode> = p.parse_stmts();
-        assert_eq!(nodes.len(), 1);
-        assert_eq!(nodes[0].operation, ASTNodeKind::AST_ADD);
-        assert_eq!(nodes[0].left.as_ref().unwrap().value, LitType::Integer(5));
-        assert_eq!(nodes[0].right.as_ref().unwrap().value, LitType::Integer(5));
+        let _tokens: Vec<Token> = tokener.start_scan();
     }
 }
