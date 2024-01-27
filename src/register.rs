@@ -38,6 +38,11 @@ impl RegisterManager {
                 regs.insert(String::from("x1"), 1);
                 regs.insert(String::from("x2"), 1);
                 regs.insert(String::from("x3"), 1);
+                regs.insert(String::from("x4"), 1);
+                regs.insert(String::from("x5"), 1);
+                regs.insert(String::from("x6"), 1);
+                regs.insert(String::from("x7"), 1);
+                regs.insert(String::from("x8"), 1);
                 regs
             }
         }
@@ -62,7 +67,6 @@ impl RegisterManager {
             }
         }
         self.registers.insert(dealloc_name, 1);
-        panic!("out of registers");
     }
 
     pub fn name(&self, index: usize) -> String {

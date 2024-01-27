@@ -52,15 +52,17 @@ pub struct Parser<'a> {
     tokens: &'a Vec<Token>,
     current: usize,
     current_token: &'a Token,
-    pub sym_table: Symtable, // symbol table for global identifiers
+    sym_table: Rc<RefCell<Symtable>>, // symbol table for global identifiers
     ast_traverser: ASTTraverser,
     reg_manager: Rc<RefCell<register::RegisterManager>>
 }
 
 impl<'a> Parser<'a> {
     #[inline]
-    pub fn new(tokens: &'a Vec<Token>, reg_manager: Rc<RefCell<register::RegisterManager>>) -> Self {
-        Self { tokens, current: 0, current_token: &tokens[0], sym_table: Symtable::new(), ast_traverser: ASTTraverser::new(Rc::clone(&reg_manager)), reg_manager }
+    pub fn new(tokens: &'a Vec<Token>, reg_manager: Rc<RefCell<register::RegisterManager>>, sym_table: Rc<RefCell<Symtable>>) -> Self {
+
+        let ast_traverser: ASTTraverser = ASTTraverser::new(Rc::clone(&reg_manager), Rc::clone(&sym_table));
+        Self { tokens, current: 0, current_token: &tokens[0], sym_table, ast_traverser, reg_manager }
     }
 
     pub fn parse_stmts(&mut self) {
@@ -81,6 +83,9 @@ impl<'a> Parser<'a> {
 
     fn parse_assignment_stmt(&mut self) {
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
+        if self.sym_table.borrow().find(&id_token.lexeme) == 0xFFFFFFFF { // if the symbol has not been defined
+            panic!("Assigning to an undefined symbol '{}'", id_token.lexeme);
+        }
         _ = self.token_match(TokenKind::T_EQUAL);
         let mut reg_index: usize = 0;
         let mut addr_reg: usize = 0;
@@ -91,12 +96,15 @@ impl<'a> Parser<'a> {
         }
         println!("ldr {}, ={}", self.reg_manager.borrow().name(addr_reg), id_token.lexeme);
         println!("str {}, [{}]", self.reg_manager.borrow().name(reg_index), self.reg_manager.borrow().name(addr_reg));
+        self.reg_manager.borrow_mut().deallocate(reg_index);
+        self.reg_manager.borrow_mut().deallocate(addr_reg);
     }
 
     fn parse_variable_decl_stmt(&mut self) {
         _ = self.token_match(TokenKind::KW_INT);
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
         _ = self.token_match(TokenKind::T_SEMICOLON);
+        self.sym_table.borrow_mut().add(&id_token.lexeme); // track the symbol that has been defined
         println!("{}: .word 0 // int {};", id_token.lexeme, id_token.lexeme);
     }
 
@@ -126,6 +134,13 @@ impl<'a> Parser<'a> {
         match current_token.kind {
             TokenKind::T_INT_NUM => Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::Integer(current_token.lexeme.parse::<i32>().unwrap()))),
             TokenKind::T_FLOAT_NUM => Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::Float(current_token.lexeme.parse::<f32>().unwrap()))),
+            TokenKind::T_IDENTIFIER => {
+                let id_index: usize = self.sym_table.borrow().find(&current_token.lexeme);
+                if id_index == 0xFFFFFFFF { // if symbol has not been defined
+                    panic!("Undefined symbol '{}'", current_token.lexeme);
+                }
+                Some(ASTNode::make_leaf(ASTNodeKind::AST_IDENT, LitType::Integer(id_index as i32)))
+            },
             _ => {
                 println!("{:?}", current_token);
                 panic!("please provide an integer number");

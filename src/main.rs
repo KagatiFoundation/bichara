@@ -34,8 +34,12 @@ pub mod enums;
 pub mod register;
 
 fn main() {
-    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("int a; a = 5;");
+    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("int a; a = 5; int b; b = a;");
     let tokens: Vec<tokenizer::Token> = tokener.start_scan();
-    let mut p: parser::Parser = parser::Parser::new(&tokens, Rc::new(RefCell::new(register::RegisterManager::new())));
+    let mut p: parser::Parser = parser::Parser::new(
+        &tokens, 
+        Rc::new(RefCell::new(register::RegisterManager::new())),
+        Rc::new(RefCell::new(symtable::Symtable::new()))
+    );
     p.parse_stmts();
 }

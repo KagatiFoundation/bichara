@@ -27,7 +27,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use lazy_static::lazy_static;
 
-use crate::{enums::*, register::{self, RegisterManager}};
+use crate::{enums::*, register::{self, RegisterManager}, symtable};
 
 lazy_static! {
     // All available non-extended registers of ARM64
@@ -53,13 +53,14 @@ impl ASTNode {
 }
 
 pub struct ASTTraverser {
-    reg_manager: Rc<RefCell<register::RegisterManager>>
+    reg_manager: Rc<RefCell<register::RegisterManager>>,
+    sym_table: Rc<RefCell<symtable::Symtable>>,
 }
 
-impl<'a> ASTTraverser {
+impl ASTTraverser {
     #[allow(clippy::new_without_default)]
-    pub fn new(reg_manager: Rc<RefCell<RegisterManager>>) -> Self {
-        Self { reg_manager }
+    pub fn new(reg_manager: Rc<RefCell<RegisterManager>>, sym_table: Rc<RefCell<symtable::Symtable>>) -> Self {
+        Self { reg_manager, sym_table }
     }
 
     pub fn traverse(&mut self, ast: &ASTNode) -> usize {
@@ -79,6 +80,7 @@ impl<'a> ASTTraverser {
             ASTNodeKind::AST_ADD => self.gen_add(leftreg, rightreg),
             ASTNodeKind::AST_SUBTRACT => self.gen_sub(leftreg, rightreg),
             ASTNodeKind::AST_INTLIT => self.gen_load_intlit_into_reg(&ast.value),
+            ASTNodeKind::AST_IDENT => self.gen_load_gid_into_reg(&ast.value),
             _ => panic!("unknown AST operator '{:?}'", ast.operation),
         }
     }
@@ -107,14 +109,15 @@ impl<'a> ASTTraverser {
 
     // Load value from a variable into a register.
     // Return the number of the register
-    fn _gen_load_from_global(&mut self, id: &LitType) -> usize {
+    fn gen_load_gid_into_reg(&mut self, id: &LitType) -> usize {
         let reg: usize = self.reg_manager.borrow_mut().allocate();
-        let reg_name = self.reg_manager.borrow().name(reg);
+        let reg_name: String = self.reg_manager.borrow().name(reg);
         let sym: String = match id {
+            LitType::Integer(int_id) => String::from(self.sym_table.borrow().get(*int_id as usize)),
             LitType::String(_id) => _id.clone(),
             _ => String::from(""),
         };
-        println!("adr {}, ={}\nmov {}, [{}]\n", reg_name, sym, reg_name, reg_name);
+        println!("ldr {}, ={}\nldr {}, [{}]\n", reg_name, sym, reg_name, reg_name);
         reg
     }
 }
