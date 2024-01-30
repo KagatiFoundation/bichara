@@ -33,7 +33,7 @@ pub mod symtable;
 pub mod enums;
 pub mod register;
 
-fn main() {
+fn main() { 
     let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("int a; a = 5; int b; b = a;");
     let tokens: Vec<tokenizer::Token> = tokener.start_scan();
     let mut p: parser::Parser = parser::Parser::new(

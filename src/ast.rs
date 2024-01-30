@@ -112,12 +112,14 @@ impl ASTTraverser {
     fn gen_load_gid_into_reg(&mut self, id: &LitType) -> usize {
         let reg: usize = self.reg_manager.borrow_mut().allocate();
         let reg_name: String = self.reg_manager.borrow().name(reg);
+        let value_containing_reg: usize = self.reg_manager.borrow_mut().allocate();
+        let value_containing_reg_name: String = self.reg_manager.borrow().name(value_containing_reg);
         let sym: String = match id {
             LitType::Integer(int_id) => String::from(self.sym_table.borrow().get(*int_id as usize)),
             LitType::String(_id) => _id.clone(),
             _ => String::from(""),
         };
-        println!("ldr {}, ={}\nldr {}, [{}]\n", reg_name, sym, reg_name, reg_name);
-        reg
+        println!("ldr {}, ={}\nldr {}, [{}]\n", reg_name, sym, value_containing_reg_name, reg_name);
+        value_containing_reg
     }
 }

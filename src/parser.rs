@@ -22,10 +22,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use core::panic;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::vec;
 
 use crate::register;
 use crate::tokenizer::*;
@@ -66,19 +64,33 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_stmts(&mut self) {
+        // first, parse the globals
+        self.parse_globals();
+        // main code starts from here
+        println!(".text\n.global _main\n_main:");
+        loop {
+            match self.current_token.kind {
+                TokenKind::KW_INT => self.jump_past(TokenKind::T_SEMICOLON),
+                TokenKind::T_IDENTIFIER => self.parse_assignment_stmt(),
+                TokenKind::T_EOF => break,
+                _ => self.skip_to_next_token()
+            }
+        }
+    }
+
+    // This function parses tokens starting from 'KW_INT' to the next 'T_SEMICOLON'.
+    fn parse_globals(&mut self) {
+        println!(".data");
         loop {
             match self.current_token.kind {
                 TokenKind::KW_INT => self.parse_variable_decl_stmt(),
-                TokenKind::T_INT_NUM => {
-                    if let Some(bin_expr) = self.parse_binary(0) {
-                        self.ast_traverser.traverse(&bin_expr);
-                    }
-                },
-                TokenKind::T_IDENTIFIER => self.parse_assignment_stmt(),
                 TokenKind::T_EOF => break,
-                _ => panic!("Unknown token type!")
+                _ => self.skip_to_next_token()
             }
         }
+        // reinit the parser to its starting state
+        self.current_token = &self.tokens[0];
+        self.current = 0;
     }
 
     fn parse_assignment_stmt(&mut self) {
@@ -167,11 +179,18 @@ impl<'a> Parser<'a> {
         current
     }
 
-    #[inline]
     fn skip_to_next_token(&mut self) {
         self.current += 1;
         if self.current >= self.tokens.len() { return; }
         self.current_token = &self.tokens[self.current];
+    }
+
+    // Jump to the token after the token of type 'kind'.
+    fn jump_past(&mut self, kind: TokenKind) {
+        while self.current_token.kind != kind {
+            self.skip_to_next_token();
+        }
+        self.skip_to_next_token();
     }
 }
 
