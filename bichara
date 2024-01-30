@@ -1,0 +1,24 @@
+#!/bin/sh
+
+OUTPUT_DIR="bichara-build"
+
+print_usage() {
+    echo "Usage: bichara [build filename | clean]"
+}
+
+if [ "$1" = "clean" ]; then 
+    if [ -e "./$OUTPUT_DIR" ]; then rm -rf $OUTPUT_DIR; fi
+elif [ "$1" = "build" ]; then 
+    if [ $# -lt 2 ]; then 
+        print_usage; 
+        exit 1;
+    fi
+    OUTPUT_FILE="$2"
+    if ! [ -e "./$OUTPUT_DIR/ir" ]; then mkdir -p "./$OUTPUT_DIR/ir"; fi
+    cargo run # 1> "./$OUTPUT_DIR/ir/$OUTPUT_FILE"
+    if ! [ $? -eq 0 ]; then 
+        echo "*** COMPILATION FAILED ***";
+        exit 2;
+    fi
+    gcc -o "./$OUTPUT_DIR/output" "./$OUTPUT_DIR/ir/$OUTPUT_FILE"
+fi
