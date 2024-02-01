@@ -66,12 +66,18 @@ impl<'a> Parser<'a> {
         Self { tokens, current: 0, current_token: &tokens[0], sym_table }
     }
 
-    pub fn start(&mut self) -> Option<ASTNode> {
+    pub fn start(&mut self, traverser: &mut ASTTraverser) {
         // first, parse the globals
         self.parse_globals();
         // main code starts from here
         println!(".text\n.global _main\n_main:");
-        self.parse_stmt()
+        loop {
+            if self.current_token.kind == TokenKind::T_EOF { break; }
+            if let Some(stmt) = &self.parse_stmt() {
+                traverser.traverse(stmt);
+            }
+        }
+        println!("mov x0, 0\nmov x16, 1\nsvc 0x80");
     }
 
     fn parse_stmt(&mut self) -> Option<ASTNode> {
@@ -152,6 +158,7 @@ impl<'a> Parser<'a> {
         }
         _ = self.token_match(TokenKind::T_EQUAL);
         let bin_expr_node: Option<ASTNode> = self.parse_equality();
+        _ = self.token_match(TokenKind::T_SEMICOLON);
         let lvalueid: ASTNode = ASTNode::make_leaf(ASTNodeKind::AST_LVIDENT, LitType::String(id_token.lexeme));
         Some(ASTNode::new(ASTNodeKind::AST_ASSIGN, bin_expr_node.unwrap(), lvalueid, LitType::Integer(0)))
     }

@@ -34,13 +34,11 @@ pub mod enums;
 pub mod register;
 
 fn main() { 
-    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("if (4 > 5) local int c; else { local int a; }");
+    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("global int c; c = 5;");
     let tokens: Vec<tokenizer::Token> = tokener.start_scan();
     let reg_manager: Rc<RefCell<register::RegisterManager>> = Rc::new(RefCell::new(register::RegisterManager::new()));
     let sym_table: Rc<RefCell<symtable::Symtable>> = Rc::new(RefCell::new(symtable::Symtable::new()));
     let mut p: parser::Parser = parser::Parser::new(&tokens, Rc::clone(&sym_table));
     let mut traverser: ast::ASTTraverser = ast::ASTTraverser::new(Rc::clone(&reg_manager), Rc::clone(&sym_table));
-    if let Some(s) = p.start() {
-        traverser.traverse(&s);
-    }
+    p.start(&mut traverser);
 }

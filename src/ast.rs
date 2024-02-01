@@ -98,6 +98,7 @@ impl ASTTraverser {
             ASTNodeKind::AST_INTLIT => self.gen_load_intlit_into_reg(&ast.value),
             ASTNodeKind::AST_IDENT => self.gen_load_gid_into_reg(&ast.value),
             ASTNodeKind::AST_ASSIGN => rightreg,
+            ASTNodeKind::AST_LVIDENT => self.gen_load_reg_into_gid(_reg, &ast.value),
             ASTNodeKind::AST_GTHAN | 
             ASTNodeKind::AST_LTHAN | 
             ASTNodeKind::AST_LTEQ |
@@ -179,6 +180,19 @@ impl ASTTraverser {
         };
         println!("ldr {}, ={}\nldr {}, [{}]\n", reg_name, sym, value_containing_reg_name, reg_name);
         value_containing_reg
+    }
+
+    fn gen_load_reg_into_gid(&mut self, reg: usize, id: &LitType) -> usize {
+        let reg_name: String = self.reg_manager.borrow().name(reg);
+        let sym: String = match id {
+            LitType::Integer(int_id) => String::from(self.sym_table.borrow().get(*int_id as usize)),
+            LitType::String(_id) => _id.clone(),
+            _ => String::from(""),
+        };
+        let addr_reg: usize = self.reg_manager.borrow_mut().allocate();
+        let addr_reg_name: String = self.reg_manager.borrow().name(addr_reg);
+        println!("ldr {}, ={}\nstr {}, [{}]", addr_reg_name, sym, reg_name, addr_reg_name);
+        0
     }
 
     fn get_next_label(&mut self) -> usize {
