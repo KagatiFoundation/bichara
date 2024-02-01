@@ -62,7 +62,6 @@ pub struct Parser<'a> {
 impl<'a> Parser<'a> {
     #[inline]
     pub fn new(tokens: &'a Vec<Token>, sym_table: Rc<RefCell<Symtable>>) -> Self {
-
         Self { tokens, current: 0, current_token: &tokens[0], sym_table }
     }
 
