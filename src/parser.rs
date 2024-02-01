@@ -78,41 +78,34 @@ impl<'a> Parser<'a> {
         #[allow(unused_assignments)]
         let mut tree: Option<ASTNode> = None;
         let mut left: Option<ASTNode> = None;
-        loop {
-            match self.current_token.kind {
-                TokenKind::KW_GLOBAL => {
-                    // ignore globals as they are already parsed
-                    self.jump_past(TokenKind::T_SEMICOLON);
-                    tree = None;
-                    break;
-                },
-                TokenKind::KW_LOCAL => {
-                    self.parse_local_variable_decl_stmt();
-                    tree = None;
-                    break;
-                },
-                TokenKind::T_IDENTIFIER => {
-                    tree = self.parse_assignment_stmt();
-                    break;
-                },
-                TokenKind::KW_IF => {
-                    tree = self.parse_if_stmt();
-                    break;
-                },
-                TokenKind::T_LBRACE => {
-                    self.jump_past(TokenKind::T_RBRACE);
-                    tree = left.clone();
-                    break;
-                },
-                TokenKind::T_EOF => tree = None,
-                _ => panic!("Syntax error: {:?}", self.current_token)
-            };
-            if let Some(_tree) = &tree {
-                if left.is_none() {
-                    left = tree;
-                } else {
-                    left = Some(ASTNode::new(ASTNodeKind::AST_GLUE, left.unwrap(), tree.unwrap(), LitType::Integer(0)));
-                }
+        match self.current_token.kind {
+            TokenKind::KW_GLOBAL => {
+                // ignore globals as they are already parsed
+                self.jump_past(TokenKind::T_SEMICOLON);
+                tree = None;
+            },
+            TokenKind::KW_LOCAL => {
+                self.parse_local_variable_decl_stmt();
+                tree = Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::Integer(12)));
+            },
+            TokenKind::T_IDENTIFIER => {
+                tree = self.parse_assignment_stmt();
+            },
+            TokenKind::KW_IF => {
+                tree = self.parse_if_stmt();
+            },
+            TokenKind::T_LBRACE => {
+                self.jump_past(TokenKind::T_RBRACE);
+                tree = left.clone();
+            },
+            TokenKind::T_EOF => tree = None,
+            _ => panic!("Syntax error: {:?}", self.current_token)
+        };
+        if let Some(_tree) = &tree {
+            if left.is_none() {
+                left = tree.clone();
+            } else {
+                left = Some(ASTNode::new(ASTNodeKind::AST_GLUE, left.unwrap(), tree.clone().unwrap(), LitType::Integer(0)));
             }
         }
         tree

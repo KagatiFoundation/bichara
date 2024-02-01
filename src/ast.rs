@@ -25,64 +25,122 @@ SOFTWARE.
 extern crate lazy_static;
 use std::{cell::RefCell, rc::Rc};
 
-use lazy_static::lazy_static;
-
 use crate::{enums::*, register::{self, RegisterManager}, symtable};
 
-lazy_static! {
-    // All available non-extended registers of ARM64
-    static ref REGISTERS: Vec<&'static str> = vec!["w8", "w9", "w10", "w11", "w12", "w13", "w14", "w15", "w16"];
+lazy_static::lazy_static! {
+    static ref CMP_CONDS_LIST: Vec<&'static str> = vec!["neq", "eq", "ge", "le", "lt", "gt"];
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ASTNode {
     pub operation: ASTNodeKind, // operation to be performed on this AST node
     pub left: Option<Box<ASTNode>>,
     pub right: Option<Box<ASTNode>>,
-    pub value: LitType
+    pub mid: Option<Box<ASTNode>>,
+    pub value: LitType,
 }
 
 impl ASTNode {
     pub fn new(op: ASTNodeKind, left: ASTNode, right: ASTNode, value: LitType) -> Self {
-        Self { operation: op, left: Some(Box::new(left)), right: Some(Box::new(right)), value }
+        Self { operation: op, left: Some(Box::new(left)), right: Some(Box::new(right)), mid: None, value }
     }
 
     pub fn make_leaf(op: ASTNodeKind, value: LitType) -> Self {
-        Self { operation: op, left: None, right: None, value }
+        Self { operation: op, left: None, right: None, mid: None, value }
+    }
+
+    pub fn make_with_mid(op: ASTNodeKind, left: ASTNode, right: ASTNode, mid: ASTNode, value: LitType) -> Self {
+        Self { operation: op, left: Some(Box::new(left)), right: Some(Box::new(right)), mid: Some(Box::new(mid)), value }
     }
 }
 
 pub struct ASTTraverser {
     reg_manager: Rc<RefCell<register::RegisterManager>>,
     sym_table: Rc<RefCell<symtable::Symtable>>,
+    label_id_count: usize,
 }
 
 impl ASTTraverser {
     #[allow(clippy::new_without_default)]
     pub fn new(reg_manager: Rc<RefCell<RegisterManager>>, sym_table: Rc<RefCell<symtable::Symtable>>) -> Self {
-        Self { reg_manager, sym_table }
+        Self { reg_manager, sym_table, label_id_count: 0 }
     }
 
     pub fn traverse(&mut self, ast: &ASTNode) -> usize {
-        self.gen_from_ast(ast, 0xFFFFFFFF)
+        self.gen_ast(ast, 0xFFFFFFFF, ast.operation)
     }
 
-    fn gen_from_ast(&mut self, ast: &ASTNode, _reg: usize) -> usize {
+    fn gen_ast(&mut self, ast: &ASTNode, _reg: usize, parent_ast_kind: ASTNodeKind) -> usize {
+        if ast.operation == ASTNodeKind::AST_IF {
+            return self.gen_ifstmt_ast(ast);
+        } else if ast.operation == ASTNodeKind::AST_GLUE {
+            if let Some(left) = &ast.left {
+                self.gen_ast(left, 0xFFFFFFFF, ast.operation);
+                self.reg_manager.borrow_mut().deallocate_all();
+            }
+            if let Some(right) = &ast.right {
+                self.gen_ast(right, 0xFFFFFFFF, ast.operation);
+                self.reg_manager.borrow_mut().deallocate_all();
+            }
+        }
+
         let mut leftreg: usize = 0;
         let mut rightreg: usize = 0;
         if ast.left.is_some() {
-            leftreg = self.gen_from_ast(ast.left.as_ref().unwrap(), 0xFFFFFFFF);
+            leftreg = self.gen_ast(ast.left.as_ref().unwrap(), 0xFFFFFFFF, ast.operation);
         }
         if ast.right.is_some() {
-            rightreg = self.gen_from_ast(ast.right.as_ref().unwrap(), leftreg);
+            rightreg = self.gen_ast(ast.right.as_ref().unwrap(), leftreg, ast.operation);
         }
         match ast.operation {
             ASTNodeKind::AST_ADD => self.gen_add(leftreg, rightreg),
             ASTNodeKind::AST_SUBTRACT => self.gen_sub(leftreg, rightreg),
             ASTNodeKind::AST_INTLIT => self.gen_load_intlit_into_reg(&ast.value),
             ASTNodeKind::AST_IDENT => self.gen_load_gid_into_reg(&ast.value),
+            ASTNodeKind::AST_ASSIGN => rightreg,
+            ASTNodeKind::AST_GTHAN | 
+            ASTNodeKind::AST_LTHAN | 
+            ASTNodeKind::AST_LTEQ |
+            ASTNodeKind::AST_GTEQ |
+            ASTNodeKind::AST_NEQ |
+            ASTNodeKind::AST_EQEQ => {
+                if parent_ast_kind == ASTNodeKind::AST_IF {
+                    self.gen_cmp_and_jmp(ast.operation, leftreg, rightreg, _reg)
+                } else {
+                    0xFFFFFFFF
+                }
+            },
             _ => panic!("unknown AST operator '{:?}'", ast.operation),
         }
+    }
+
+    fn gen_ifstmt_ast(&mut self, ast: &ASTNode) -> usize {
+        let label_if_false: usize = self.get_next_label(); // label id to jump to if condition turns out to be false
+        let mut label_end: usize = 0xFFFFFFFF; // this label is put after the end of entire if-else block
+        if ast.right.is_some() { label_end = self.get_next_label(); }
+        self.gen_ast(ast.left.as_ref().unwrap(), label_if_false, ast.operation);
+        self.reg_manager.borrow_mut().deallocate_all();
+        self.gen_ast(ast.mid.as_ref().unwrap(), 0xFFFFFFFF, ast.operation);
+        self.reg_manager.borrow_mut().deallocate_all();
+        // if there is an 'else' block
+        if ast.right.is_some() { self.gen_jump(label_end); }
+        // false label
+        self.gen_label(label_if_false);
+        if let Some(right_ast) = &ast.right {
+            self.gen_ast(right_ast, 0xFFFFFFFF, ast.operation);
+            self.reg_manager.borrow_mut().deallocate_all();
+            self.gen_label(label_end);
+        }
+        0xFFFFFFFF
+    }
+
+    fn gen_cmp_and_jmp(&self, operation: ASTNodeKind, r1: usize, r2: usize, label: usize) -> usize {
+        let r1name: String = self.reg_manager.borrow().name(r1);
+        let r2name: String = self.reg_manager.borrow().name(r2);
+        println!("cmp {}, {}", r1name, r2name);
+        println!("b{} _L{}", CMP_CONDS_LIST[operation as usize - ASTNodeKind::AST_EQEQ as usize], label);
+        self.reg_manager.borrow_mut().deallocate_all();
+        0xFFFFFFFF
     }
 
     fn gen_add(&mut self, r1: usize, r2: usize) -> usize {
@@ -121,5 +179,19 @@ impl ASTTraverser {
         };
         println!("ldr {}, ={}\nldr {}, [{}]\n", reg_name, sym, value_containing_reg_name, reg_name);
         value_containing_reg
+    }
+
+    fn get_next_label(&mut self) -> usize {
+        let label: usize = self.label_id_count;
+        self.label_id_count += 1;
+        label
+    }
+
+    fn gen_jump(&self, label_id: usize) {
+        println!("b _L{}", label_id);
+    }
+
+    fn gen_label(&mut self, label: usize) {
+        println!("_L{}:", label);
     }
 }
