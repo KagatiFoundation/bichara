@@ -71,6 +71,8 @@ lazy_static! {
         _keys.insert("auto", TokenKind::KW_AUTO);
         _keys.insert("switch", TokenKind::KW_SWITCH);
         _keys.insert("extern", TokenKind::KW_EXTERN);
+        _keys.insert("global", TokenKind::KW_GLOBAL);
+        _keys.insert("local", TokenKind::KW_LOCAL);
         _keys
     };
 }

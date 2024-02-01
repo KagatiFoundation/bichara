@@ -66,9 +66,10 @@ pub enum TokenKind {
     _T_OPERATOR_START_, // operators
     T_PLUS, T_MINUS,
     T_STAR, T_SLASH,
-    T_AMPERSAND, T_PIPE,
-    T_LTEQ, T_GTEQ, 
     T_EQEQ, T_NEQ,
+    T_LTEQ, T_GTEQ, 
+    T_GTHAN, T_LTHAN,
+    T_AMPERSAND, T_PIPE,
     T_AND, T_OR, 
     T_LSHIFT, T_RSHIFT,
     T_PLUSEQ, T_MINUSEQ,
@@ -79,7 +80,6 @@ pub enum TokenKind {
     T_TILDEEQ, T_BANG,
     T_INCR, T_DECR,
     T_CARET, T_PERCENT, 
-    T_GTHAN, T_LTHAN,
     L_TILDE, T_ARROW,
     _T_OPERATOR_END_, // operators end here
 
@@ -101,7 +101,8 @@ pub enum TokenKind {
     KW_SIGNED, KW_LONG,
     KW_SHORT, KW_AUTO,
     KW_SWITCH, KW_EXTERN,
-    KW_INLINE,
+    KW_INLINE, KW_GLOBAL,
+    KW_LOCAL,
     _KW_END_, // keywords end here
 
     // other tokens
@@ -180,14 +181,42 @@ impl FromStr for TokenKind {
 }
 
 // AST Node Types
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Clone, Copy)]
 pub enum ASTNodeKind {
-    AST_ADD, // an AST node with "+" as the root node
+    AST_ADD = 10, // an AST node with "+" as the root node
     AST_SUBTRACT, // an AST node with "-" as the root node
     AST_MULTIPLY, // an AST node with "*" as the root node
     AST_DIVIDE, // an AST node with "/" as the root node
+    // below this are relational operators
+    AST_EQEQ, // equal equal
+    AST_NEQ, // not equal
+    AST_LTEQ, // less than or equal to
+    AST_GTEQ, // greate than equal to
+    AST_GTHAN, // greater than
+    AST_LTHAN, // less than
+    // end of relational operators
     AST_INTLIT, // a leaf AST node with literal integer value
     AST_IDENT, // a leaf AST node with an identifier name
     AST_LVIDENT, 
-    AST_ASSIGN
+    AST_ASSIGN,
+    AST_GLUE,
+    AST_IF,
+}
+
+impl ASTNodeKind {
+    pub fn from_token_kind(kind: TokenKind) -> ASTNodeKind {
+        match kind {
+            TokenKind::T_PLUS => Self::AST_ADD,
+            TokenKind::T_MINUS => Self::AST_SUBTRACT,
+            TokenKind::T_STAR => Self::AST_MULTIPLY,
+            TokenKind::T_SLASH => Self::AST_DIVIDE,
+            TokenKind::T_EQEQ => Self::AST_EQEQ,
+            TokenKind::T_NEQ => Self::AST_NEQ,
+            TokenKind::T_GTHAN => Self::AST_GTHAN,
+            TokenKind::T_LTHAN => Self::AST_LTHAN,
+            TokenKind::T_GTEQ => Self::AST_GTEQ,
+            TokenKind::T_LTEQ => Self::AST_LTEQ,
+            _ => unimplemented!("Not implemented for now!")
+        }
+    }
 }

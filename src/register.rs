@@ -69,6 +69,18 @@ impl RegisterManager {
         self.registers.insert(dealloc_name, 1);
     }
 
+    pub fn deallocate_all(&mut self) {
+        self.registers.insert(String::from("x0"), 1);
+        self.registers.insert(String::from("x1"), 1);
+        self.registers.insert(String::from("x2"), 1);
+        self.registers.insert(String::from("x3"), 1);
+        self.registers.insert(String::from("x4"), 1);
+        self.registers.insert(String::from("x5"), 1);
+        self.registers.insert(String::from("x6"), 1);
+        self.registers.insert(String::from("x7"), 1);
+        self.registers.insert(String::from("x8"), 1);
+    }
+
     pub fn name(&self, index: usize) -> String {
         let mut dealloc_name: String = String::from("");
         for (dindex, (reg_name, _)) in self.registers.iter().enumerate() {
