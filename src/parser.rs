@@ -72,54 +72,35 @@ impl<'a> Parser<'a> {
         println!(".text\n.global _main\n_main:");
         loop {
             if self.current_token.kind == TokenKind::T_EOF { break; }
-            if let Some(stmt) = &self.parse_stmt() {
+            if let Some(stmt) = &self.parse_single_stmt() {
                 traverser.traverse(stmt);
             }
         }
         println!("mov x0, 0\nmov x16, 1\nsvc 0x80");
     }
 
-    fn parse_stmt(&mut self) -> Option<ASTNode> {
-        #[allow(unused_assignments)]
-        let mut tree: Option<ASTNode> = None;
-        let mut left: Option<ASTNode> = None;
-        match self.current_token.kind {
+    fn parse_single_stmt(&mut self) -> Option<ASTNode> {
+         match self.current_token.kind {
             TokenKind::KW_GLOBAL => {
                 // ignore globals as they are already parsed
                 self.jump_past(TokenKind::T_SEMICOLON);
-                tree = None;
+                None
             },
             TokenKind::KW_LOCAL => {
                 self.parse_local_variable_decl_stmt();
-                tree = Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::Integer(12)));
+                Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::Integer(12)))
             },
-            TokenKind::T_IDENTIFIER => {
-                tree = self.parse_assignment_stmt();
-            },
-            TokenKind::KW_IF => {
-                tree = self.parse_if_stmt();
-            },
-            TokenKind::KW_WHILE => {
-                tree = self.parse_while_stmt();
-            },
-            TokenKind::T_LBRACE => {
-                self.jump_past(TokenKind::T_RBRACE);
-                tree = left.clone();
-            },
-            TokenKind::T_EOF => tree = None,
+            TokenKind::T_IDENTIFIER => self.parse_assignment_stmt(),
+            TokenKind::KW_IF => self.parse_if_stmt(),
+            TokenKind::KW_WHILE => self.parse_while_stmt(),
+            TokenKind::KW_FOR => self.parse_for_stmt(),
+            TokenKind::T_LBRACE => self.parse_compound_stmt(),
+            TokenKind::T_EOF => None,
             _ => panic!("Syntax error: {:?}", self.current_token)
-        };
-        if let Some(_tree) = &tree {
-            if left.is_none() {
-                left = tree.clone();
-            } else {
-                left = Some(ASTNode::new(ASTNodeKind::AST_GLUE, left.unwrap(), tree.clone().unwrap(), LitType::Integer(0)));
-            }
         }
-        tree
     }
 
-    // This function parses tokens starting from 'KW_INT' to the next 'T_SEMICOLON'.
+    // This function parses tokens starting from 'KW_GLOBAL' to the next 'T_SEMICOLON'.
     fn parse_globals(&mut self) {
         println!(".data");
         loop {
@@ -134,37 +115,76 @@ impl<'a> Parser<'a> {
         self.current = 0;
     }
 
-    fn parse_while_stmt(&mut self) -> Option<ASTNode> {
-        _ = self.token_match(TokenKind::KW_WHILE);
-        _ = self.token_match(TokenKind::T_LPAREN);
-        let cond_ast: Option<ASTNode> = self.parse_equality();
-        if let Some(_icast) = &cond_ast {
-            if (_icast.operation < ASTNodeKind::AST_EQEQ) || (_icast.operation > ASTNodeKind::AST_LTHAN) { // if operation kind is not "relational operation"
-                panic!("'{:?}' is not allowed in while's condition.", _icast.operation);
+    // parse compound statement(statement starting with '{' and ending with '}')
+    fn parse_compound_stmt(&mut self) -> Option<ASTNode> {
+        _ = self.token_match(TokenKind::T_LBRACE);
+        let mut left: Option<ASTNode> = None;
+        loop {
+            let tree: Option<ASTNode> = self.parse_single_stmt();
+            if tree.is_some() {
+                if left.is_none() {
+                    left = tree;
+                } else {
+                    left = Some(ASTNode::new(ASTNodeKind::AST_GLUE, left.clone().unwrap(), tree.clone().unwrap(), LitType::Integer(0)));
+                }
+            }
+            if self.current_token.kind == TokenKind::T_RBRACE {
+                _ = self.token_match(TokenKind::T_RBRACE); // match and ignore '}'
+                break;
             }
         }
-        _ = self.token_match(TokenKind::T_RPAREN);
-        let while_body: Option<ASTNode> = self.parse_stmt();
+        left
+    }
+
+    fn parse_while_stmt(&mut self) -> Option<ASTNode> {
+        let cond_ast: Option<ASTNode> = self.parse_conditional_stmt(TokenKind::KW_WHILE);
+        let while_body: Option<ASTNode> = self.parse_single_stmt();
         Some(ASTNode::new(ASTNodeKind::AST_WHILE, cond_ast.unwrap(), while_body.unwrap(), LitType::Integer(0)))
     }
 
+    fn parse_for_stmt(&mut self) -> Option<ASTNode> {
+        _ = self.token_match(TokenKind::KW_FOR); // match and ignore the keyword 'for'
+        _ = self.token_match(TokenKind::T_LPAREN); // match and ignore '('
+        let pre_stmt: Option<ASTNode> = self.parse_single_stmt(); // initialization statement
+        // _ = self.token_match(TokenKind::T_SEMICOLON);
+        let cond_ast: Option<ASTNode> = self.parse_equality(); // conditional section of for loop
+        if let Some(_icast) = &cond_ast {
+            if (_icast.operation < ASTNodeKind::AST_EQEQ) || (_icast.operation > ASTNodeKind::AST_LTHAN) { // if operation kind is not "relational operation"
+                panic!("Please provide conditional expression for 'for'");
+            }
+        }
+        _ = self.token_match(TokenKind::T_SEMICOLON); // expect semicolon
+        let incr_ast: Option<ASTNode> = self.parse_single_stmt();
+        _ = self.token_match(TokenKind::T_RPAREN); // match and ignore ')'
+        let for_body: Option<ASTNode> = self.parse_single_stmt();
+        let mut tree: ASTNode = ASTNode::new(ASTNodeKind::AST_GLUE, for_body.unwrap(), incr_ast.unwrap(), LitType::Integer(0));
+        tree = ASTNode::new(ASTNodeKind::AST_WHILE, cond_ast.unwrap(), tree, LitType::Integer(0));
+        Some(ASTNode::new(ASTNodeKind::AST_GLUE, pre_stmt.unwrap(), tree, LitType::Integer(0)))
+    }
+
     fn parse_if_stmt(&mut self) -> Option<ASTNode> {
-        _ = self.token_match(TokenKind::KW_IF); // match and ignore 'if' keyword
+        let cond_ast: Option<ASTNode> = self.parse_conditional_stmt(TokenKind::KW_IF);
+        let if_true_ast: Option<ASTNode> = self.parse_single_stmt();
+        let mut if_false_ast: Option<ASTNode> = None;
+        if self.current_token.kind == TokenKind::KW_ELSE {
+            self.skip_to_next_token(); // skip 'else'
+            if_false_ast = self.parse_single_stmt();
+        }
+        Some(ASTNode::make_with_mid(ASTNodeKind::AST_IF, cond_ast.unwrap(), if_true_ast.clone().unwrap(), if_true_ast.clone().unwrap(), LitType::Integer(0)))
+    }
+
+    // parses tokens that are in the form '(expression [< | > | >= | <= | == | !=] expression)'
+    fn parse_conditional_stmt(&mut self, kind: TokenKind) -> Option<ASTNode> {
+        _ = self.token_match(kind);
         _ = self.token_match(TokenKind::T_LPAREN); // match and ignore '('
         let cond_ast: Option<ASTNode> = self.parse_equality();
         if let Some(_icast) = &cond_ast {
             if (_icast.operation < ASTNodeKind::AST_EQEQ) || (_icast.operation > ASTNodeKind::AST_LTHAN) { // if operation kind is not "relational operation"
-                panic!("'{:?}' is not allowed in if's condition.", _icast.operation);
+                panic!("'{:?}' is not allowed in {:?}'s condition.", _icast.operation, kind);
             }
         }
         _ = self.token_match(TokenKind::T_RPAREN); // match and ignore ')'
-        let if_true_ast: Option<ASTNode> = self.parse_stmt();
-        let mut if_false_ast: Option<ASTNode> = None;
-        if self.current_token.kind == TokenKind::KW_ELSE {
-            self.skip_to_next_token(); // skip 'else'
-            if_false_ast = self.parse_stmt();
-        }
-        Some(ASTNode::make_with_mid(ASTNodeKind::AST_IF, cond_ast.unwrap(), if_true_ast.clone().unwrap(), if_true_ast.clone().unwrap(), LitType::Integer(0)))
+        cond_ast
     }
 
     fn parse_assignment_stmt(&mut self) -> Option<ASTNode> {

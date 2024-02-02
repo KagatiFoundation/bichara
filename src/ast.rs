@@ -84,6 +84,7 @@ impl ASTTraverser {
                 self.gen_ast(right, 0xFFFFFFFF, ast.operation);
                 self.reg_manager.borrow_mut().deallocate_all();
             }
+            return 0xFFFFFFFF;
         }
         let mut leftreg: usize = 0;
         let mut rightreg: usize = 0;
