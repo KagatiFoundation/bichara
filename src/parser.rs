@@ -99,6 +99,9 @@ impl<'a> Parser<'a> {
             TokenKind::KW_IF => {
                 tree = self.parse_if_stmt();
             },
+            TokenKind::KW_WHILE => {
+                tree = self.parse_while_stmt();
+            },
             TokenKind::T_LBRACE => {
                 self.jump_past(TokenKind::T_RBRACE);
                 tree = left.clone();
@@ -129,6 +132,20 @@ impl<'a> Parser<'a> {
         // reinit the parser to its starting state
         self.current_token = &self.tokens[0];
         self.current = 0;
+    }
+
+    fn parse_while_stmt(&mut self) -> Option<ASTNode> {
+        _ = self.token_match(TokenKind::KW_WHILE);
+        _ = self.token_match(TokenKind::T_LPAREN);
+        let cond_ast: Option<ASTNode> = self.parse_equality();
+        if let Some(_icast) = &cond_ast {
+            if (_icast.operation < ASTNodeKind::AST_EQEQ) || (_icast.operation > ASTNodeKind::AST_LTHAN) { // if operation kind is not "relational operation"
+                panic!("'{:?}' is not allowed in while's condition.", _icast.operation);
+            }
+        }
+        _ = self.token_match(TokenKind::T_RPAREN);
+        let while_body: Option<ASTNode> = self.parse_stmt();
+        Some(ASTNode::new(ASTNodeKind::AST_WHILE, cond_ast.unwrap(), while_body.unwrap(), LitType::Integer(0)))
     }
 
     fn parse_if_stmt(&mut self) -> Option<ASTNode> {
@@ -168,7 +185,7 @@ impl<'a> Parser<'a> {
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
         _ = self.token_match(TokenKind::T_SEMICOLON);
         self.sym_table.borrow_mut().add(&id_token.lexeme); // track the symbol that has been defined
-        println!("{}: .word 0 // int {};", id_token.lexeme, id_token.lexeme);
+        println!("{}: .space 8 // int {};", id_token.lexeme, id_token.lexeme);
     }
     
     fn parse_local_variable_decl_stmt(&mut self) {

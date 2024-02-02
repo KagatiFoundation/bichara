@@ -73,6 +73,8 @@ impl ASTTraverser {
     fn gen_ast(&mut self, ast: &ASTNode, _reg: usize, parent_ast_kind: ASTNodeKind) -> usize {
         if ast.operation == ASTNodeKind::AST_IF {
             return self.gen_ifstmt_ast(ast);
+        } else if ast.operation == ASTNodeKind::AST_WHILE {
+            return self.gen_while_stmt(ast);
         } else if ast.operation == ASTNodeKind::AST_GLUE {
             if let Some(left) = &ast.left {
                 self.gen_ast(left, 0xFFFFFFFF, ast.operation);
@@ -83,7 +85,6 @@ impl ASTTraverser {
                 self.reg_manager.borrow_mut().deallocate_all();
             }
         }
-
         let mut leftreg: usize = 0;
         let mut rightreg: usize = 0;
         if ast.left.is_some() {
@@ -97,15 +98,15 @@ impl ASTTraverser {
             ASTNodeKind::AST_SUBTRACT => self.gen_sub(leftreg, rightreg),
             ASTNodeKind::AST_INTLIT => self.gen_load_intlit_into_reg(&ast.value),
             ASTNodeKind::AST_IDENT => self.gen_load_gid_into_reg(&ast.value),
-            ASTNodeKind::AST_ASSIGN => rightreg,
             ASTNodeKind::AST_LVIDENT => self.gen_load_reg_into_gid(_reg, &ast.value),
+            ASTNodeKind::AST_ASSIGN => rightreg,
             ASTNodeKind::AST_GTHAN | 
             ASTNodeKind::AST_LTHAN | 
             ASTNodeKind::AST_LTEQ |
             ASTNodeKind::AST_GTEQ |
             ASTNodeKind::AST_NEQ |
             ASTNodeKind::AST_EQEQ => {
-                if parent_ast_kind == ASTNodeKind::AST_IF {
+                if (parent_ast_kind == ASTNodeKind::AST_IF) || (parent_ast_kind == ASTNodeKind::AST_WHILE) {
                     self.gen_cmp_and_jmp(ast.operation, leftreg, rightreg, _reg)
                 } else {
                     0xFFFFFFFF
@@ -113,6 +114,19 @@ impl ASTTraverser {
             },
             _ => panic!("unknown AST operator '{:?}'", ast.operation),
         }
+    }
+
+    fn gen_while_stmt(&mut self, ast: &ASTNode) -> usize {
+        let label_start: usize = self.get_next_label();
+        let label_end: usize = self.get_next_label();
+        self.gen_label(label_start); // start of loop body
+        self.gen_ast(ast.left.as_ref().unwrap(), label_end, ast.operation);
+        self.reg_manager.borrow_mut().deallocate_all();
+        self.gen_ast(ast.right.as_ref().unwrap(), 0xFFFFFFFF, ast.operation);
+        self.reg_manager.borrow_mut().deallocate_all();
+        self.gen_jump(label_start);
+        self.gen_label(label_end);
+        0xFFFFFFFF
     }
 
     fn gen_ifstmt_ast(&mut self, ast: &ASTNode) -> usize {
