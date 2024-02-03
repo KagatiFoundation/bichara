@@ -34,23 +34,23 @@ lazy_static::lazy_static! {
 #[derive(Debug, Clone)]
 pub struct ASTNode {
     pub operation: ASTNodeKind, // operation to be performed on this AST node
-    pub left: Option<Box<ASTNode>>,
-    pub right: Option<Box<ASTNode>>,
-    pub mid: Option<Box<ASTNode>>,
-    pub value: LitType,
+    pub left: Box<Option<ASTNode>>,
+    pub right: Box<Option<ASTNode>>,
+    pub mid: Box<Option<ASTNode>>,
+    pub value: Option<LitType>,
 }
 
 impl ASTNode {
-    pub fn new(op: ASTNodeKind, left: ASTNode, right: ASTNode, value: LitType) -> Self {
-        Self { operation: op, left: Some(Box::new(left)), right: Some(Box::new(right)), mid: None, value }
+    pub fn new(op: ASTNodeKind, left: Option<ASTNode>, right: Option<ASTNode>, value: Option<LitType>) -> Self {
+        Self { operation: op, left: Box::new(left), right: Box::new(right), mid: Box::new(None), value }
     }
 
     pub fn make_leaf(op: ASTNodeKind, value: LitType) -> Self {
-        Self { operation: op, left: None, right: None, mid: None, value }
+        Self { operation: op, left: Box::new(None), right: Box::new(None), mid: Box::new(None), value: Some(value) }
     }
 
-    pub fn make_with_mid(op: ASTNodeKind, left: ASTNode, right: ASTNode, mid: ASTNode, value: LitType) -> Self {
-        Self { operation: op, left: Some(Box::new(left)), right: Some(Box::new(right)), mid: Some(Box::new(mid)), value }
+    pub fn with_mid(op: ASTNodeKind, left: Option<ASTNode>, right: Option<ASTNode>, mid: Option<ASTNode>, value: Option<LitType>) -> Self {
+        Self { operation: op, left: Box::new(left), right: Box::new(right), mid: Box::new(mid), value }
     }
 }
 
@@ -76,11 +76,11 @@ impl ASTTraverser {
         } else if ast.operation == ASTNodeKind::AST_WHILE {
             return self.gen_while_stmt(ast);
         } else if ast.operation == ASTNodeKind::AST_GLUE {
-            if let Some(left) = &ast.left {
+            if let Some(left) = ast.left.as_ref() {
                 self.gen_ast(left, 0xFFFFFFFF, ast.operation);
                 self.reg_manager.borrow_mut().deallocate_all();
             }
-            if let Some(right) = &ast.right {
+            if let Some(right) = ast.right.as_ref() {
                 self.gen_ast(right, 0xFFFFFFFF, ast.operation);
                 self.reg_manager.borrow_mut().deallocate_all();
             }
@@ -88,18 +88,18 @@ impl ASTTraverser {
         }
         let mut leftreg: usize = 0;
         let mut rightreg: usize = 0;
-        if ast.left.is_some() {
-            leftreg = self.gen_ast(ast.left.as_ref().unwrap(), 0xFFFFFFFF, ast.operation);
+        if let Some(leftt) = &*ast.left { // take reference to Option<T> which is inside the Box<Option<T>>
+            leftreg = self.gen_ast(leftt, 0xFFFFFFFF, ast.operation);
         }
-        if ast.right.is_some() {
-            rightreg = self.gen_ast(ast.right.as_ref().unwrap(), leftreg, ast.operation);
+        if let Some(rightt) = ast.right.as_ref() {
+            rightreg = self.gen_ast(rightt, leftreg, ast.operation);
         }
         match ast.operation {
             ASTNodeKind::AST_ADD => self.gen_add(leftreg, rightreg),
             ASTNodeKind::AST_SUBTRACT => self.gen_sub(leftreg, rightreg),
-            ASTNodeKind::AST_INTLIT => self.gen_load_intlit_into_reg(&ast.value),
-            ASTNodeKind::AST_IDENT => self.gen_load_gid_into_reg(&ast.value),
-            ASTNodeKind::AST_LVIDENT => self.gen_load_reg_into_gid(_reg, &ast.value),
+            ASTNodeKind::AST_INTLIT => self.gen_load_intlit_into_reg(ast.value.as_ref().unwrap()),
+            ASTNodeKind::AST_IDENT => self.gen_load_gid_into_reg(ast.value.as_ref().unwrap()),
+            ASTNodeKind::AST_LVIDENT => self.gen_load_reg_into_gid(_reg, ast.value.as_ref().unwrap()),
             ASTNodeKind::AST_ASSIGN => rightreg,
             ASTNodeKind::AST_GTHAN | 
             ASTNodeKind::AST_LTHAN | 
@@ -121,9 +121,9 @@ impl ASTTraverser {
         let label_start: usize = self.get_next_label();
         let label_end: usize = self.get_next_label();
         self.gen_label(label_start); // start of loop body
-        self.gen_ast(ast.left.as_ref().unwrap(), label_end, ast.operation);
+        self.gen_ast((*ast.left).as_ref().unwrap(), label_end, ast.operation);
         self.reg_manager.borrow_mut().deallocate_all();
-        self.gen_ast(ast.right.as_ref().unwrap(), 0xFFFFFFFF, ast.operation);
+        self.gen_ast((*ast.right).as_ref().unwrap(), 0xFFFFFFFF, ast.operation);
         self.reg_manager.borrow_mut().deallocate_all();
         self.gen_jump(label_start);
         self.gen_label(label_end);
@@ -134,15 +134,15 @@ impl ASTTraverser {
         let label_if_false: usize = self.get_next_label(); // label id to jump to if condition turns out to be false
         let mut label_end: usize = 0xFFFFFFFF; // this label is put after the end of entire if-else block
         if ast.right.is_some() { label_end = self.get_next_label(); }
-        self.gen_ast(ast.left.as_ref().unwrap(), label_if_false, ast.operation);
+        self.gen_ast((*ast.left).as_ref().unwrap(), label_if_false, ast.operation);
         self.reg_manager.borrow_mut().deallocate_all();
-        self.gen_ast(ast.mid.as_ref().unwrap(), 0xFFFFFFFF, ast.operation);
+        self.gen_ast((*ast.mid).as_ref().unwrap(), 0xFFFFFFFF, ast.operation);
         self.reg_manager.borrow_mut().deallocate_all();
         // if there is an 'else' block
         if ast.right.is_some() { self.gen_jump(label_end); }
         // false label
         self.gen_label(label_if_false);
-        if let Some(right_ast) = &ast.right {
+        if let Some(right_ast) = &*ast.right {
             self.gen_ast(right_ast, 0xFFFFFFFF, ast.operation);
             self.reg_manager.borrow_mut().deallocate_all();
             self.gen_label(label_end);

@@ -31,26 +31,6 @@ use crate::symtable::*;
 use crate::enums::*;
 use crate::ast::*;
 
-extern crate lazy_static;
-use lazy_static::lazy_static;
-
-lazy_static! {
-    static ref TOKEN_PRECENDENCE: Vec<u16> = {
-        let mut items: Vec<u16> = vec![0; TokenKind::T_NONE as usize];
-        items.insert(10, 10); // T_PLUS
-        items.insert(11, 10); // T_MINUS
-        items.insert(12, 20); // T_STAR
-        items.insert(13, 20); // T_SLASH
-        items.insert(14, 30); // T_LTEQ
-        items.insert(15, 30); // T_NEQ
-        items.insert(16, 40); // T_LTEQ
-        items.insert(17, 40); // T_GTEP
-        items.insert(18, 40); // T_GTHAN
-        items.insert(19, 40); // T_LTHAN
-        items
-    };
-}
-
 // Actual parser
 pub struct Parser<'a> {
     tokens: &'a Vec<Token>,
@@ -95,6 +75,7 @@ impl<'a> Parser<'a> {
             TokenKind::KW_WHILE => self.parse_while_stmt(),
             TokenKind::KW_FOR => self.parse_for_stmt(),
             TokenKind::T_LBRACE => self.parse_compound_stmt(),
+            TokenKind::KW_VOID => self.parse_function_stmt(),
             TokenKind::T_EOF => None,
             _ => panic!("Syntax error: {:?}", self.current_token)
         }
@@ -125,7 +106,7 @@ impl<'a> Parser<'a> {
                 if left.is_none() {
                     left = tree;
                 } else {
-                    left = Some(ASTNode::new(ASTNodeKind::AST_GLUE, left.clone().unwrap(), tree.clone().unwrap(), LitType::Integer(0)));
+                    left = Some(ASTNode::new(ASTNodeKind::AST_GLUE, left.clone(), tree.clone(), None));
                 }
             }
             if self.current_token.kind == TokenKind::T_RBRACE {
@@ -136,10 +117,20 @@ impl<'a> Parser<'a> {
         left
     }
 
+    fn parse_function_stmt(&mut self) -> Option<ASTNode> {
+        _ = self.token_match(TokenKind::KW_VOID);
+        let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
+        let func_name_index: usize = self.sym_table.borrow_mut().add(id_token.lexeme.as_ref()); // track the symbol that has been defined
+        _ = self.token_match(TokenKind::T_LPAREN);
+        _ = self.token_match(TokenKind::T_RPAREN);
+        let function_body: Option<ASTNode> = self.parse_compound_stmt();
+        Some(ASTNode::new(ASTNodeKind::AST_FUNCTION, function_body, None, Some(LitType::Integer(func_name_index as i32))))
+    }
+
     fn parse_while_stmt(&mut self) -> Option<ASTNode> {
         let cond_ast: Option<ASTNode> = self.parse_conditional_stmt(TokenKind::KW_WHILE);
         let while_body: Option<ASTNode> = self.parse_single_stmt();
-        Some(ASTNode::new(ASTNodeKind::AST_WHILE, cond_ast.unwrap(), while_body.unwrap(), LitType::Integer(0)))
+        Some(ASTNode::new(ASTNodeKind::AST_WHILE, cond_ast, while_body, None))
     }
 
     fn parse_for_stmt(&mut self) -> Option<ASTNode> {
@@ -157,9 +148,9 @@ impl<'a> Parser<'a> {
         let incr_ast: Option<ASTNode> = self.parse_single_stmt();
         _ = self.token_match(TokenKind::T_RPAREN); // match and ignore ')'
         let for_body: Option<ASTNode> = self.parse_single_stmt();
-        let mut tree: ASTNode = ASTNode::new(ASTNodeKind::AST_GLUE, for_body.unwrap(), incr_ast.unwrap(), LitType::Integer(0));
-        tree = ASTNode::new(ASTNodeKind::AST_WHILE, cond_ast.unwrap(), tree, LitType::Integer(0));
-        Some(ASTNode::new(ASTNodeKind::AST_GLUE, pre_stmt.unwrap(), tree, LitType::Integer(0)))
+        let mut tree: ASTNode = ASTNode::new(ASTNodeKind::AST_GLUE, for_body, incr_ast, None);
+        tree = ASTNode::new(ASTNodeKind::AST_WHILE, cond_ast, Some(tree), None);
+        Some(ASTNode::new(ASTNodeKind::AST_GLUE, pre_stmt, Some(tree), None))
     }
 
     fn parse_if_stmt(&mut self) -> Option<ASTNode> {
@@ -170,7 +161,7 @@ impl<'a> Parser<'a> {
             self.skip_to_next_token(); // skip 'else'
             if_false_ast = self.parse_single_stmt();
         }
-        Some(ASTNode::make_with_mid(ASTNodeKind::AST_IF, cond_ast.unwrap(), if_true_ast.clone().unwrap(), if_true_ast.clone().unwrap(), LitType::Integer(0)))
+        Some(ASTNode::with_mid(ASTNodeKind::AST_IF, cond_ast, if_false_ast, if_true_ast.clone(), None))
     }
 
     // parses tokens that are in the form '(expression [< | > | >= | <= | == | !=] expression)'
@@ -196,7 +187,7 @@ impl<'a> Parser<'a> {
         let bin_expr_node: Option<ASTNode> = self.parse_equality();
         _ = self.token_match(TokenKind::T_SEMICOLON);
         let lvalueid: ASTNode = ASTNode::make_leaf(ASTNodeKind::AST_LVIDENT, LitType::String(id_token.lexeme));
-        Some(ASTNode::new(ASTNodeKind::AST_ASSIGN, bin_expr_node.unwrap(), lvalueid, LitType::Integer(0)))
+        Some(ASTNode::new(ASTNodeKind::AST_ASSIGN, bin_expr_node, Some(lvalueid), None))
     }
 
     fn parse_global_variable_decl_stmt(&mut self) {
@@ -250,7 +241,7 @@ impl<'a> Parser<'a> {
             if ok {
                 self.skip_to_next_token(); // skip the operator
                 if let Some(right) = self.parse_equality() {
-                    return Some(ASTNode::new(ASTNodeKind::from_token_kind(current_token_kind), left, right, LitType::Integer(0)));
+                    return Some(ASTNode::new(ASTNodeKind::from_token_kind(current_token_kind), Some(left), Some(right), None));
                 } else {
                     panic!("Something unexpected happended with this token: '{:?}'", self.current_token);
                 }

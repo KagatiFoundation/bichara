@@ -202,6 +202,7 @@ pub enum ASTNodeKind {
     AST_GLUE,
     AST_IF,
     AST_WHILE,
+    AST_FUNCTION
 }
 
 impl ASTNodeKind {
