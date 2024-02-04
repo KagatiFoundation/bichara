@@ -57,7 +57,7 @@ impl Symtable {
         }
         pos = self.next();
         self.syms.push(String::from(name));
-        pos
+        pos - 1
     }
 
     pub fn get(&self, idx: usize) -> &str {

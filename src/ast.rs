@@ -75,6 +75,8 @@ impl ASTTraverser {
             return self.gen_ifstmt_ast(ast);
         } else if ast.operation == ASTNodeKind::AST_WHILE {
             return self.gen_while_stmt(ast);
+        } else if ast.operation == ASTNodeKind::AST_FUNCTION {
+            return self.gen_function_stmt(ast); 
         } else if ast.operation == ASTNodeKind::AST_GLUE {
             if let Some(left) = ast.left.as_ref() {
                 self.gen_ast(left, 0xFFFFFFFF, ast.operation);
@@ -110,11 +112,22 @@ impl ASTTraverser {
                 if (parent_ast_kind == ASTNodeKind::AST_IF) || (parent_ast_kind == ASTNodeKind::AST_WHILE) {
                     self.gen_cmp_and_jmp(ast.operation, leftreg, rightreg, _reg)
                 } else {
-                    0xFFFFFFFF
+                    self.gen_cmp_and_set(ast.operation, leftreg, rightreg)
                 }
             },
             _ => panic!("unknown AST operator '{:?}'", ast.operation),
         }
+    }
+
+    fn gen_function_stmt(&mut self, ast: &ASTNode) -> usize {
+        let index: usize = match ast.value.as_ref().unwrap() {
+            LitType::Integer(int_idx) => *int_idx as usize,
+            _ => panic!("Not a valid symbol table indexing method")
+        };
+        println!("{}:", self.sym_table.borrow().get(index));
+        self.gen_ast((*ast.left).as_ref().unwrap(), 0xFFFFFFFF, ast.operation);
+        println!("mov x0, 0");
+        0xFFFFFFFF
     }
 
     fn gen_while_stmt(&mut self, ast: &ASTNode) -> usize {
@@ -148,6 +161,15 @@ impl ASTTraverser {
             self.gen_label(label_end);
         }
         0xFFFFFFFF
+    }
+
+    fn gen_cmp_and_set(&self, operation: ASTNodeKind, r1: usize, r2: usize) -> usize {
+        let r1name: String = self.reg_manager.borrow().name(r1);
+        let r2name: String = self.reg_manager.borrow().name(r2);
+        println!("cmp {}, {}", r1name, r2name);
+        println!("cset {}, {}", r2name, CMP_CONDS_LIST[operation as usize - ASTNodeKind::AST_EQEQ as usize]);
+        println!("and {}, {}, 255", r2name, r2name);
+        r2
     }
 
     fn gen_cmp_and_jmp(&self, operation: ASTNodeKind, r1: usize, r2: usize, label: usize) -> usize {

@@ -36,6 +36,7 @@ pub enum LitType {
     String(String),
     Double(f64),
     Float(f32),
+    Void,
 }
 
 impl PartialEq for LitType {
@@ -102,7 +103,7 @@ pub enum TokenKind {
     KW_SHORT, KW_AUTO,
     KW_SWITCH, KW_EXTERN,
     KW_INLINE, KW_GLOBAL,
-    KW_LOCAL,
+    KW_LOCAL, KW_STR,
     _KW_END_, // keywords end here
 
     // other tokens

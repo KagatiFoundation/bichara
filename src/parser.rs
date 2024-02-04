@@ -49,14 +49,13 @@ impl<'a> Parser<'a> {
         // first, parse the globals
         self.parse_globals();
         // main code starts from here
-        println!(".text\n.global _main\n_main:");
+        println!(".text");
         loop {
             if self.current_token.kind == TokenKind::T_EOF { break; }
             if let Some(stmt) = &self.parse_single_stmt() {
                 traverser.traverse(stmt);
             }
         }
-        println!("mov x0, 0\nmov x16, 1\nsvc 0x80");
     }
 
     fn parse_single_stmt(&mut self) -> Option<ASTNode> {
@@ -204,8 +203,6 @@ impl<'a> Parser<'a> {
         _ = self.token_match(TokenKind::KW_INT);
         let _id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
         _ = self.token_match(TokenKind::T_SEMICOLON);
-        // self.sym_table.borrow_mut().add(&id_token.lexeme); // track the symbol that has been defined
-        println!("[LOCAL VAR DECL]");
     }
 
     fn parse_equality(&mut self) -> Option<ASTNode> {

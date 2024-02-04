@@ -15,7 +15,7 @@ elif [ "$1" = "build" ]; then
     fi
     OUTPUT_FILE="$2"
     if ! [ -e "./$OUTPUT_DIR/ir" ]; then mkdir -p "./$OUTPUT_DIR/ir"; fi
-    cargo run # 1> "./$OUTPUT_DIR/ir/$OUTPUT_FILE"
+    cargo run 1> "./$OUTPUT_DIR/ir/$OUTPUT_FILE"
     if ! [ $? -eq 0 ]; then 
         echo "*** COMPILATION FAILED ***";
         exit 2;
