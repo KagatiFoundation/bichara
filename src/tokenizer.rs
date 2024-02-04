@@ -421,20 +421,22 @@ impl Tokenizer {
             return TokenizationResult::Error(ErrorType::InvalidNumericValue, pos);
         }
         let number: &str = std::str::from_utf8(&self.source[__start..__end]).unwrap();
-        let mut num_result: String = String::from("");
         if period_detected {
             token.kind = TokenKind::T_DOUBLE_NUM;
+        } else {
+            let _value: i32 = number.parse::<i32>().unwrap();
+            if (0..256).contains(&_value) {
+                token.kind = TokenKind::T_CHAR;
+            }
         }
         token.lexeme = String::from(number);
         TokenizationResult::Success(token)
     }
 
-    #[inline]
     fn is_at_end(&self) -> bool {
         self.next_char_pos >= self.source.len()
     }
 
-    #[inline]
     fn advance_to_next_char_pos(&mut self) {
         #[allow(clippy::comparison_chain)]
         if self.next_char_pos < self.source.len() {
@@ -459,7 +461,7 @@ mod tests {
 
     #[test]
     fn test_int_var_decl_tokenization() {
-        let mut tok: Tokenizer = Tokenizer::new("int a = 4;");
+        let mut tok: Tokenizer = Tokenizer::new("int a = 2323;");
         let tokens: Vec<Token> = tok.start_scan();
         assert!(tokens.len() == 6);
         assert_eq!(tokens[0].kind, TokenKind::KW_INT);

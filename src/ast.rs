@@ -25,7 +25,7 @@ SOFTWARE.
 extern crate lazy_static;
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{enums::*, register::{self, RegisterManager}, symtable};
+use crate::{enums::*, types::*, register::{self, RegisterManager}, symtable};
 
 lazy_static::lazy_static! {
     static ref CMP_CONDS_LIST: Vec<&'static str> = vec!["neq", "eq", "ge", "le", "lt", "gt"];
@@ -42,15 +42,33 @@ pub struct ASTNode {
 
 impl ASTNode {
     pub fn new(op: ASTNodeKind, left: Option<ASTNode>, right: Option<ASTNode>, value: Option<LitType>) -> Self {
-        Self { operation: op, left: Box::new(left), right: Box::new(right), mid: Box::new(None), value }
+        Self { 
+            operation: op, 
+            left: Box::new(left), 
+            right: Box::new(right), 
+            mid: Box::new(None), 
+            value
+        }
     }
 
     pub fn make_leaf(op: ASTNodeKind, value: LitType) -> Self {
-        Self { operation: op, left: Box::new(None), right: Box::new(None), mid: Box::new(None), value: Some(value) }
+        Self { 
+            operation: op, 
+            left: Box::new(None), 
+            right: Box::new(None), 
+            mid: Box::new(None), 
+            value: Some(value)
+        }
     }
 
     pub fn with_mid(op: ASTNodeKind, left: Option<ASTNode>, right: Option<ASTNode>, mid: Option<ASTNode>, value: Option<LitType>) -> Self {
-        Self { operation: op, left: Box::new(left), right: Box::new(right), mid: Box::new(mid), value }
+        Self { 
+            operation: op, 
+            left: Box::new(left), 
+            right: Box::new(right), 
+            mid: Box::new(mid), 
+            value
+        }
     }
 }
 
@@ -121,10 +139,10 @@ impl ASTTraverser {
 
     fn gen_function_stmt(&mut self, ast: &ASTNode) -> usize {
         let index: usize = match ast.value.as_ref().unwrap() {
-            LitType::Integer(int_idx) => *int_idx as usize,
+            LitType::I32(int_idx) => *int_idx as usize,
             _ => panic!("Not a valid symbol table indexing method")
         };
-        println!("{}:", self.sym_table.borrow().get(index));
+        println!("{}:", self.sym_table.borrow().get_symbol(index).name);
         self.gen_ast((*ast.left).as_ref().unwrap(), 0xFFFFFFFF, ast.operation);
         println!("mov x0, 0");
         0xFFFFFFFF
@@ -196,10 +214,13 @@ impl ASTTraverser {
     // Load a integer literal into a register
     fn gen_load_intlit_into_reg(&mut self, value: &LitType) -> usize {
         let r: usize = self.reg_manager.borrow_mut().allocate();
-        match value {
-            LitType::Integer(int_val) => println!("mov {}, {}", self.reg_manager.borrow().name(r), int_val),
-            _ => println!("mov {}, {:?}", self.reg_manager.borrow().name(r), value),
-        }
+        let reg_name: String = self.reg_manager.borrow().name(r);
+        let int_value: i64 = match value {
+            LitType::I32(int_val) => *int_val as i64,
+            LitType::U8(u8_val) => *u8_val as i64,
+            _ => panic!("Not a recognized type of integer: {:?}", value),
+        };
+        println!("mov {}, {}", reg_name, int_value);
         r
     }
 
@@ -211,7 +232,7 @@ impl ASTTraverser {
         let value_containing_reg: usize = self.reg_manager.borrow_mut().allocate();
         let value_containing_reg_name: String = self.reg_manager.borrow().name(value_containing_reg);
         let sym: String = match id {
-            LitType::Integer(int_id) => String::from(self.sym_table.borrow().get(*int_id as usize)),
+            LitType::I32(int_id) => self.sym_table.borrow().get_symbol(*int_id as usize).name.clone(),
             LitType::String(_id) => _id.clone(),
             _ => String::from(""),
         };
@@ -222,7 +243,7 @@ impl ASTTraverser {
     fn gen_load_reg_into_gid(&mut self, reg: usize, id: &LitType) -> usize {
         let reg_name: String = self.reg_manager.borrow().name(reg);
         let sym: String = match id {
-            LitType::Integer(int_id) => String::from(self.sym_table.borrow().get(*int_id as usize)),
+            LitType::I32(int_id) => self.sym_table.borrow().get_symbol(*int_id as usize).name.clone(),
             LitType::String(_id) => _id.clone(),
             _ => String::from(""),
         };

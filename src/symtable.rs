@@ -22,9 +22,25 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+use crate::enums::*;
+use crate::types::*;
+
+#[derive(Clone)]
+pub struct Symbol {
+    pub name: String,
+    pub lit_type: LitType, // What kind of value this symbol is
+    pub sym_type: SymbolType // What type of symbol this is. i.e. Variable or Function
+}
+
+impl Symbol {
+    pub fn new(name: String, lit: LitType, sym_type: SymbolType) -> Self {
+        Self { name, lit_type: lit, sym_type }
+    }
+}
+
 #[derive(Clone)]
 pub struct Symtable {
-    syms: Vec<String>, // tracks all the global symbols
+    syms: Vec<Symbol>, // tracks all the global symbols
     counter: usize, // next free slot in the table
 }
 
@@ -35,9 +51,9 @@ impl Symtable {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self { Self { syms: vec![], counter: 0 } }
 
-    pub fn find(&self, name: &str) -> usize {
+    pub fn find_symbol(&self, name: &str) -> usize {
         for (idx, n) in self.syms.iter().enumerate() {
-            if name == n { return idx; }
+            if name == n.name { return idx; }
         }
         0xFFFFFFFF
     }
@@ -50,17 +66,17 @@ impl Symtable {
         self.counter
     }
 
-    pub fn add(&mut self, name: &str) -> usize {
-        let mut pos: usize = self.find(name);
+    pub fn add_symbol(&mut self, sym: Symbol) -> usize {
+        let mut pos: usize = self.find_symbol(&sym.name);
         if pos != 0xFFFFFFFF {
             return pos;
         }
         pos = self.next();
-        self.syms.push(String::from(name));
+        self.syms.push(sym);
         pos - 1
     }
 
-    pub fn get(&self, idx: usize) -> &str {
+    pub fn get_symbol(&self, idx: usize) -> &Symbol {
         if idx >= self.syms.len() {
             panic!("index '{}' out of bounds for range '{}'", idx, self.syms.len());
         }

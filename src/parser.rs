@@ -29,6 +29,7 @@ use std::rc::Rc;
 use crate::tokenizer::*;
 use crate::symtable::*; 
 use crate::enums::*;
+use crate::types::*;
 use crate::ast::*;
 
 // Actual parser
@@ -67,7 +68,7 @@ impl<'a> Parser<'a> {
             },
             TokenKind::KW_LOCAL => {
                 self.parse_local_variable_decl_stmt();
-                Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::Integer(12)))
+                Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::I32(12)))
             },
             TokenKind::T_IDENTIFIER => self.parse_assignment_stmt(),
             TokenKind::KW_IF => self.parse_if_stmt(),
@@ -119,11 +120,11 @@ impl<'a> Parser<'a> {
     fn parse_function_stmt(&mut self) -> Option<ASTNode> {
         _ = self.token_match(TokenKind::KW_VOID);
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
-        let func_name_index: usize = self.sym_table.borrow_mut().add(id_token.lexeme.as_ref()); // track the symbol that has been defined
+        let func_name_index: usize = self.sym_table.borrow_mut().add_symbol(Symbol::new(id_token.lexeme, LitType::Void, SymbolType::Function)); // track the symbol that has been defined
         _ = self.token_match(TokenKind::T_LPAREN);
         _ = self.token_match(TokenKind::T_RPAREN);
         let function_body: Option<ASTNode> = self.parse_compound_stmt();
-        Some(ASTNode::new(ASTNodeKind::AST_FUNCTION, function_body, None, Some(LitType::Integer(func_name_index as i32))))
+        Some(ASTNode::new(ASTNodeKind::AST_FUNCTION, function_body, None, Some(LitType::I32(func_name_index as i32))))
     }
 
     fn parse_while_stmt(&mut self) -> Option<ASTNode> {
@@ -179,7 +180,7 @@ impl<'a> Parser<'a> {
 
     fn parse_assignment_stmt(&mut self) -> Option<ASTNode> {
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
-        if self.sym_table.borrow().find(&id_token.lexeme) == 0xFFFFFFFF { // if the symbol has not been defined
+        if self.sym_table.borrow().find_symbol(&id_token.lexeme) == 0xFFFFFFFF { // if the symbol has not been defined
             panic!("Assigning to an undefined symbol '{}'", id_token.lexeme);
         }
         _ = self.token_match(TokenKind::T_EQUAL);
@@ -191,11 +192,23 @@ impl<'a> Parser<'a> {
 
     fn parse_global_variable_decl_stmt(&mut self) {
         _ = self.token_match(TokenKind::KW_GLOBAL);
-        _ = self.token_match(TokenKind::KW_INT);
+        // let mut sym: MaybeUninit<Symbol> = MaybeUninit::<Symbol>::uninit();
+        let mut sym: Symbol = Symbol::new(String::from(""), LitType::I32(0), SymbolType::Variable);
+        let mut data_size: i32 = 4;
+        match self.current_token.kind {
+            TokenKind::KW_INT => (),
+            | TokenKind::KW_CHAR => {
+                data_size = 2;
+                sym.lit_type = LitType::U8(0);
+            },
+            _ => panic!("Can't create variable of type {:?}", self.current_token.kind)
+        }
+        self.skip_to_next_token();
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
+        sym.name = id_token.lexeme.clone();
         _ = self.token_match(TokenKind::T_SEMICOLON);
-        self.sym_table.borrow_mut().add(&id_token.lexeme); // track the symbol that has been defined
-        println!("{}: .space 8 // int {};", id_token.lexeme, id_token.lexeme);
+        self.sym_table.borrow_mut().add_symbol(sym); // track the symbol that has been defined
+        println!("{}: .space {} // int {};", id_token.lexeme, data_size, id_token.lexeme);
     }
     
     fn parse_local_variable_decl_stmt(&mut self) {
@@ -238,7 +251,17 @@ impl<'a> Parser<'a> {
             if ok {
                 self.skip_to_next_token(); // skip the operator
                 if let Some(right) = self.parse_equality() {
-                    return Some(ASTNode::new(ASTNodeKind::from_token_kind(current_token_kind), Some(left), Some(right), None));
+                    // check type compatibility
+                    let compat_result: (bool, i32, i32) = left.value.as_ref().unwrap().compatible(right.value.as_ref().unwrap());
+                    let (_left, _right): (ASTNode, ASTNode) = match compat_result {
+                        (false, _, _) => panic!("Incompatible types: {:?} and {:?}", left.value.as_ref(), right.value.as_ref()),
+                        // `left` has to be promoted
+                        (true, 1, 0) => (ASTNode::make_leaf(left.operation, left.value.unwrap().convert(right.value.clone().unwrap())), right),
+                        // `right` has to be promoted
+                        (true, 0, 1) => (left.clone(), ASTNode::make_leaf(right.operation, right.value.unwrap().convert(left.value.clone().unwrap()))),
+                        _ => (left, right)
+                    };
+                    return Some(ASTNode::new(ASTNodeKind::from_token_kind(current_token_kind), Some(_left), Some(_right), None));
                 } else {
                     panic!("Something unexpected happended with this token: '{:?}'", self.current_token);
                 }
@@ -251,14 +274,15 @@ impl<'a> Parser<'a> {
         let current_token: Token = self.current_token.clone();
         self.skip_to_next_token();
         match current_token.kind {
-            TokenKind::T_INT_NUM => Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::Integer(current_token.lexeme.parse::<i32>().unwrap()))),
-            TokenKind::T_FLOAT_NUM => Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::Float(current_token.lexeme.parse::<f32>().unwrap()))),
+            TokenKind::T_INT_NUM => Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::I32(current_token.lexeme.parse::<i32>().unwrap()))),
+            TokenKind::T_FLOAT_NUM | TokenKind::T_DOUBLE_NUM => Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::F32(current_token.lexeme.parse::<f32>().unwrap()))),
+            TokenKind::T_CHAR => Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::U8(current_token.lexeme.parse::<u8>().unwrap()))),
             TokenKind::T_IDENTIFIER => {
-                let id_index: usize = self.sym_table.borrow().find(&current_token.lexeme);
+                let id_index: usize = self.sym_table.borrow().find_symbol(&current_token.lexeme);
                 if id_index == 0xFFFFFFFF { // if symbol has not been defined
                     panic!("Undefined symbol '{}'", current_token.lexeme);
                 }
-                Some(ASTNode::make_leaf(ASTNodeKind::AST_IDENT, LitType::Integer(id_index as i32)))
+                Some(ASTNode::make_leaf(ASTNodeKind::AST_IDENT, LitType::I32(id_index as i32)))
             },
             _ => {
                 println!("{:?}", current_token);
@@ -291,14 +315,20 @@ impl<'a> Parser<'a> {
     }
 }
 
+#[allow(clippy::redundant_pattern_matching)]
 #[cfg(test)]
 mod tests {
     use super::*; 
 
-    // test depth 1 binary tree
+    // test addition operation
     #[test]
     fn test_depth_one_bin_tree() {
         let mut tokener: Tokenizer = Tokenizer::new("5+5");
-        let _tokens: Vec<Token> = tokener.start_scan();
+        let tokens: Vec<Token> = tokener.start_scan();
+        let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
+        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let result: Option<ASTNode> = p.parse_equality();
+        matches!(result, Some(_));
+        assert_eq!(result.unwrap().operation, ASTNodeKind::AST_ADD);
     }
 }

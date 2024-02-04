@@ -26,32 +26,12 @@ SOFTWARE.
 
 use std::str::FromStr;
 
-// Literal Value Type Of The Program
-#[derive(Debug, Clone)]
-pub enum LitType {
-    Integer(i32),
-    Long(i64),
-    Short(i16),
-    Char(u8),
-    String(String),
-    Double(f64),
-    Float(f32),
-    Void,
-}
 
-impl PartialEq for LitType {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Integer(l0), Self::Integer(r0)) => l0 == r0,
-            (Self::Long(l0), Self::Long(r0)) => l0 == r0,
-            (Self::Short(l0), Self::Short(r0)) => l0 == r0,
-            (Self::Char(l0), Self::Char(r0)) => l0 == r0,
-            (Self::String(l0), Self::String(r0)) => l0 == r0,
-            (Self::Double(l0), Self::Double(r0)) => l0 == r0,
-            (Self::Float(l0), Self::Float(r0)) => l0 == r0,
-            _ => false,
-        }
-    }
+// The types of symbol names inside the symbol table
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub enum SymbolType {
+    Variable,
+    Function
 }
 
 // Token Type Of The Program
@@ -203,7 +183,8 @@ pub enum ASTNodeKind {
     AST_GLUE,
     AST_IF,
     AST_WHILE,
-    AST_FUNCTION
+    AST_FUNCTION,
+    AST_WIDEN,
 }
 
 impl ASTNodeKind {
