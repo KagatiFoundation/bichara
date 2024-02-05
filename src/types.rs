@@ -22,6 +22,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+use crate::enums::TokenKind;
+
 // Literal Value Type Of The Program
 #[derive(Debug, Clone)]
 pub enum LitType {
@@ -55,6 +57,17 @@ impl PartialEq for LitType {
 }
 
 impl LitType {
+    pub fn from_token_kind(kind: TokenKind) -> Option<Self> {
+        match kind {
+            TokenKind::T_INT_NUM => Some(LitType::I32(0)),
+            TokenKind::T_CHAR => Some(LitType::U8(0)),
+            TokenKind::T_DOUBLE_NUM => Some(LitType::F64(0.0)),
+            TokenKind::T_LONG_NUM => Some(LitType::I64(0)),
+            TokenKind::KW_VOID => Some(LitType::Void),
+            _ => None
+        }
+    }
+
     /// Verify the types' compatibility. The information on two kinds' compatibility is 
     /// contained in the three-value tuple that this method produces. The first value of 
     /// the tuple is `true` if they are compatible, and `false` otherwise. The purpose of 

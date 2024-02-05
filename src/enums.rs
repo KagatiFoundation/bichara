@@ -41,6 +41,7 @@ pub enum TokenKind {
     T_FLOAT_NUM, T_DOUBLE_NUM,
     T_INT_NUM, T_SHORT_NUM,
     T_STRING, T_CHAR, 
+    T_LONG_NUM, // to represent long(64-bit) values
     T_IDENTIFIER, 
     _T_LITERAL_END_, // literal types end here
 
@@ -184,7 +185,7 @@ pub enum ASTNodeKind {
     AST_IF,
     AST_WHILE,
     AST_FUNCTION,
-    AST_WIDEN,
+    AST_FUNC_CALL,
 }
 
 impl ASTNodeKind {

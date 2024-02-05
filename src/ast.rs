@@ -33,41 +33,45 @@ lazy_static::lazy_static! {
 
 #[derive(Debug, Clone)]
 pub struct ASTNode {
-    pub operation: ASTNodeKind, // operation to be performed on this AST node
+    pub operation: ASTNodeKind, // what type of operation to be performed on this node
     pub left: Box<Option<ASTNode>>,
     pub right: Box<Option<ASTNode>>,
     pub mid: Box<Option<ASTNode>>,
-    pub value: Option<LitType>,
+    pub value: Option<LitType>, // on what value the operation is going to be performed
+    pub result_type: LitType, // what type of result the evaulation of this ASTNode will produce
 }
 
 impl ASTNode {
-    pub fn new(op: ASTNodeKind, left: Option<ASTNode>, right: Option<ASTNode>, value: Option<LitType>) -> Self {
+    pub fn new(op: ASTNodeKind, left: Option<ASTNode>, right: Option<ASTNode>, value: Option<LitType>, result_type: LitType) -> Self {
         Self { 
             operation: op, 
             left: Box::new(left), 
             right: Box::new(right), 
             mid: Box::new(None), 
-            value
+            value,
+            result_type
         }
     }
 
-    pub fn make_leaf(op: ASTNodeKind, value: LitType) -> Self {
+    pub fn make_leaf(op: ASTNodeKind, value: LitType, result_type: LitType) -> Self {
         Self { 
             operation: op, 
             left: Box::new(None), 
             right: Box::new(None), 
             mid: Box::new(None), 
-            value: Some(value)
+            value: Some(value),
+            result_type
         }
     }
 
-    pub fn with_mid(op: ASTNodeKind, left: Option<ASTNode>, right: Option<ASTNode>, mid: Option<ASTNode>, value: Option<LitType>) -> Self {
+    pub fn with_mid(op: ASTNodeKind, left: Option<ASTNode>, right: Option<ASTNode>, mid: Option<ASTNode>, value: Option<LitType>, result_type: LitType) -> Self {
         Self { 
             operation: op, 
             left: Box::new(left), 
             right: Box::new(right), 
             mid: Box::new(mid), 
-            value
+            value,
+            result_type
         }
     }
 }

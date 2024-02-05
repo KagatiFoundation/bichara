@@ -424,10 +424,10 @@ impl Tokenizer {
         if period_detected {
             token.kind = TokenKind::T_DOUBLE_NUM;
         } else {
-            let _value: i32 = number.parse::<i32>().unwrap();
-            if (0..256).contains(&_value) {
-                token.kind = TokenKind::T_CHAR;
-            }
+            let _value: i64 = number.parse::<i64>().unwrap();
+            token.kind = if (0..256).contains(&_value) { TokenKind::T_CHAR } 
+            else if (0..std::i64::MAX).contains(&_value) { TokenKind::T_LONG_NUM }
+            else { TokenKind::T_INT_NUM }
         }
         token.lexeme = String::from(number);
         TokenizationResult::Success(token)
