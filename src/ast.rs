@@ -147,7 +147,9 @@ impl ASTTraverser {
             _ => panic!("Not a valid symbol table indexing method")
         };
         println!("{}:", self.sym_table.borrow().get_symbol(index).name);
-        self.gen_ast((*ast.left).as_ref().unwrap(), 0xFFFFFFFF, ast.operation);
+        if let Some(body) = &*ast.left {
+            self.gen_ast(body, 0xFFFFFFFF, ast.operation);
+        }
         println!("mov x0, 0");
         0xFFFFFFFF
     }
@@ -204,13 +206,13 @@ impl ASTTraverser {
     }
 
     fn gen_add(&mut self, r1: usize, r2: usize) -> usize {
-        println!("add {}, {}, {}\n", self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r2));
+        println!("add {}, {}, {}", self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r2));
         self.reg_manager.borrow_mut().deallocate(r2);
         r1
     }
     
     fn gen_sub(&mut self, r1: usize, r2: usize) -> usize {
-        println!("sub {}, {}, {}\n", self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r2));
+        println!("sub {}, {}, {}", self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r2));
         self.reg_manager.borrow_mut().deallocate(r2);
         r1
     }
@@ -246,15 +248,24 @@ impl ASTTraverser {
 
     fn gen_load_reg_into_gid(&mut self, reg: usize, id: &LitType) -> usize {
         let reg_name: String = self.reg_manager.borrow().name(reg);
-        let sym: String = match id {
-            LitType::I32(int_id) => self.sym_table.borrow().get_symbol(*int_id as usize).name.clone(),
-            LitType::String(_id) => _id.clone(),
-            _ => String::from(""),
+        let mut offset: usize = 0;
+        match id {
+            LitType::I32(index) => {
+                for (idx, symbol) in self.sym_table.borrow().iter().enumerate() {
+                    if idx == *index as usize { break; }
+                    if symbol.sym_type == SymbolType::Variable {
+                        offset += 4;
+                    }
+                }
+            },
+            _ => panic!("Not supported indexing type!")
         };
         let addr_reg: usize = self.reg_manager.borrow_mut().allocate();
         let addr_reg_name: String = self.reg_manager.borrow().name(addr_reg);
-        println!("ldr {}, ={}\nstr {}, [{}]", addr_reg_name, sym, reg_name, addr_reg_name);
-        0
+        println!("adrp {}, .L2+{}@PAGE", addr_reg_name, offset);
+        println!("add {}, {}, .L2+{}@PAGEOFF", &addr_reg_name, addr_reg_name, offset);
+        println!("str {}, [{}]", reg_name, addr_reg_name);
+        addr_reg
     }
 
     fn get_next_label(&mut self) -> usize {

@@ -24,6 +24,7 @@ SOFTWARE.
 
 use crate::enums::*;
 use crate::types::*;
+use std::slice::Iter;
 
 #[derive(Clone)]
 pub struct Symbol {
@@ -40,8 +41,14 @@ impl Symbol {
 
 #[derive(Clone)]
 pub struct Symtable {
-    syms: Vec<Symbol>, // tracks all the global symbols
+    syms: Vec<Symbol>, // 
     counter: usize, // next free slot in the table
+}
+
+impl Symtable {
+    pub fn iter(&self) -> Iter<'_, Symbol> {
+        self.syms.iter()
+    }
 }
 
 // Maximum number of symbols in program

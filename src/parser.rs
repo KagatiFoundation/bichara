@@ -47,14 +47,27 @@ impl<'a> Parser<'a> {
     }
 
     pub fn start(&mut self, traverser: &mut ASTTraverser) {
-        // first, parse the globals
-        self.parse_globals();
-        // main code starts from here
-        println!(".text");
+        let mut nodes: Vec<ASTNode> = vec![];
         loop {
             if self.current_token.kind == TokenKind::T_EOF { break; }
-            if let Some(stmt) = &self.parse_single_stmt() {
-                traverser.traverse(stmt);
+            if let Some(stmt) = self.parse_single_stmt() {
+                nodes.push(stmt);
+            }
+        }
+        self.dump_globals();
+        // .text section starts from here
+        println!("\n.text");
+        for node in &nodes {
+            traverser.traverse(node);
+        }
+        println!("mov x0, 0\nmov x16, 1\nsvc 0x80");
+    }
+
+    fn dump_globals(&self) {
+        println!(".data\n\t.align 2\n.L2:");
+        for symbol in self.sym_table.borrow().iter() {
+            if symbol.sym_type == SymbolType::Variable {
+                println!("\t.word 0");
             }
         }
     }
@@ -62,13 +75,8 @@ impl<'a> Parser<'a> {
     fn parse_single_stmt(&mut self) -> Option<ASTNode> {
          match self.current_token.kind {
             TokenKind::KW_GLOBAL => {
-                // ignore globals as they are already parsed
-                self.jump_past(TokenKind::T_SEMICOLON);
+                self.parse_global_variable_decl_stmt();
                 None
-            },
-            TokenKind::KW_LOCAL => {
-                self.parse_local_variable_decl_stmt();
-                Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::I32(12), LitType::I32(0)))
             },
             TokenKind::T_IDENTIFIER => self.parse_assignment_stmt(),
             TokenKind::KW_IF => self.parse_if_stmt(),
@@ -79,21 +87,6 @@ impl<'a> Parser<'a> {
             TokenKind::T_EOF => None,
             _ => panic!("Syntax error: {:?}", self.current_token)
         }
-    }
-
-    // This function parses tokens starting from 'KW_GLOBAL' to the next 'T_SEMICOLON'.
-    fn parse_globals(&mut self) {
-        println!(".data");
-        loop {
-            match self.current_token.kind {
-                TokenKind::KW_GLOBAL => self.parse_global_variable_decl_stmt(),
-                TokenKind::T_EOF => break,
-                _ => self.skip_to_next_token()
-            }
-        }
-        // reinit the parser to its starting state
-        self.current_token = &self.tokens[0];
-        self.current = 0;
     }
 
     // parse compound statement(statement starting with '{' and ending with '}')
@@ -186,14 +179,15 @@ impl<'a> Parser<'a> {
 
     fn parse_assignment_stmt(&mut self) -> Option<ASTNode> {
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
-        if self.sym_table.borrow().find_symbol(&id_token.lexeme) == 0xFFFFFFFF { // if the symbol has not been defined
+        let _id_index_symt: usize = self.sym_table.borrow().find_symbol(&id_token.lexeme);
+        if _id_index_symt == 0xFFFFFFFF { // if the symbol has not been defined
             panic!("Assigning to an undefined symbol '{}'", id_token.lexeme);
         }
         _ = self.token_match(TokenKind::T_EQUAL);
         let bin_expr_node: Option<ASTNode> = self.parse_equality();
         let _result_type: LitType = bin_expr_node.as_ref().unwrap().result_type.clone();
         _ = self.token_match(TokenKind::T_SEMICOLON);
-        let lvalueid: ASTNode = ASTNode::make_leaf(ASTNodeKind::AST_LVIDENT, LitType::String(id_token.lexeme), LitType::String(String::from("")));
+        let lvalueid: ASTNode = ASTNode::make_leaf(ASTNodeKind::AST_LVIDENT, LitType::I32(_id_index_symt as i32), LitType::String(String::from("")));
         Some(ASTNode::new(ASTNodeKind::AST_ASSIGN, bin_expr_node, Some(lvalueid), None, _result_type))
     }
 
@@ -201,13 +195,10 @@ impl<'a> Parser<'a> {
         _ = self.token_match(TokenKind::KW_GLOBAL);
         // let mut sym: MaybeUninit<Symbol> = MaybeUninit::<Symbol>::uninit();
         let mut sym: Symbol = Symbol::new(String::from(""), LitType::I32(0), SymbolType::Variable);
-        let mut data_size: i32 = 4;
         match self.current_token.kind {
             TokenKind::KW_INT => (),
-            | TokenKind::KW_CHAR => {
-                data_size = 2;
-                sym.lit_type = LitType::U8(0);
-            },
+            | TokenKind::KW_CHAR => sym.lit_type = LitType::U8(0),
+            TokenKind::T_LONG_NUM => sym.lit_type = LitType::I64(0),
             _ => panic!("Can't create variable of type {:?}", self.current_token.kind)
         }
         self.skip_to_next_token();
@@ -215,14 +206,6 @@ impl<'a> Parser<'a> {
         sym.name = id_token.lexeme.clone();
         _ = self.token_match(TokenKind::T_SEMICOLON);
         self.sym_table.borrow_mut().add_symbol(sym); // track the symbol that has been defined
-        println!("{}: .space {} // int {};", id_token.lexeme, data_size, id_token.lexeme);
-    }
-    
-    fn parse_local_variable_decl_stmt(&mut self) {
-        _ = self.token_match(TokenKind::KW_LOCAL);
-        _ = self.token_match(TokenKind::KW_INT);
-        let _id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
-        _ = self.token_match(TokenKind::T_SEMICOLON);
     }
 
     fn parse_equality(&mut self) -> Option<ASTNode> {
@@ -253,15 +236,11 @@ impl<'a> Parser<'a> {
                 let id_type: LitType = possible_id_node.clone().unwrap().value.unwrap();
                 match id_type {
                     LitType::I32(id_idx) => {
-                        if id_idx as usize == 0xFFFFFFFF {
-                            panic!("Undefined symbol!");
-                        }
                         let symbol: Symbol = self.sym_table.borrow().get_symbol(id_idx as usize).clone();
-                        (id_idx, symbol.lit_type.clone())
+                        (id_idx as usize, symbol.lit_type.clone())
                     },
-                    _ => panic!("{:?}", id_type)
-                };
-                (0, LitType::None)
+                    _ => panic!("parse_func_call_expr: {:?}", id_type)
+                }
             };
             self.token_match(TokenKind::T_RPAREN); // match and ignore ')'
             Some(ASTNode::make_leaf(ASTNodeKind::AST_FUNC_CALL, LitType::I32(symbol_index as i32), result_type))
