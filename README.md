@@ -2,22 +2,43 @@
 
 ## Poor C-like language Compiler in Rust.
 
+### Run
+```shell
+$ cargo run
+```
+
+### Test
+```shell
+$ cargo test
+```
+
 ### Example Input
 ```c
-global int c;
-c = 5;
+global int a; 
+a = 4 + 5; 
+global int b;
+b = 4;
 ```
 
 ### Output
 ```asm
 .data
-c: .word 0 // int c;
+	.align 2
+.L2:
+	.word 0
+	.word 0
+
 .text
-.global _main
-_main:
-mov x0, 5
-ldr x3, =c
-str x0, [x3]
+mov x4, 4
+mov x3, 5
+add x4, x4, x3
+adrp x3, .L2+0@PAGE
+add x3, x3, .L2+0@PAGEOFF
+str x4, [x3]
+mov x1, 4
+adrp x8, .L2+4@PAGE
+add x8, x8, .L2+4@PAGEOFF
+str x1, [x8]
 mov x0, 0
 mov x16, 1
 svc 0x80
