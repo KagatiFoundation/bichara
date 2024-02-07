@@ -177,6 +177,9 @@ impl<'a> Parser<'a> {
         cond_ast
     }
 
+    /*
+    TODO: Check type of the variable before assigning
+    */
     fn parse_assignment_stmt(&mut self) -> Option<ASTNode> {
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
         let _id_index_symt: usize = self.sym_table.borrow().find_symbol(&id_token.lexeme);
@@ -275,7 +278,7 @@ impl<'a> Parser<'a> {
                             (left.clone(), right, rt)
                         }
                     };
-                    return Some(ASTNode::new(ASTNodeKind::from_token_kind(current_token_kind), Some(_left), Some(_right), None, _rtype));
+                    return Some(ASTNode::new(ASTNodeKind::from_token_kind(current_token_kind), Some(_left), Some(_right), Some(LitType::I32(0)), _rtype));
                 } else {
                     panic!("Something unexpected happended with this token: '{:?}'", self.current_token);
                 }
@@ -298,6 +301,12 @@ impl<'a> Parser<'a> {
                 }
                 let symbol: Symbol = self.sym_table.borrow().get_symbol(id_index).clone();
                 Some(ASTNode::make_leaf(ASTNodeKind::AST_IDENT, LitType::I32(id_index as i32), symbol.lit_type))
+            },
+            TokenKind::T_LPAREN => { // group expression: e.g: (a * (b + c)))
+                let group_expr: Option<ASTNode> = self.parse_equality();
+                // Group expression terminates with ')'. Match and ignore ')'.
+                self.token_match(TokenKind::T_RPAREN); 
+                group_expr
             },
             _ => {
                 println!("{:?}", current_token);
@@ -335,6 +344,22 @@ impl<'a> Parser<'a> {
 mod tests {
     use super::*; 
 
+    #[test]
+    fn test_group_expression_tree_structure() {
+        let mut tokener: Tokenizer = Tokenizer::new("(5 + (3 * 4))");
+        let tokens: Vec<Token> = tokener.start_scan();
+        let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
+        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let result: Option<ASTNode> = p.parse_equality();
+        matches!(result, Some(_));
+        let upvalue: ASTNode = result.unwrap();
+        let left_tree: &ASTNode = (*upvalue.left).as_ref().unwrap();
+        let right_tree: &ASTNode = (*upvalue.right).as_ref().unwrap();
+        assert_eq!(upvalue.operation, ASTNodeKind::AST_ADD);
+        assert_eq!(left_tree.operation, ASTNodeKind::AST_INTLIT);
+        assert_eq!(right_tree.operation, ASTNodeKind::AST_MULTIPLY);
+    }
+
     // test addition operation
     #[test]
     fn test_depth_one_bin_tree() {
@@ -345,5 +370,28 @@ mod tests {
         let result: Option<ASTNode> = p.parse_equality();
         matches!(result, Some(_));
         assert_eq!(result.unwrap().operation, ASTNodeKind::AST_ADD);
+    }
+
+    // test if-else block
+    #[test]
+    fn test_if_else_statement_block() {
+        let mut tokener: Tokenizer = Tokenizer::new("if (4 > 5) { global int a; } else { global int b; }");
+        let tokens: Vec<Token> = tokener.start_scan();
+        let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
+        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let result: Option<ASTNode> = p.parse_if_stmt();
+        matches!(result, Some(_));
+        let upvalue: &ASTNode = result.as_ref().unwrap();
+        // Global variable declaration statements produce None as result. 
+        // So, both 'mid (if)' and 'right (else)' has to be None types
+        matches!(*upvalue.mid, None);
+        matches!(*upvalue.right, None);
+        assert_eq!(upvalue.operation, ASTNodeKind::AST_IF); // main AST node is of AST_IF type
+        assert_eq!((*upvalue.left).as_ref().unwrap().operation, ASTNodeKind::AST_GTHAN);
+    }
+
+    #[test]
+    fn test_while_statement_block() {
+
     }
 }

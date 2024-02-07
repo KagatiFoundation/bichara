@@ -426,7 +426,7 @@ impl Tokenizer {
         } else {
             let _value: i64 = number.parse::<i64>().unwrap();
             token.kind = if (0..256).contains(&_value) { TokenKind::T_CHAR } 
-            else if (0..std::i64::MAX).contains(&_value) { TokenKind::T_LONG_NUM }
+            else if ((std::i32::MAX as i64)..std::i64::MAX).contains(&_value) { TokenKind::T_LONG_NUM }
             else { TokenKind::T_INT_NUM }
         }
         token.lexeme = String::from(number);
@@ -554,15 +554,24 @@ mod tests {
     fn test_empty_source() {
         let mut tok: Tokenizer = Tokenizer::new("");
         let tokens: Vec<Token> = tok.start_scan();
-        assert_eq!(tokens.len(), 1); // only EOF is present
-        assert_eq!(tokens[0].kind, TokenKind::T_EOF); // only EOF is present
+        assert_eq!(tokens.len(), 1); // only T_EOF is present
+        assert_eq!(tokens[0].kind, TokenKind::T_EOF); // only T_EOF is present
     }
 
     #[test]
     fn test_only_whitespace_source() {
         let mut tok: Tokenizer = Tokenizer::new("               ");
         let tokens: Vec<Token> = tok.start_scan();
-        assert_eq!(tokens.len(), 1); // only EOF is present
+        assert_eq!(tokens.len(), 1); // only T_EOF is present
         assert_eq!(tokens[0].kind, TokenKind::T_EOF); // only EOF is present
+    }
+
+    #[test]
+    fn test_while_if_else_statement() {
+        let mut tok: Tokenizer = Tokenizer::new("if (4 > 5) { } else { }");
+        let tokens: Vec<Token> = tok.start_scan();
+        assert_eq!(tokens.len(), 12); // including T_EOF
+        assert_eq!(tokens[0].kind, TokenKind::KW_IF);
+        assert_eq!(tokens[8].kind, TokenKind::KW_ELSE);
     }
 }

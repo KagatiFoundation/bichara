@@ -246,6 +246,7 @@ impl ASTTraverser {
         value_containing_reg
     }
 
+    // Refer to this page for explanation on '@PAGE' and '@PAGEOFF': https://stackoverflow.com/questions/65351533/apple-clang12-llvm-unknown-aarch64-fixup-kind
     fn gen_load_reg_into_gid(&mut self, reg: usize, id: &LitType) -> usize {
         let reg_name: String = self.reg_manager.borrow().name(reg);
         let mut offset: usize = 0;
