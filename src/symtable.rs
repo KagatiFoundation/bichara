@@ -29,12 +29,12 @@ use std::slice::Iter;
 #[derive(Clone, PartialEq, Debug)]
 pub struct Symbol {
     pub name: String,
-    pub lit_type: LitType, // What kind of value this symbol is
+    pub lit_type: LitTypeVariant, // What kind of value this symbol is
     pub sym_type: SymbolType // What type of symbol this is. i.e. Variable or Function
 }
 
 impl Symbol {
-    pub fn new(name: String, lit: LitType, sym_type: SymbolType) -> Self {
+    pub fn new(name: String, lit: LitTypeVariant, sym_type: SymbolType) -> Self {
         Self { name, lit_type: lit, sym_type }
     }
 }
@@ -99,13 +99,13 @@ mod tests {
     #[test]
     fn test_symbol_addition() {
         let mut table: Symtable = Symtable::new();
-        assert_eq!(table.add_symbol(Symbol::new(String::from("number"), super::LitType::I32(0), SymbolType::Variable)), 0);
+        assert_eq!(table.add_symbol(Symbol::new(String::from("number"), super::LitTypeVariant::I32, SymbolType::Variable)), 0);
         assert_eq!(table.syms.len(), 1);
-        assert_eq!(table.add_symbol(Symbol::new(String::from("number2"), super::LitType::I32(0), SymbolType::Variable)), 1);
-        assert_eq!(table.add_symbol(Symbol::new(String::from("number3"), super::LitType::I32(0), SymbolType::Variable)), 2);
-        assert_eq!(table.add_symbol(Symbol::new(String::from("number4"), super::LitType::I32(0), SymbolType::Variable)), 3);
-        assert_eq!(table.add_symbol(Symbol::new(String::from("number5"), super::LitType::I32(0), SymbolType::Variable)), 4);
-        assert_eq!(table.add_symbol(Symbol::new(String::from("number6"), super::LitType::I32(0), SymbolType::Variable)), 5);
+        assert_eq!(table.add_symbol(Symbol::new(String::from("number2"), super::LitTypeVariant::I32, SymbolType::Variable)), 1);
+        assert_eq!(table.add_symbol(Symbol::new(String::from("number3"), super::LitTypeVariant::I32, SymbolType::Variable)), 2);
+        assert_eq!(table.add_symbol(Symbol::new(String::from("number4"), super::LitTypeVariant::I32, SymbolType::Variable)), 3);
+        assert_eq!(table.add_symbol(Symbol::new(String::from("number5"), super::LitTypeVariant::I32, SymbolType::Variable)), 4);
+        assert_eq!(table.add_symbol(Symbol::new(String::from("number6"), super::LitTypeVariant::I32, SymbolType::Variable)), 5);
     }
 
     // This test insures that no more than 1024 symbols are defined in program.
@@ -114,15 +114,15 @@ mod tests {
     fn test_more_than_1024_symbols_creates_panic_situation() {
         let mut table: Symtable = Symtable::new();
         table.counter = NSYMBOLS;
-        table.add_symbol(Symbol::new(String::from("number"), super::LitType::I32(0), SymbolType::Variable));
-    }
-
-    #[test]
-    fn test_find_symbol_index_from_it_name() {
-        let mut table: Symtable = Symtable::new();
-        table.add_symbol(Symbol::new(String::from("number2"), super::LitType::I32(0), SymbolType::Variable));
-        table.add_symbol(Symbol::new(String::from("number3"), super::LitType::I32(0), SymbolType::Variable));
-        table.add_symbol(Symbol::new(String::from("number4"), super::LitType::I32(0), SymbolType::Variable));
+        table.add_symbol(Symbol::new(String::from("number"), super::LitTypeVariant::I32, SymbolType::Variable));
+    }                                                                       
+                                                                            
+    #[test]                                                                 
+    fn test_find_symbol_index_from_it_name() {                              
+        let mut table: Symtable = Symtable::new();                          
+        table.add_symbol(Symbol::new(String::from("number2"), super::LitTypeVariant::I32, SymbolType::Variable));
+        table.add_symbol(Symbol::new(String::from("number3"), super::LitTypeVariant::I32, SymbolType::Variable));
+        table.add_symbol(Symbol::new(String::from("number4"), super::LitTypeVariant::I32, SymbolType::Variable));
         assert_eq!(table.find_symbol("number2"), 0);
         assert_eq!(table.find_symbol("number3"), 1);
         assert_eq!(table.find_symbol("number4"), 2);
@@ -131,9 +131,9 @@ mod tests {
     #[test]
     fn test_symbol_removal() {
         let mut table: Symtable = Symtable::new();
-        table.add_symbol(Symbol::new(String::from("number2"), super::LitType::I32(0), SymbolType::Variable));
-        table.add_symbol(Symbol::new(String::from("number3"), super::LitType::I32(0), SymbolType::Variable));
-        table.add_symbol(Symbol::new(String::from("number4"), super::LitType::I32(0), SymbolType::Variable));
-        assert_eq!(table.remove_symbol(0), Symbol::new(String::from("number2"), crate::symtable::LitType::I32(0), SymbolType::Variable)); 
+        table.add_symbol(Symbol::new(String::from("number2"), super::LitTypeVariant::I32, SymbolType::Variable));
+        table.add_symbol(Symbol::new(String::from("number3"), super::LitTypeVariant::I32, SymbolType::Variable));
+        table.add_symbol(Symbol::new(String::from("number4"), super::LitTypeVariant::I32, SymbolType::Variable));
+        assert_eq!(table.remove_symbol(0), Symbol::new(String::from("number2"), crate::symtable::LitTypeVariant::I32, SymbolType::Variable)); 
     }
 }

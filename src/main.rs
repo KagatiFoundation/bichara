@@ -35,7 +35,7 @@ pub mod register;
 pub mod types;
 
 fn main() { 
-    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("global int a; a = 4 + 5; global int b; b = 4;");
+    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("global char a; a = 123; global int b; b = 34 + a;");
     let tokens: Vec<tokenizer::Token> = tokener.start_scan();
     let reg_manager: Rc<RefCell<register::RegisterManager>> = Rc::new(RefCell::new(register::RegisterManager::new()));
     let sym_table: Rc<RefCell<symtable::Symtable>> = Rc::new(RefCell::new(symtable::Symtable::new()));

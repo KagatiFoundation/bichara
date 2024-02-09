@@ -24,33 +24,57 @@ SOFTWARE.
 
 use crate::enums::TokenKind;
 
-// Literal Value Type Of The Program
+// Literal value types
 #[derive(Debug, Clone)]
 pub enum LitType {
-    I64(i64),
-    U64(u64),
-    I32(i32),
-    U32(u32),
-    I16(i16), // two byte
-    U16(u16), // two byte unsigned
-    I8(i8), // one byte
-    U8(u8), // one byte unsigned
-    F64(f64),
-    F32(f32),
-    String(String),
-    Void,
+    I64(i64), // 64-bit integer
+    I32(i32), // 32-bit integer
+    I16(i16), // 16-bit integer
+    U8(u8), // 8-bit integer. Also known as 'char' in C programming language.
+    F64(f64), // Double-precicion floating point number. 64-bit float type.
+    F32(f32), // Single-precicion floating point number. 32-bit float type.
+    Void, // Void return type
+    // pointer types
+    I64Ptr(u64),
+    I32Ptr(u64),
+    I16Ptr(u64),
+    U8Ptr(u64),
+    F64Ptr(u64),
+    F32Ptr(u64),
+    VoidPtr(u64),
+    Str(String), // This type(String) is not supported by this language.
+                    // I am using this as a identifier name holder in parsing process.
     None
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum LitTypeVariant {
+    I32,
+    I64,
+    I16,
+    U8,
+    F64,
+    F32,
+    Void,
+    I64Ptr,
+    I32Ptr,
+    I16Ptr,
+    U8Ptr,
+    F64Ptr,
+    F32Ptr,
+    VoidPtr,
+    None,
 }
 
 impl PartialEq for LitType {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::I32(l0), Self::I32(r0)) => l0 == r0,
-            (Self::I64(l0), Self::I64(r0)) => l0 == r0,
-            (Self::I16(l0), Self::I16(r0)) => l0 == r0,
-            (Self::F64(l0), Self::F64(r0)) => l0 == r0,
-            (Self::F32(l0), Self::F32(r0)) => l0 == r0,
-            (Self::String(l0), Self::String(r0)) => l0 == r0,
+            (Self::I32(l0), Self::I32(r0)) => *l0 == *r0,
+            (Self::I64(l0), Self::I64(r0)) => *l0 == *r0,
+            (Self::I16(l0), Self::I16(r0)) => *l0 == *r0,
+            (Self::F64(l0), Self::F64(r0)) => *l0 == *r0,
+            (Self::F32(l0), Self::F32(r0)) => *l0 == *r0,
+            (Self::U8(l0), Self::U8(r0)) => *l0 == *r0,
             _ => false,
         }
     }
@@ -68,22 +92,30 @@ impl LitType {
         }
     }
 
-    /// Verify the types' compatibility. The information on two kinds' compatibility is 
-    /// contained in the three-value tuple that this method produces. The first value of 
-    /// the tuple is `true` if they are compatible, and `false` otherwise. The purpose of 
-    /// the other two integer values is to see whether any of them need to be expanded. 
-    /// It indicates that the first value has to be broadened if the first integer value is `1`. 
-    /// `0` if it is not required. The second value is also subject to the same constraints.
-    pub fn compatible(&self, other: &Self) -> (bool, i32, i32) {
-        match (self, other) {
-            (LitType::Void, LitType::Void) => (false, 0, 0),
-            (LitType::I32(_), LitType::U8(_)) => (true, 0, 1),
-            (LitType::U8(_), LitType::I32(_)) => (true, 1, 0),
-            // anything remaining is compatible
-            _ => (true, 1, 1)
+    pub fn variant(&self) -> LitTypeVariant {
+        match self {
+            Self::I32(_) => LitTypeVariant::I32,
+            Self::I64(_) => LitTypeVariant::I64,
+            Self::I16(_) => LitTypeVariant::I16,
+            Self::U8(_) => LitTypeVariant::U8,
+            Self::F64(_) => LitTypeVariant::F64,
+            Self::F32(_) => LitTypeVariant::F32,
+            Self::Void => LitTypeVariant::Void,
+            Self::I64Ptr(_) => LitTypeVariant::I64Ptr,
+            Self::I32Ptr(_) => LitTypeVariant::I32Ptr,
+            Self::I16Ptr(_) => LitTypeVariant::I16Ptr,
+            Self::U8Ptr(_) => LitTypeVariant::U8Ptr,
+            Self::F64Ptr(_) => LitTypeVariant::F64Ptr,
+            Self::F32Ptr(_) => LitTypeVariant::F32Ptr,
+            Self::VoidPtr(_) => LitTypeVariant::VoidPtr,
+            _ => panic!("not a valid type to calculate variant of!")
         }
     }
 
+    /// Convert this LitType variant into another LitType. 
+    /// Possible conversions are:
+    ///     1) U8 to I32
+    ///     2) I32 to U8 (0 >= I32 < 256)
     pub fn convert(&self, to: LitType) -> Self {
         match (self, to.clone()) {
             // converting char into integer
@@ -95,5 +127,25 @@ impl LitType {
             },
             _ => panic!("Can't be converted from {:?} to {:?}", self, to)
         }
+    }
+}
+
+// tests
+#[cfg(test)]
+mod tests {
+    use super::LitType;
+
+    #[test]
+    fn test_conversion_from_i32_to_u8() {
+        let a: LitType = LitType::I32(12);
+        assert_eq!(a.convert(LitType::U8(0)), LitType::U8(12));
+    }
+    
+    #[test]
+    #[should_panic]
+    // Trying to conver 1223 into unsigned char. This should fail.
+    fn test_conversion_from_i32_to_u8_with_overflowing_value() {
+        let a: LitType = LitType::I32(1233);
+        a.convert(LitType::U8(0));
     }
 }

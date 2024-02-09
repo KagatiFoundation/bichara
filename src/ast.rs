@@ -38,11 +38,11 @@ pub struct ASTNode {
     pub right: Box<Option<ASTNode>>,
     pub mid: Box<Option<ASTNode>>,
     pub value: Option<LitType>, // on what value the operation is going to be performed
-    pub result_type: LitType, // what type of result the evaulation of this ASTNode will produce
+    pub result_type: LitTypeVariant, // what type of result the evaulation of this ASTNode will produce
 }
 
 impl ASTNode {
-    pub fn new(op: ASTNodeKind, left: Option<ASTNode>, right: Option<ASTNode>, value: Option<LitType>, result_type: LitType) -> Self {
+    pub fn new(op: ASTNodeKind, left: Option<ASTNode>, right: Option<ASTNode>, value: Option<LitType>, result_type: LitTypeVariant) -> Self {
         Self { 
             operation: op, 
             left: Box::new(left), 
@@ -53,7 +53,7 @@ impl ASTNode {
         }
     }
 
-    pub fn make_leaf(op: ASTNodeKind, value: LitType, result_type: LitType) -> Self {
+    pub fn make_leaf(op: ASTNodeKind, value: LitType, result_type: LitTypeVariant) -> Self {
         Self { 
             operation: op, 
             left: Box::new(None), 
@@ -64,7 +64,7 @@ impl ASTNode {
         }
     }
 
-    pub fn with_mid(op: ASTNodeKind, left: Option<ASTNode>, right: Option<ASTNode>, mid: Option<ASTNode>, value: Option<LitType>, result_type: LitType) -> Self {
+    pub fn with_mid(op: ASTNodeKind, left: Option<ASTNode>, right: Option<ASTNode>, mid: Option<ASTNode>, value: Option<LitType>, result_type: LitTypeVariant) -> Self {
         Self { 
             operation: op, 
             left: Box::new(left), 
@@ -239,7 +239,7 @@ impl ASTTraverser {
         let value_containing_reg_name: String = self.reg_manager.borrow().name(value_containing_reg);
         let sym: String = match id {
             LitType::I32(int_id) => self.sym_table.borrow().get_symbol(*int_id as usize).name.clone(),
-            LitType::String(_id) => _id.clone(),
+            LitType::Str(_id) => _id.clone(),
             _ => String::from(""),
         };
         println!("ldr {}, ={}\nldr {}, [{}]\n", reg_name, sym, value_containing_reg_name, reg_name);
