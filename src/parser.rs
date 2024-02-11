@@ -190,15 +190,28 @@ impl<'a> Parser<'a> {
         }
         _ = self.token_match(TokenKind::T_EQUAL);
         let bin_expr_node: Option<ASTNode> = self.parse_equality();
-        let bin_expr_res_type: LitTypeVariant = bin_expr_node.as_ref().unwrap().result_type.clone();
+        let bin_expr_res_type: LitTypeVariant = bin_expr_node.as_ref().unwrap().result_type;
         // Test if expression type matches the variable type.
-        if bin_expr_res_type != symbol.lit_type {
+        if bin_expr_res_type != symbol.lit_type && !Parser::is_assignment_compatible(symbol.lit_type, bin_expr_node.as_ref().unwrap()) {
             panic!("Expression result does not match variable type! {:?} = {:?}???", symbol, bin_expr_res_type);
         }
-        let _result_type: LitTypeVariant = bin_expr_node.as_ref().unwrap().result_type.clone();
+        let _result_type: LitTypeVariant = bin_expr_node.as_ref().unwrap().result_type;
         _ = self.token_match(TokenKind::T_SEMICOLON);
-        let lvalueid: ASTNode = ASTNode::make_leaf(ASTNodeKind::AST_LVIDENT, LitType::I32(_id_index_symt as i32), symbol.lit_type.clone());
+        let lvalueid: ASTNode = ASTNode::make_leaf(ASTNodeKind::AST_LVIDENT, LitType::I32(_id_index_symt as i32), symbol.lit_type);
         Some(ASTNode::new(ASTNodeKind::AST_ASSIGN, bin_expr_node, Some(lvalueid), None, _result_type))
+    }
+
+    fn is_assignment_compatible(var_type: LitTypeVariant, node: &ASTNode) -> bool {
+        match var_type {
+            LitTypeVariant::I32 => {
+                match node.result_type {
+                    LitTypeVariant::I32 => true,
+                    LitTypeVariant::U8 => node.operation != ASTNodeKind::AST_IDENT,
+                    _ => false
+                }
+            },
+            _ => false,
+        }
     }
 
     fn parse_global_variable_decl_stmt(&mut self) {
@@ -247,7 +260,7 @@ impl<'a> Parser<'a> {
                 match id_type {
                     LitType::I32(id_idx) => {
                         let symbol: Symbol = self.sym_table.borrow().get_symbol(id_idx as usize).clone();
-                        (id_idx as usize, symbol.lit_type.clone())
+                        (id_idx as usize, symbol.lit_type)
                     },
                     _ => panic!("parse_func_call_expr: {:?}", id_type)
                 }
@@ -260,7 +273,7 @@ impl<'a> Parser<'a> {
     }
 
     fn try_parsing_binary(&mut self, left_side_tree: Option<ASTNode>, tokens: Vec<TokenKind>) -> Option<ASTNode> {
-        if let Some(left) = left_side_tree.clone() {
+        if let Some(ref mut left) = left_side_tree.clone() {
             let current_token_kind: TokenKind = self.current_token.kind;
             let mut ok: bool = false;
             for token in tokens {
@@ -271,13 +284,18 @@ impl<'a> Parser<'a> {
             }
             if ok {
                 self.skip_to_next_token(); // skip the operator
-                if let Some(right) = self.parse_equality() {
+                if let Some(ref mut right) = self.parse_equality() {
                     // check type compatibility
                     if left.result_type != right.result_type {
-                        panic!("Incompatible types: {:?} and {:?}", left.result_type, right.result_type);
+                        let compatibility: (bool, u8, u8) = left.value.as_ref().unwrap().compatible(right.value.as_ref().unwrap());
+                        match compatibility {
+                            (true, 0, 1) => right.result_type = left.result_type,
+                            (true, 1, 0) => left.result_type = right.result_type,
+                            _ => panic!("Incompatible types: '{:?}' and '{:?}'", left.result_type, right.result_type)
+                        }
                     }
-                    let result_type: LitTypeVariant = left.result_type.clone();
-                    return Some(ASTNode::new(ASTNodeKind::from_token_kind(current_token_kind), Some(left), Some(right), None, result_type));
+                    let result_type: LitTypeVariant = left.result_type;
+                    return Some(ASTNode::new(ASTNodeKind::from_token_kind(current_token_kind), Some(left.clone()), Some(right.clone()), None, result_type));
                 } else {
                     panic!("Something unexpected happended with this token: '{:?}'", self.current_token);
                 }
@@ -291,9 +309,10 @@ impl<'a> Parser<'a> {
         self.skip_to_next_token();
         match current_token.kind {
             TokenKind::T_INT_NUM => Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::I32(current_token.lexeme.parse::<i32>().unwrap()), LitTypeVariant::I32)),
+            TokenKind::T_CHAR => Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::U8(current_token.lexeme.parse::<u8>().unwrap()), LitTypeVariant::U8)),
+            TokenKind::T_LONG_NUM => Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::I64(current_token.lexeme.parse::<i64>().unwrap()), LitTypeVariant::I64)),
             TokenKind::T_FLOAT_NUM 
             | TokenKind::T_DOUBLE_NUM => Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::F32(current_token.lexeme.parse::<f32>().unwrap()), LitTypeVariant::F32)),
-            TokenKind::T_CHAR => Some(ASTNode::make_leaf(ASTNodeKind::AST_INTLIT, LitType::U8(current_token.lexeme.parse::<u8>().unwrap()), LitTypeVariant::U8)),
             TokenKind::T_IDENTIFIER => {
                 let id_index: usize = self.sym_table.borrow().find_symbol(&current_token.lexeme);
                 if id_index == 0xFFFFFFFF { // if symbol has not been defined
@@ -328,14 +347,6 @@ impl<'a> Parser<'a> {
         self.current += 1;
         if self.current >= self.tokens.len() { return; }
         self.current_token = &self.tokens[self.current];
-    }
-
-    // Jump to the token after the token of type 'kind'.
-    fn jump_past(&mut self, kind: TokenKind) {
-        while self.current_token.kind != kind {
-            self.skip_to_next_token();
-        }
-        self.skip_to_next_token();
     }
 }
 

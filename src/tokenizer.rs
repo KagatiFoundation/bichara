@@ -40,7 +40,7 @@ lazy_static! {
         let mut _keys: HashMap<&'static str, TokenKind> = HashMap::new();
         _keys.insert("for", TokenKind::KW_FOR);
         _keys.insert("while", TokenKind::KW_WHILE);
-        _keys.insert("int", TokenKind::KW_INT);
+        _keys.insert("integer", TokenKind::KW_INT);
         _keys.insert("float", TokenKind::KW_FLOAT);
         _keys.insert("double", TokenKind::KW_DOUBLE);
         _keys.insert("char", TokenKind::KW_CHAR,);

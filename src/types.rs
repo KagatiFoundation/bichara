@@ -47,7 +47,7 @@ pub enum LitType {
     None
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum LitTypeVariant {
     I32,
     I64,
@@ -110,6 +110,45 @@ impl LitType {
             Self::VoidPtr(_) => LitTypeVariant::VoidPtr,
             _ => panic!("not a valid type to calculate variant of!")
         }
+    }
+
+    pub fn size(&self) -> usize {
+        match self {
+            LitType::I64(_)
+            | LitType::F64(_)
+            | LitType::I64Ptr(_)
+            | LitType::I32Ptr(_)
+            | LitType::I16Ptr(_)
+            | LitType::U8Ptr(_)
+            | LitType::F64Ptr(_)
+            | LitType::F32Ptr(_)
+            | LitType::VoidPtr(_) => 64,
+            LitType::I32(_)
+            | LitType::F32(_) => 32,
+            LitType::I16(_) => 16,
+            LitType::U8(_) => 8,
+            _ => 0
+        }
+    }
+
+    pub fn compatible(&self, other: &Self) -> (bool, u8, u8) {
+        let self_size: usize = self.size();
+        let other_size: usize = other.size();
+        // Same types, they are compatible
+        if self.variant() == other.variant() {
+            return (true, 0, 0);
+        }
+        // Types with zero size are not compatible with anything
+        if self_size == 0 || other_size == 0 {
+            return (false, 0, 0);
+        }
+        if self_size < other_size {
+            return (true, 1, 0);
+        } 
+        if other_size < self_size {
+            return (true, 0, 1) ;
+        }
+        (true, 0, 0)
     }
 
     /// Convert this LitType variant into another LitType. 
