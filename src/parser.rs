@@ -427,7 +427,7 @@ mod tests {
     // test if-else block
     #[test]
     fn test_if_else_statement_block() {
-        let mut tokener: Tokenizer = Tokenizer::new("if (4 > 5) { global int a; } else { global int b; }");
+        let mut tokener: Tokenizer = Tokenizer::new("if (4 > 5) { global integer a; } else { global integer b; }");
         let tokens: Vec<Token> = tokener.start_scan();
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
         let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));

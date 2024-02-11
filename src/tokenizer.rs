@@ -462,15 +462,18 @@ mod tests {
 
     #[test]
     fn test_int_var_decl_tokenization() {
-        let mut tok: Tokenizer = Tokenizer::new("int a = 2323;");
+        let mut tok: Tokenizer = Tokenizer::new("global integer a; a = 2323;");
         let tokens: Vec<Token> = tok.start_scan();
-        assert!(tokens.len() == 6);
-        assert_eq!(tokens[0].kind, TokenKind::KW_INT);
-        assert_eq!(tokens[1].kind, TokenKind::T_IDENTIFIER);
-        assert_eq!(tokens[2].kind, TokenKind::T_EQUAL);
-        assert_eq!(tokens[3].kind, TokenKind::T_INT_NUM);
-        assert_eq!(tokens[4].kind, TokenKind::T_SEMICOLON);
-        assert_eq!(tokens[5].kind, TokenKind::T_EOF);
+        assert!(tokens.len() == 9);
+        assert_eq!(tokens[0].kind, TokenKind::KW_GLOBAL);
+        assert_eq!(tokens[1].kind, TokenKind::KW_INT);
+        assert_eq!(tokens[2].kind, TokenKind::T_IDENTIFIER);
+        assert_eq!(tokens[3].kind, TokenKind::T_SEMICOLON);
+        assert_eq!(tokens[4].kind, TokenKind::T_IDENTIFIER);
+        assert_eq!(tokens[5].kind, TokenKind::T_EQUAL);
+        assert_eq!(tokens[6].kind, TokenKind::T_INT_NUM);
+        assert_eq!(tokens[7].kind, TokenKind::T_SEMICOLON);
+        assert_eq!(tokens[8].kind, TokenKind::T_EOF);
     }
 
     #[test]
@@ -504,7 +507,7 @@ mod tests {
     
     #[test]
     fn test_int_var_decl_len_correct() {
-        let mut tok: Tokenizer = Tokenizer::new("int a = 433434;");
+        let mut tok: Tokenizer = Tokenizer::new("integer a = 433434;");
         let tokens: Vec<Token> = tok.start_scan();
         assert!(tokens.len() == 6);
         assert_eq!(tokens[3].lexeme.len(), 6);
@@ -544,7 +547,7 @@ mod tests {
 
     #[test]
     fn test_func_decl_tokenization() {
-        let mut tok: Tokenizer = Tokenizer::new("int main(void) { return 0; }");
+        let mut tok: Tokenizer = Tokenizer::new("integer main(void) { return 0; }");
         let tokens: Vec<Token> = tok.start_scan();
         assert!(tokens.len() == 11);
         assert_eq!(tokens[1].kind, TokenKind::T_IDENTIFIER);
