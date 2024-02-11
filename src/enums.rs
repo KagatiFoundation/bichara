@@ -85,6 +85,7 @@ pub enum TokenKind {
     KW_SWITCH, KW_EXTERN,
     KW_INLINE, KW_GLOBAL,
     KW_LOCAL, KW_STR,
+    KW_DEF, // for function declarations
     _KW_END_, // keywords end here
 
     // other tokens
@@ -186,6 +187,7 @@ pub enum ASTNodeKind {
     AST_WHILE,
     AST_FUNCTION,
     AST_FUNC_CALL,
+    AST_RETURN, // return statement AST node
 }
 
 impl ASTNodeKind {

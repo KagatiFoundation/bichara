@@ -81,8 +81,9 @@ impl Symtable {
         pos - 1
     }
 
+    // TODO: Convert return type to Option<&Symbol>
     pub fn get_symbol(&self, idx: usize) -> &Symbol {
-        assert!(self.counter < NSYMBOLS);
+        assert!(idx < self.counter, "value '{}' out of bounds for range '{}'", idx, self.counter);
         self.syms.get(idx).unwrap()
     }
 

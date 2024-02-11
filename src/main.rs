@@ -34,8 +34,16 @@ pub mod enums;
 pub mod register;
 pub mod types;
 
+/* 
+global char n; 
+def main() -> char { 
+    n = 4; 
+    return n; 
+}
+*/
+
 fn main() { 
-    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("global integer a; a = 123; global integer b; b = a + 5;");
+    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("global char number; def main() -> char { number = 4; return number; }");
     let tokens: Vec<tokenizer::Token> = tokener.start_scan();
     let reg_manager: Rc<RefCell<register::RegisterManager>> = Rc::new(RefCell::new(register::RegisterManager::new()));
     let sym_table: Rc<RefCell<symtable::Symtable>> = Rc::new(RefCell::new(symtable::Symtable::new()));

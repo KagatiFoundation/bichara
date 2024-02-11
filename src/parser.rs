@@ -24,8 +24,10 @@ SOFTWARE.
 
 use core::panic;
 use std::cell::RefCell;
+use std::process::exit;
 use std::rc::Rc;
 
+use crate::error;
 use crate::tokenizer::*;
 use crate::symtable::*; 
 use crate::enums::*;
@@ -38,12 +40,15 @@ pub struct Parser<'a> {
     current: usize,
     current_token: &'a Token,
     sym_table: Rc<RefCell<Symtable>>, // symbol table for global identifiers
+    // ID of a function that is presently being parsed. This field's value is 0xFFFFFFFF 
+    // if the parser is not inside a function.
+    current_function_id: usize, 
 }
 
 impl<'a> Parser<'a> {
     #[inline]
     pub fn new(tokens: &'a Vec<Token>, sym_table: Rc<RefCell<Symtable>>) -> Self {
-        Self { tokens, current: 0, current_token: &tokens[0], sym_table }
+        Self { tokens, current: 0, current_token: &tokens[0], sym_table, current_function_id: 0xFFFFFFFF }
     }
 
     pub fn start(&mut self, traverser: &mut ASTTraverser) {
@@ -58,7 +63,7 @@ impl<'a> Parser<'a> {
         // .text section starts from here
         println!("\n.text");
         for node in &nodes {
-            traverser.traverse(node);
+            traverser.traverse(node, self.current_function_id);
         }
         println!("mov x0, 0\nmov x16, 1\nsvc 0x80");
     }
@@ -83,7 +88,8 @@ impl<'a> Parser<'a> {
             TokenKind::KW_WHILE => self.parse_while_stmt(),
             TokenKind::KW_FOR => self.parse_for_stmt(),
             TokenKind::T_LBRACE => self.parse_compound_stmt(),
-            TokenKind::KW_VOID => self.parse_function_stmt(),
+            TokenKind::KW_DEF => self.parse_function_stmt(),
+            TokenKind::KW_RETURN => self.parse_return_stmt(),
             TokenKind::T_EOF => None,
             _ => panic!("Syntax error: {:?}", self.current_token)
         }
@@ -111,19 +117,55 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_function_stmt(&mut self) -> Option<ASTNode> {
-        let func_return_type_tok: &Token = self.current_token;
-        let func_return_type: Option<LitType> = LitType::from_token_kind(func_return_type_tok.kind);
-        if let Some(return_type) = func_return_type {
-            self.skip_to_next_token(); // skip the return type
-            let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
-            let func_name_index: usize = self.sym_table.borrow_mut().add_symbol(Symbol::new(id_token.lexeme, return_type.variant(), SymbolType::Function)); // track the symbol that has been defined
-            _ = self.token_match(TokenKind::T_LPAREN);
-            _ = self.token_match(TokenKind::T_RPAREN);
-            let function_body: Option<ASTNode> = self.parse_compound_stmt();
-            Some(ASTNode::new(ASTNodeKind::AST_FUNCTION, function_body, None, Some(LitType::I32(func_name_index as i32)), LitTypeVariant::None))
-        } else {
-            panic!("Illegal return type for a function: {:?}", func_return_type);
+        _ = self.token_match(TokenKind::KW_DEF); // match and ignore function declaration keyword 'def'
+        let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
+        _ = self.token_match(TokenKind::T_LPAREN);
+        _ = self.token_match(TokenKind::T_RPAREN);
+        _ = self.token_match(TokenKind::T_ARROW); // match and ignore '->' operator
+        let curr_tok_kind: TokenKind = self.current_token.kind;
+        let func_return_type: LitTypeVariant = LitTypeVariant::from_token_kind(curr_tok_kind);
+        if func_return_type == LitTypeVariant::None {
+            error::report_unexpected_token(self.current_token, Some("Not a valid return type for a function."));
+            exit(1);
         }
+        self.skip_to_next_token(); // skip return type
+        self.current_function_id = self.sym_table.borrow_mut().add_symbol(Symbol::new(id_token.lexeme, func_return_type, SymbolType::Function));
+        let function_body: Option<ASTNode> = self.parse_compound_stmt();
+        let temp_func_id: usize = self.current_function_id;
+        self.current_function_id = 0xFFFFFFFF; // exiting out of function body
+        Some(ASTNode::new(ASTNodeKind::AST_FUNCTION, function_body, None, Some(LitType::I32(temp_func_id as i32)), func_return_type))
+    }
+
+    #[allow(unused_mut)]
+    #[allow(unused_assignments)]
+    fn parse_return_stmt(&mut self) -> Option<ASTNode> {
+        let mut void_ret_type: bool = false;
+        let mut func_symbol: Symbol; 
+        // check whether parser's parsing a function or not
+        if self.current_function_id == 0xFFFFFFFF {
+            error::report_unexpected_token(self.current_token, Some("'return' statement outside a function is not valid."));
+            exit(1); // NOTE: do error recovery; do not exit
+        } else {
+            func_symbol = self.sym_table.borrow().get_symbol(self.current_function_id).clone();
+            void_ret_type = func_symbol.lit_type == LitTypeVariant::Void;
+        }
+        _ = self.token_match(TokenKind::KW_RETURN);
+        if void_ret_type { // if function has void as a return type, panic if any expression follows the keyword 'return'
+            if self.current_token.kind != TokenKind::T_SEMICOLON {
+                error::report_unexpected_token(self.current_token, Some("Expected ';' because function has a 'void' return type."));
+                exit(2); // NOTE: do error recovery; do not exit
+            }
+            // skip semicolon
+            self.token_match(TokenKind::T_SEMICOLON);
+            return Some(ASTNode::make_leaf(ASTNodeKind::AST_RETURN, LitType::Void, LitTypeVariant::Void));
+        } 
+        let return_expr: Option<ASTNode> = self.parse_equality();
+        let return_expr_type: LitTypeVariant = return_expr.as_ref().unwrap().result_type;
+        if return_expr_type != func_symbol.lit_type {
+            panic!("Return value's type does not match function's return type.");
+        }
+        _ = self.token_match(TokenKind::T_SEMICOLON); // expect semicolon to end a return statement
+        Some(ASTNode::new(ASTNodeKind::AST_RETURN, return_expr, None, None, return_expr_type))
     }
 
     fn parse_while_stmt(&mut self) -> Option<ASTNode> {
@@ -404,4 +446,6 @@ mod tests {
     fn test_while_statement_block() {
         
     }
+
+    // test return statements
 }

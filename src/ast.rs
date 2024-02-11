@@ -88,8 +88,8 @@ impl ASTTraverser {
         Self { reg_manager, sym_table, label_id_count: 0 }
     }
 
-    pub fn traverse(&mut self, ast: &ASTNode) -> usize {
-        self.gen_ast(ast, 0xFFFFFFFF, ast.operation)
+    pub fn traverse(&mut self, ast: &ASTNode, reg: usize) -> usize {
+        self.gen_ast(ast, reg, ast.operation)
     }
 
     fn gen_ast(&mut self, ast: &ASTNode, _reg: usize, parent_ast_kind: ASTNodeKind) -> usize {
@@ -110,8 +110,8 @@ impl ASTTraverser {
             }
             return 0xFFFFFFFF;
         }
-        let mut leftreg: usize = 0;
-        let mut rightreg: usize = 0;
+        let mut leftreg: usize = 0xFFFFFFFF;
+        let mut rightreg: usize = 0xFFFFFFFF;
         if let Some(leftt) = &*ast.left { // take reference to Option<T> which is inside the Box<Option<T>>
             leftreg = self.gen_ast(leftt, 0xFFFFFFFF, ast.operation);
         }
@@ -137,6 +137,7 @@ impl ASTTraverser {
                     self.gen_cmp_and_set(ast.operation, leftreg, rightreg)
                 }
             },
+            ASTNodeKind::AST_RETURN => self.gen_return_stmt(leftreg, _reg),
             _ => panic!("unknown AST operator '{:?}'", ast.operation),
         }
     }
@@ -150,7 +151,6 @@ impl ASTTraverser {
         if let Some(body) = &*ast.left {
             self.gen_ast(body, 0xFFFFFFFF, ast.operation);
         }
-        println!("mov x0, 0");
         0xFFFFFFFF
     }
 
@@ -205,6 +205,17 @@ impl ASTTraverser {
         0xFFFFFFFF
     }
 
+    fn gen_return_stmt(&mut self, result_reg: usize, _func_id: usize) -> usize {
+        // NOTE: Generate code depending on the function's type. i.e. use w0 for i32, x0 for i64 etc.
+        // let func_ret_type: LitTypeVariant = self.sym_table.borrow().get_symbol(func_id).lit_type;
+        if result_reg == 0xFFFFFFFF { // if function was a void type
+            println!("ret"); // just return
+        } else {
+            println!("mov x0, {}\nret", self.reg_manager.borrow().name(result_reg));
+        }
+        0xFFFFFFFF
+    }
+
     fn gen_add(&mut self, r1: usize, r2: usize) -> usize {
         println!("add {}, {}, {}", self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r2));
         self.reg_manager.borrow_mut().deallocate(r2);
@@ -236,19 +247,27 @@ impl ASTTraverser {
         let reg: usize = self.reg_manager.borrow_mut().allocate();
         let reg_name: String = self.reg_manager.borrow().name(reg);
         let value_containing_reg: usize = self.reg_manager.borrow_mut().allocate();
-        let value_containing_reg_name: String = self.reg_manager.borrow().name(value_containing_reg);
-        let sym: String = match id {
-            LitType::I32(int_id) => self.sym_table.borrow().get_symbol(*int_id as usize).name.clone(),
-            LitType::Str(_id) => _id.clone(),
-            _ => String::from(""),
-        };
-        println!("ldr {}, ={}\nldr {}, [{}]\n", reg_name, sym, value_containing_reg_name, reg_name);
+        let value_reg_name: String = self.reg_manager.borrow().name(value_containing_reg);
+        let id_offset: usize = self.calc_id_offset(id);
+        println!("adrp {}, .L2+{}@PAGE", reg_name, id_offset);
+        println!("add {}, {}, .L2+{}@PAGEOFF", reg_name, reg_name, id_offset);
+        println!("ldr {}, [{}]", value_reg_name, reg_name);
         value_containing_reg
     }
 
     // Refer to this page for explanation on '@PAGE' and '@PAGEOFF': https://stackoverflow.com/questions/65351533/apple-clang12-llvm-unknown-aarch64-fixup-kind
     fn gen_load_reg_into_gid(&mut self, reg: usize, id: &LitType) -> usize {
         let reg_name: String = self.reg_manager.borrow().name(reg);
+        let offset: usize = self.calc_id_offset(id);
+        let addr_reg: usize = self.reg_manager.borrow_mut().allocate();
+        let addr_reg_name: String = self.reg_manager.borrow().name(addr_reg);
+        println!("adrp {}, .L2+{}@PAGE", addr_reg_name, offset);
+        println!("add {}, {}, .L2+{}@PAGEOFF", &addr_reg_name, addr_reg_name, offset);
+        println!("str {}, [{}]", reg_name, addr_reg_name);
+        addr_reg
+    }
+
+    fn calc_id_offset(&self, id: &LitType) -> usize {
         let mut offset: usize = 0;
         match id {
             LitType::I32(index) => {
@@ -261,12 +280,7 @@ impl ASTTraverser {
             },
             _ => panic!("Not supported indexing type!")
         };
-        let addr_reg: usize = self.reg_manager.borrow_mut().allocate();
-        let addr_reg_name: String = self.reg_manager.borrow().name(addr_reg);
-        println!("adrp {}, .L2+{}@PAGE", addr_reg_name, offset);
-        println!("add {}, {}, .L2+{}@PAGEOFF", &addr_reg_name, addr_reg_name, offset);
-        println!("str {}, [{}]", reg_name, addr_reg_name);
-        addr_reg
+        offset
     }
 
     fn get_next_label(&mut self) -> usize {

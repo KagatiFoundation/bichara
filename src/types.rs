@@ -66,6 +66,18 @@ pub enum LitTypeVariant {
     None,
 }
 
+impl LitTypeVariant {
+    pub fn from_token_kind(kind: TokenKind) -> Self {
+        match kind {
+            TokenKind::KW_VOID => Self::Void,
+            TokenKind::KW_INT => Self::I32,
+            TokenKind::KW_CHAR => Self::U8,
+            TokenKind::KW_LONG => Self::I64,
+            _ => Self::None
+        }
+    }
+}
+
 impl PartialEq for LitType {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {

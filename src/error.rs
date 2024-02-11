@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use crate::tokenizer::TokenPos;
+use crate::tokenizer::{TokenPos, Token};
 
 pub fn error(pos: TokenPos, msg: &str) {
     println!("error: {}:{} {}", pos.line, pos.column, msg);
@@ -30,4 +30,8 @@ pub fn error(pos: TokenPos, msg: &str) {
 
 pub fn warning(pos: TokenPos, msg: &str) {
     println!("warning: {}:{} {}", pos.line, pos.column, msg);
+}
+
+pub fn report_unexpected_token(token: &Token, hint: Option<&str>) {
+    println!("Error: unexpected token '{}' at {}:{}. {}", token.lexeme, token.pos.line, token.pos.column, if let Some(h) = hint { h } else { "" });
 }
