@@ -104,6 +104,21 @@ impl LitType {
         }
     }
 
+    pub fn is_i32(&self) -> bool {
+        matches!(self, Self::I32(_))
+    }
+
+    pub fn unwrap_i32(&self) -> i32 {
+        match self {
+            Self::I32(value) => *value,
+            _ => panic!("Can't unwrap i32 value from type: '{:?}'", self)
+        }           
+    }
+
+    pub fn is_char(&self) -> bool {
+        matches!(self, Self::U8(_))
+    }
+
     pub fn variant(&self) -> LitTypeVariant {
         match self {
             Self::I32(_) => LitTypeVariant::I32,
