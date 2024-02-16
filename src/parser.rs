@@ -24,7 +24,6 @@ SOFTWARE.
 
 use core::panic;
 use std::cell::RefCell;
-use std::process::exit;
 use std::rc::Rc;
 
 use crate::error;
@@ -159,7 +158,6 @@ impl<'a> Parser<'a> {
         let func_return_type: LitTypeVariant = LitTypeVariant::from_token_kind(curr_tok_kind);
         if func_return_type == LitTypeVariant::None {
             error::report_unexpected_token(self.current_token, Some("Not a valid return type for a function."));
-            exit(1);
         }
         self.skip_to_next_token(); // skip return type
         self.current_function_id = self.sym_table.borrow_mut().add_symbol(Symbol::new(id_token.lexeme, func_return_type, SymbolType::Function));
@@ -173,20 +171,18 @@ impl<'a> Parser<'a> {
     #[allow(unused_assignments)]
     fn parse_return_stmt(&mut self) -> ParseResult {
         let mut void_ret_type: bool = false;
-        let mut func_symbol: Symbol; 
+        let mut func_symbol: Option<Symbol> = None; 
         // check whether parser's parsing a function or not
         if self.current_function_id == 0xFFFFFFFF {
             error::report_unexpected_token(self.current_token, Some("'return' statement outside a function is not valid."));
-            exit(1); // NOTE: do error recovery; do not exit
         } else {
-            func_symbol = self.sym_table.borrow().get_symbol(self.current_function_id).clone();
-            void_ret_type = func_symbol.lit_type == LitTypeVariant::Void;
+            func_symbol = Some(self.sym_table.borrow().get_symbol(self.current_function_id).clone());
+            void_ret_type = func_symbol.as_ref().unwrap().lit_type == LitTypeVariant::Void;
         }
         _ = self.token_match(TokenKind::KW_RETURN);
         if void_ret_type { // if function has void as a return type, panic if any expression follows the keyword 'return'
             if self.current_token.kind != TokenKind::T_SEMICOLON {
                 error::report_unexpected_token(self.current_token, Some("Expected ';' because function has a 'void' return type."));
-                exit(2); // NOTE: do error recovery; do not exit
             }
             // skip semicolon
             self.token_match(TokenKind::T_SEMICOLON);
@@ -194,7 +190,7 @@ impl<'a> Parser<'a> {
         } 
         let return_expr: ParseResult = self.parse_equality();
         let return_expr_type: LitTypeVariant = return_expr.as_ref().unwrap().result_type;
-        if return_expr_type != func_symbol.lit_type {
+        if return_expr_type != func_symbol.as_ref().unwrap().lit_type {
             panic!("Return value's type does not match function's return type.");
         }
         _ = self.token_match(TokenKind::T_SEMICOLON); // expect semicolon to end a return statement
@@ -531,10 +527,102 @@ mod tests {
         assert_eq!((*upvalue.left).as_ref().unwrap().operation, ASTNodeKind::AST_GTHAN, "Unexpected ASTNodeKind; expected be ASTNodeKind::AST_GTHAN.");
     }
 
+    // If following two tests pass, then we can conclude that every other pointer type declarations, 
+    // dereferencing, and addressing will work.
     #[test]
-    fn test_while_statement_block() {
-        
+    fn test_integer_id_addr_load() {
+        let mut tokener: Tokenizer = Tokenizer::new("global integer *b; global integer a; b = &a;");
+        let tokens: Vec<Token> = tokener.start_scan();
+        let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
+        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        p.parse_global_variable_decl_stmt();
+        p.parse_global_variable_decl_stmt();
+        let result: ParseResult = p.parse_single_stmt();
+        assert!(result.is_ok());
+        let upvalue: &ASTNode = result.as_ref().unwrap();
+        assert_eq!(upvalue.operation, ASTNodeKind::AST_ASSIGN);
+        assert_eq!((*upvalue.right).as_ref().unwrap().operation, ASTNodeKind::AST_LVIDENT);
+        assert_eq!((*upvalue.left).as_ref().unwrap().operation, ASTNodeKind::AST_ADDR);
     }
 
-    // test return statements
+    #[test]
+    fn test_integer_id_deref() {
+        let mut tokener: Tokenizer = Tokenizer::new("global integer *b; global integer a; a = *b;");
+        let tokens: Vec<Token> = tokener.start_scan();
+        let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
+        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        // Skipping first two statements. Because, global variable declaration 
+        // doesn't produce any AST node.
+        p.parse_global_variable_decl_stmt();
+        p.parse_global_variable_decl_stmt();
+        let result: ParseResult = p.parse_single_stmt();
+        assert!(result.is_ok());
+        let upvalue: &ASTNode = result.as_ref().unwrap();
+        assert_eq!(upvalue.operation, ASTNodeKind::AST_ASSIGN);
+        assert_eq!((*upvalue.right).as_ref().unwrap().operation, ASTNodeKind::AST_LVIDENT);
+        assert_eq!((*upvalue.left).as_ref().unwrap().operation, ASTNodeKind::AST_DEREF);
+    }
+
+    #[test]
+    fn test_while_statement_block() {
+        let mut tokener: Tokenizer = Tokenizer::new("global integer *b; global integer a; a = *b;");
+        let tokens: Vec<Token> = tokener.start_scan();
+        let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
+        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        p.parse_global_variable_decl_stmt();
+    }
+
+    // Return statement outside a function is not valid!
+    #[test]
+    #[should_panic]
+    fn test_simple_return_stmt_outside_func() {
+        let mut tokener: Tokenizer = Tokenizer::new("return;");
+        let tokens: Vec<Token> = tokener.start_scan();
+        let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
+        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        _ = p.parse_single_stmt();
+    }
+
+    #[test]
+    fn test_func_decl_stmt() {
+        let mut tokener: Tokenizer = Tokenizer::new("def main() -> void { global integer a; return; }");
+        let tokens: Vec<Token> = tokener.start_scan();
+        let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
+        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let func_stmt: ParseResult = p.parse_single_stmt();
+        assert!(func_stmt.is_ok());
+        let upvalue: &ASTNode = func_stmt.as_ref().unwrap();
+        assert_eq!(upvalue.operation, ASTNodeKind::AST_FUNCTION);
+        assert_eq!(upvalue.result_type, LitTypeVariant::Void);
+        assert_eq!((*upvalue.left).as_ref().unwrap().operation, ASTNodeKind::AST_RETURN);
+        matches!(upvalue.value.as_ref().unwrap(), LitType::I32(_)); // id of function 'main'
+    }
+
+    /*
+    #[test]
+    fn test_non_void_function_without_return_stmt() {
+        let mut tokener: Tokenizer = Tokenizer::new("def main() -> integer { global integer a; }");
+        let tokens: Vec<Token> = tokener.start_scan();
+        let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
+        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let result: ParseResult = p.parse_single_stmt();
+    }
+    */
+    
+    #[test]
+    fn test_return_stmt_inside_non_void_function() {
+        let mut tokener: Tokenizer = Tokenizer::new("def main() -> integer { return 1234; }");
+        let tokens: Vec<Token> = tokener.start_scan();
+        let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
+        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let func_stmt: ParseResult = p.parse_single_stmt();
+        assert!(func_stmt.is_ok());
+        let upvalue: &ASTNode = func_stmt.as_ref().unwrap();
+        assert_eq!(upvalue.operation, ASTNodeKind::AST_FUNCTION);
+        assert_eq!(upvalue.result_type, LitTypeVariant::I32);
+        let left_node: &ASTNode = (*upvalue.left).as_ref().unwrap();
+        assert_eq!(left_node.operation, ASTNodeKind::AST_RETURN);
+        assert_eq!((*left_node.left).as_ref().unwrap().operation, ASTNodeKind::AST_INTLIT); // function should return an integer literal
+        matches!(upvalue.value.as_ref().unwrap(), LitType::I32(_)); // id of function 'main'
+    }
 }
