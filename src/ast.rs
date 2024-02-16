@@ -139,6 +139,7 @@ impl ASTTraverser {
             },
             ASTNodeKind::AST_RETURN => self.gen_return_stmt(leftreg, _reg),
             ASTNodeKind::AST_ADDR => self.gen_id_address_into_another_id(ast.value.as_ref().unwrap()),
+            ASTNodeKind::AST_DEREF => self.gen_deref_pointer_id(ast.value.as_ref().unwrap()),
             _ => panic!("unknown AST operator '{:?}'", ast.operation),
         }
     }
@@ -276,6 +277,18 @@ impl ASTTraverser {
         println!("adrp {}, .L2+{}@PAGE", reg_name, id_offset);
         println!("add {}, {}, .L2+{}@PAGEOFF", reg_name, reg_name, id_offset);
         reg_alloced
+    }
+
+    fn gen_deref_pointer_id(&mut self, id: &LitType) -> usize {
+        let reg_alloced: usize = self.reg_manager.borrow_mut().allocate();
+        let reg_name: String = self.reg_manager.borrow().name(reg_alloced);
+        let id_offset: usize = self.calc_id_offset(id);
+        let value_reg: usize = self.reg_manager.borrow_mut().allocate();
+        let value_reg_name: String = self.reg_manager.borrow().name(value_reg);
+        println!("adrp {}, .L2+{}@PAGE", reg_name, id_offset);
+        println!("add {}, {}, .L2+{}@PAGEOFF", reg_name, reg_name, id_offset);
+        println!("ldr {}, [{}]", value_reg_name, reg_name);
+        value_reg
     }
 
     fn calc_id_offset(&self, id: &LitType) -> usize {
