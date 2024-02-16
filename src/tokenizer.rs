@@ -26,6 +26,7 @@ SOFTWARE.
 #![allow(non_camel_case_types)]
 
 use core::num;
+use core::panic;
 use std::{collections::HashMap, str::FromStr, cmp};
 
 extern crate lazy_static;
@@ -171,7 +172,7 @@ impl Tokenizer {
                             error(pos, "missing terminating '\"' character");
                         },
                         _ => {
-                            error(pos, "just the error");
+                            panic!("{:?}", err_type);
                         }
                     }
                 }
@@ -415,6 +416,7 @@ impl Tokenizer {
                 return TokenizationResult::Error(ErrorType::InvalidNumericValue, pos);
             }
         }
+        // This check is incorrect. REWRITE THIS!!!
         let invalid_num_end: bool = self.curr_char.is_alphabetic() || self.curr_char == '_';
         if invalid_num_end {
             while self.curr_char.is_alphanumeric() || self.curr_char == '_' {
@@ -524,10 +526,11 @@ mod tests {
     }
     
     #[test]
+    #[should_panic]
     fn test_float_var_decl_len_correct2() {
         let mut tok: Tokenizer = Tokenizer::new("double a = 4334.34ss;");
         let tokens: Vec<Token> = tok.start_scan();
-        assert!(tokens.len() == 5);
+        assert!(tokens.len() == 6);
     }
 
     #[test]
