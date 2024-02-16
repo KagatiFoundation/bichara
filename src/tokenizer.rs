@@ -75,6 +75,7 @@ lazy_static! {
         _keys.insert("local", TokenKind::KW_LOCAL);
         _keys.insert("def", TokenKind::KW_DEF);
         _keys.insert("str", TokenKind::KW_STR);
+        _keys.insert("null", TokenKind::KW_NULL);
         _keys
     };
 }

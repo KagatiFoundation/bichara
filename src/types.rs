@@ -22,6 +22,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+use core::panic;
+use std::fmt::Display;
+
 use crate::enums::TokenKind;
 
 // Literal value types
@@ -44,7 +47,8 @@ pub enum LitType {
     VoidPtr(u64),
     Str(String), // This type(String) is not supported by this language.
                     // I am using this as a identifier name holder in parsing process.
-    None
+    Null, // null type
+    None // placeholder
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -63,7 +67,8 @@ pub enum LitTypeVariant {
     F64Ptr,
     F32Ptr,
     VoidPtr,
-    None,
+    Null,
+    None, // placeholder
 }
 
 impl LitTypeVariant {
@@ -73,7 +78,34 @@ impl LitTypeVariant {
             TokenKind::KW_INT => Self::I32,
             TokenKind::KW_CHAR => Self::U8,
             TokenKind::KW_LONG => Self::I64,
+            TokenKind::KW_FLOAT => Self::F32,
+            TokenKind::KW_DOUBLE => Self::F64,
             _ => Self::None
+        }
+    }
+
+    /// Given the primitive type, get a type which is a pointer to it
+    pub fn to_pointer_type(prim_type: LitTypeVariant) -> Self {
+        match prim_type {
+            Self::I32 => Self::I32Ptr,
+            Self::I64 => Self::I64Ptr,
+            Self::U8 => Self::U8Ptr,
+            Self::Void => Self::VoidPtr,
+            Self::F32 => Self::F32Ptr,
+            Self::F64 => Self::F64Ptr,
+            _ => panic!("Can't take address of this type: '{:?}'", prim_type)
+        }
+    }
+
+    pub fn to_value_type(prim_type: LitTypeVariant) -> Self {
+        match prim_type {
+            Self::I32Ptr => Self::I32,
+            Self::I64Ptr => Self::I64,
+            Self::U8Ptr => Self::U8,
+            Self::VoidPtr => Self::Void,
+            Self::F32Ptr => Self::F32,
+            Self::F64Ptr => Self::F64,
+            _ => panic!("Not supported value type: '{:?}'", prim_type)
         }
     }
 }
@@ -89,6 +121,12 @@ impl PartialEq for LitType {
             (Self::U8(l0), Self::U8(r0)) => *l0 == *r0,
             _ => false,
         }
+    }
+}
+
+impl Display for LitType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "LitType")
     }
 }
 

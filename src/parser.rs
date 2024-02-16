@@ -37,7 +37,6 @@ use crate::ast::*;
 
 #[derive(Eq, PartialEq, Debug)]
 enum ParseError {
-    ParenNotClosed(Token), // parenthesis not closed
     UnexpectedToken(Token), // unexpected token was encountered
     SymbolNotFound(Token), // symbol not found; symbol has not been defined before
     NotCallable(Token), // if a token being called is not callable type
@@ -93,7 +92,16 @@ impl<'a> Parser<'a> {
         println!(".data\n\t.align 2\n.L2:");
         for symbol in self.sym_table.borrow().iter() {
             if symbol.sym_type == SymbolType::Variable {
-                println!("\t.word 0");
+                match symbol.lit_type {
+                    LitTypeVariant::F32Ptr 
+                    | LitTypeVariant::F64Ptr 
+                    | LitTypeVariant::I16Ptr
+                    | LitTypeVariant::I32Ptr 
+                    | LitTypeVariant::I64Ptr
+                    | LitTypeVariant::U8Ptr 
+                    | LitTypeVariant::VoidPtr => println!("\t.space 8"),
+                    _ => println!("\t.word 0")
+                }
             }
         }
     }
@@ -285,17 +293,30 @@ impl<'a> Parser<'a> {
         _ = self.token_match(TokenKind::KW_GLOBAL);
         // let mut sym: MaybeUninit<Symbol> = MaybeUninit::<Symbol>::uninit();
         let mut sym: Symbol = Symbol::new(String::from(""), LitTypeVariant::I32, SymbolType::Variable);
-        sym.lit_type = match self.current_token.kind {
-            TokenKind::KW_INT => LitTypeVariant::I32,
-            | TokenKind::KW_CHAR => LitTypeVariant::U8,
-            TokenKind::KW_LONG => LitTypeVariant::I64,
-            _ => panic!("Can't create variable of type {:?}", self.current_token.kind)
-        };
-        self.skip_to_next_token();
+        sym.lit_type = self.parse_id_type();
+        if sym.lit_type == LitTypeVariant::None {
+            panic!("Can't create variable of type {:?}", self.current_token.kind);
+        }
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
         sym.name = id_token.lexeme.clone();
         _ = self.token_match(TokenKind::T_SEMICOLON);
         self.sym_table.borrow_mut().add_symbol(sym); // track the symbol that has been defined
+    }
+
+    fn parse_id_type(&mut self) -> LitTypeVariant {
+        let mut typ: LitTypeVariant = LitTypeVariant::from_token_kind(self.current_token.kind);
+        if typ == LitTypeVariant::None {
+            return typ; // return None type
+        }
+        self.skip_to_next_token(); // skip the parsed type's token
+        loop {
+            // could encounter '*'; need to parse it as well
+            let curr_kind: TokenKind = self.current_token.kind;
+            if curr_kind != TokenKind::T_STAR { break; }
+            self.skip_to_next_token();
+            typ = LitTypeVariant::to_pointer_type(typ);
+        }
+        typ
     }
 
     fn parse_equality(&mut self) -> ParseResult {
@@ -320,7 +341,7 @@ impl<'a> Parser<'a> {
 
     fn parse_func_call_expr(&mut self) -> ParseResult {
         let possible_func_name_token: Token = self.current_token.clone();
-        let possible_id_node: ParseResult = self.parse_primary(); // could be other type of node than identifier node
+        let possible_id_node: ParseResult = self.parse_mem_prefix(); // could be other type of node than identifier node
         match possible_id_node.as_ref() {
             Err(_) => possible_id_node, // this node contains errornous token information
             Ok(node) => {
@@ -359,7 +380,7 @@ impl<'a> Parser<'a> {
                 }
                 if ok {
                     self.skip_to_next_token(); // skip the operator
-                    let right_side_tree: ParseResult = self.parse_primary();
+                    let right_side_tree: ParseResult = self.parse_mem_prefix();
                     let mut right: ASTNode = right_side_tree?;
                     if left.result_type != right.result_type {
                         let compatibility: (bool, u8, u8) = left.value.as_ref().unwrap().compatible(right.value.as_ref().unwrap());
@@ -376,6 +397,41 @@ impl<'a> Parser<'a> {
                 }
             },
             _ => left_side_tree
+        }
+    }
+
+    // parse memory related prefixes such as '*' for dereferencing and '&' for memory address
+    fn parse_mem_prefix(&mut self) -> ParseResult {
+        let curr_kind: TokenKind = self.current_token.kind;
+        match curr_kind {
+            TokenKind::T_AMPERSAND => {
+                // for now, multiple layer of addressing is not possible. i.e. &&&a is not possible. 
+                // still, any '&' prefixing an identifier is parsed
+                self.skip_to_next_token(); // skip '&'
+                let mut tree: ParseResult = self.parse_mem_prefix();
+                if let Ok(ref mut add_tree) = tree {
+                    if add_tree.operation != ASTNodeKind::AST_IDENT {
+                        panic!("Can't take address of '{:?}'", add_tree.value);
+                    }
+                    add_tree.operation = ASTNodeKind::AST_ADDR;
+                    add_tree.result_type = LitTypeVariant::to_pointer_type(add_tree.result_type);
+                }
+                tree
+            },
+            TokenKind::T_STAR => {
+                // same as '&'; parsing multiple '*' but not supporting it(yet)
+                self.skip_to_next_token(); // skip '*'
+                let mut tree: ParseResult = self.parse_mem_prefix();
+                if let Ok(ref mut add_tree) = tree {
+                    if add_tree.operation != ASTNodeKind::AST_IDENT {
+                        panic!("Can't dereference type '{:?}'", add_tree.value);
+                    }
+                    add_tree.operation = ASTNodeKind::AST_DEREF;
+                    add_tree.result_type = LitTypeVariant::to_value_type(add_tree.result_type);
+                }
+                tree
+            },
+            _ => self.parse_primary()
         }
     }
 
@@ -435,14 +491,14 @@ mod tests {
         let tokens: Vec<Token> = tokener.start_scan();
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
         let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
-        // let result: Option<ASTNode> = p.parse_equality();
-        // assert!(result.is_some());
-        // let upvalue: ASTNode = result.unwrap();
-        // let left_tree: &ASTNode = (*upvalue.left).as_ref().unwrap();
-        // let right_tree: &ASTNode = (*upvalue.right).as_ref().unwrap();
-        // assert_eq!(upvalue.operation, ASTNodeKind::AST_ADD);
-        // assert_eq!(left_tree.operation, ASTNodeKind::AST_INTLIT);
-        // assert_eq!(right_tree.operation, ASTNodeKind::AST_MULTIPLY);
+        let result: ParseResult = p.parse_equality();
+        assert!(result.is_ok());
+        let upvalue: ASTNode = result.unwrap();
+        let left_tree: &ASTNode = (*upvalue.left).as_ref().unwrap();
+        let right_tree: &ASTNode = (*upvalue.right).as_ref().unwrap();
+        assert_eq!(upvalue.operation, ASTNodeKind::AST_ADD);
+        assert_eq!(left_tree.operation, ASTNodeKind::AST_INTLIT);
+        assert_eq!(right_tree.operation, ASTNodeKind::AST_MULTIPLY);
     }
 
     // test addition operation
@@ -452,9 +508,9 @@ mod tests {
         let tokens: Vec<Token> = tokener.start_scan();
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
         let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
-        // let result: Option<ASTNode> = p.parse_equality();
-        // assert!(result.is_some());
-        // assert_eq!(result.unwrap().operation, ASTNodeKind::AST_ADD);
+        let result: ParseResult = p.parse_equality();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().operation, ASTNodeKind::AST_ADD);
     }
 
     // test if-else block
@@ -464,15 +520,15 @@ mod tests {
         let tokens: Vec<Token> = tokener.start_scan();
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
         let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
-        // let result: Option<ASTNode> = p.parse_if_stmt();
-        // assert!(result.is_some(), "If this assertion did not pass, then if-else block is probably malformed.");
-        // let upvalue: &ASTNode = result.as_ref().unwrap();
+        let result: ParseResult = p.parse_if_stmt();
+        assert!(result.is_ok(), "If this assertion did not pass, then if-else block is probably malformed.");
+        let upvalue: &ASTNode = result.as_ref().unwrap();
         // Global variable declaration statements produce None as result. 
         // So, both 'mid (if)' and 'right (else)' has to be None types
-        // assert!(upvalue.mid.is_none(), "global declarations inside comppound statement should produce None result");
-        // assert!(upvalue.right.is_none(), "global declarations inside comppound statement should produce None result");
-        // assert_eq!(upvalue.operation, ASTNodeKind::AST_IF); // main AST node is of AST_IF type
-        // assert_eq!((*upvalue.left).as_ref().unwrap().operation, ASTNodeKind::AST_GTHAN, "Unexpected ASTNodeKind; expected be ASTNodeKind::AST_GTHAN.");
+        assert!(upvalue.mid.is_none(), "global declarations inside comppound statement should produce None result");
+        assert!(upvalue.right.is_none(), "global declarations inside comppound statement should produce None result");
+        assert_eq!(upvalue.operation, ASTNodeKind::AST_IF); // main AST node is of AST_IF type
+        assert_eq!((*upvalue.left).as_ref().unwrap().operation, ASTNodeKind::AST_GTHAN, "Unexpected ASTNodeKind; expected be ASTNodeKind::AST_GTHAN.");
     }
 
     #[test]

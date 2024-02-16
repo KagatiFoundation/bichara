@@ -25,7 +25,7 @@ SOFTWARE.
 extern crate lazy_static;
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{enums::*, types::*, register::{self, RegisterManager}, symtable};
+use crate::{enums::*, register::{self, RegisterManager}, symtable::{self}, types::*};
 
 lazy_static::lazy_static! {
     static ref CMP_CONDS_LIST: Vec<&'static str> = vec!["neq", "eq", "ge", "le", "lt", "gt"];
@@ -138,6 +138,7 @@ impl ASTTraverser {
                 }
             },
             ASTNodeKind::AST_RETURN => self.gen_return_stmt(leftreg, _reg),
+            ASTNodeKind::AST_ADDR => self.gen_id_address_into_another_id(ast.value.as_ref().unwrap()),
             _ => panic!("unknown AST operator '{:?}'", ast.operation),
         }
     }
@@ -265,6 +266,16 @@ impl ASTTraverser {
         println!("add {}, {}, .L2+{}@PAGEOFF", &addr_reg_name, addr_reg_name, offset);
         println!("str {}, [{}]", reg_name, addr_reg_name);
         addr_reg
+    }
+
+    // Generally speaking, loading one variable's address into another variable
+    fn gen_id_address_into_another_id(&mut self, id: &LitType) -> usize {
+        let reg_alloced: usize = self.reg_manager.borrow_mut().allocate();
+        let reg_name: String = self.reg_manager.borrow().name(reg_alloced);
+        let id_offset: usize = self.calc_id_offset(id);
+        println!("adrp {}, .L2+{}@PAGE", reg_name, id_offset);
+        println!("add {}, {}, .L2+{}@PAGEOFF", reg_name, reg_name, id_offset);
+        reg_alloced
     }
 
     fn calc_id_offset(&self, id: &LitType) -> usize {

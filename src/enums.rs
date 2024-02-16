@@ -85,6 +85,7 @@ pub enum TokenKind {
     KW_SWITCH, KW_EXTERN,
     KW_INLINE, KW_GLOBAL,
     KW_LOCAL, KW_STR,
+    KW_NULL, 
     KW_DEF, // for function declarations
     _KW_END_, // keywords end here
 
@@ -188,6 +189,8 @@ pub enum ASTNodeKind {
     AST_FUNCTION,
     AST_FUNC_CALL,
     AST_RETURN, // return statement AST node
+    AST_ADDR, // for address-of operator
+    AST_DEREF, // for dereferencing operator
 }
 
 impl ASTNodeKind {
