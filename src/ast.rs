@@ -251,8 +251,7 @@ impl ASTTraverser {
         let value_containing_reg: usize = self.reg_manager.borrow_mut().allocate();
         let value_reg_name: String = self.reg_manager.borrow().name(value_containing_reg);
         let id_offset: usize = self.calc_id_offset(id);
-        println!("adrp {}, .L2+{}@PAGE", reg_name, id_offset);
-        println!("add {}, {}, .L2+{}@PAGEOFF", reg_name, reg_name, id_offset);
+        ASTTraverser::dump_gid_address_load(&reg_name, id_offset);
         println!("ldr {}, [{}]", value_reg_name, reg_name);
         value_containing_reg
     }
@@ -263,8 +262,7 @@ impl ASTTraverser {
         let offset: usize = self.calc_id_offset(id);
         let addr_reg: usize = self.reg_manager.borrow_mut().allocate();
         let addr_reg_name: String = self.reg_manager.borrow().name(addr_reg);
-        println!("adrp {}, .L2+{}@PAGE", addr_reg_name, offset);
-        println!("add {}, {}, .L2+{}@PAGEOFF", &addr_reg_name, addr_reg_name, offset);
+        ASTTraverser::dump_gid_address_load(&addr_reg_name, offset);
         println!("str {}, [{}]", reg_name, addr_reg_name);
         addr_reg
     }
@@ -274,8 +272,7 @@ impl ASTTraverser {
         let reg_alloced: usize = self.reg_manager.borrow_mut().allocate();
         let reg_name: String = self.reg_manager.borrow().name(reg_alloced);
         let id_offset: usize = self.calc_id_offset(id);
-        println!("adrp {}, .L2+{}@PAGE", reg_name, id_offset);
-        println!("add {}, {}, .L2+{}@PAGEOFF", reg_name, reg_name, id_offset);
+        ASTTraverser::dump_gid_address_load(&reg_name, id_offset);
         reg_alloced
     }
 
@@ -285,10 +282,14 @@ impl ASTTraverser {
         let id_offset: usize = self.calc_id_offset(id);
         let value_reg: usize = self.reg_manager.borrow_mut().allocate();
         let value_reg_name: String = self.reg_manager.borrow().name(value_reg);
-        println!("adrp {}, .L2+{}@PAGE", reg_name, id_offset);
-        println!("add {}, {}, .L2+{}@PAGEOFF", reg_name, reg_name, id_offset);
+        ASTTraverser::dump_gid_address_load(&reg_name, id_offset);
         println!("ldr {}, [{}]", value_reg_name, reg_name);
         value_reg
+    }
+
+    fn dump_gid_address_load(reg_name: &str, id_offset: usize) {
+        println!("adrp {}, .L2+{}@PAGE", reg_name, id_offset);
+        println!("add {}, {}, .L2+{}@PAGEOFF", reg_name, reg_name, id_offset);
     }
 
     fn calc_id_offset(&self, id: &LitType) -> usize {
