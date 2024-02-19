@@ -167,6 +167,7 @@ impl FromStr for TokenKind {
 // AST Node Types
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Clone, Copy)]
 pub enum ASTNodeKind {
+    AST_NONE, // used as a placeholder
     AST_ADD = 10, // an AST node with "+" as the root node
     AST_SUBTRACT, // an AST node with "-" as the root node
     AST_MULTIPLY, // an AST node with "*" as the root node
@@ -191,6 +192,7 @@ pub enum ASTNodeKind {
     AST_RETURN, // return statement AST node
     AST_ADDR, // for address-of operator
     AST_DEREF, // for dereferencing operator
+    AST_WIDEN, // need to widen the tree
 }
 
 impl ASTNodeKind {

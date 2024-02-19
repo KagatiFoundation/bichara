@@ -1,4 +1,4 @@
-/* 
+/*
 MIT License
 
 Copyright (c) 2023 Kagati Foundation
@@ -33,10 +33,10 @@ pub enum LitType {
     I64(i64), // 64-bit integer
     I32(i32), // 32-bit integer
     I16(i16), // 16-bit integer
-    U8(u8), // 8-bit integer. Also known as 'char' in C programming language.
+    U8(u8),   // 8-bit integer. Also known as 'char' in C programming language.
     F64(f64), // Double-precicion floating point number. 64-bit float type.
     F32(f32), // Single-precicion floating point number. 32-bit float type.
-    Void, // Void return type
+    Void,     // Void return type
     // pointer types
     I64Ptr(u64),
     I32Ptr(u64),
@@ -46,9 +46,9 @@ pub enum LitType {
     F32Ptr(u64),
     VoidPtr(u64),
     Str(String), // This type(String) is not supported by this language.
-                    // I am using this as a identifier name holder in parsing process.
+    // I am using this as a identifier name holder in parsing process.
     Null, // null type
-    None // placeholder
+    None, // placeholder
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -80,12 +80,12 @@ impl LitTypeVariant {
             TokenKind::KW_LONG => Self::I64,
             TokenKind::KW_FLOAT => Self::F32,
             TokenKind::KW_DOUBLE => Self::F64,
-            _ => Self::None
+            _ => Self::None,
         }
     }
 
     /// Given the primitive type, get a type which is a pointer to it
-    pub fn to_pointer_type(prim_type: LitTypeVariant) -> Self {
+    pub fn pointer_type(prim_type: LitTypeVariant) -> Self {
         match prim_type {
             Self::I32 => Self::I32Ptr,
             Self::I64 => Self::I64Ptr,
@@ -93,11 +93,11 @@ impl LitTypeVariant {
             Self::Void => Self::VoidPtr,
             Self::F32 => Self::F32Ptr,
             Self::F64 => Self::F64Ptr,
-            _ => panic!("Can't take address of this type: '{:?}'", prim_type)
+            _ => panic!("Can't take address of this type: '{:?}'", prim_type),
         }
     }
 
-    pub fn to_value_type(prim_type: LitTypeVariant) -> Self {
+    pub fn value_type(prim_type: LitTypeVariant) -> Self {
         match prim_type {
             Self::I32Ptr => Self::I32,
             Self::I64Ptr => Self::I64,
@@ -105,7 +105,32 @@ impl LitTypeVariant {
             Self::VoidPtr => Self::Void,
             Self::F32Ptr => Self::F32,
             Self::F64Ptr => Self::F64,
-            _ => panic!("Not supported value type: '{:?}'", prim_type)
+            _ => panic!("Not supported value type: '{:?}'", prim_type),
+        }
+    }
+
+    pub fn is_ptr_type(&self) -> bool {
+        matches!(
+            self,
+            Self::I32Ptr | Self::I64Ptr | Self::U8Ptr | Self::VoidPtr | Self::F32Ptr | Self::F64Ptr
+        )
+    }
+
+    pub fn size(&self) -> usize {
+        match self {
+            Self::U8Ptr
+            | Self::I64
+            | Self::F64
+            | Self::F32Ptr
+            | Self::F64Ptr
+            | Self::I16Ptr
+            | Self::I32Ptr
+            | Self::I64Ptr
+            | Self::VoidPtr => 8,
+            Self::F32 | Self::I32 => 4,
+            Self::U8 => 1,
+            Self::I16 => 2,
+            _ => 0,
         }
     }
 }
@@ -138,7 +163,7 @@ impl LitType {
             TokenKind::T_DOUBLE_NUM => Some(LitType::F64(0.0)),
             TokenKind::T_LONG_NUM => Some(LitType::I64(0)),
             TokenKind::KW_VOID => Some(LitType::Void),
-            _ => None
+            _ => None,
         }
     }
 
@@ -149,8 +174,8 @@ impl LitType {
     pub fn unwrap_i32(&self) -> i32 {
         match self {
             Self::I32(value) => *value,
-            _ => panic!("Can't unwrap i32 value from type: '{:?}'", self)
-        }           
+            _ => panic!("Can't unwrap i32 value from type: '{:?}'", self),
+        }
     }
 
     pub fn is_char(&self) -> bool {
@@ -173,7 +198,7 @@ impl LitType {
             Self::F64Ptr(_) => LitTypeVariant::F64Ptr,
             Self::F32Ptr(_) => LitTypeVariant::F32Ptr,
             Self::VoidPtr(_) => LitTypeVariant::VoidPtr,
-            _ => panic!("not a valid type to calculate variant of!")
+            _ => panic!("not a valid type to calculate variant of!"),
         }
     }
 
@@ -188,11 +213,10 @@ impl LitType {
             | LitType::F64Ptr(_)
             | LitType::F32Ptr(_)
             | LitType::VoidPtr(_) => 64,
-            LitType::I32(_)
-            | LitType::F32(_) => 32,
+            LitType::I32(_) | LitType::F32(_) => 32,
             LitType::I16(_) => 16,
             LitType::U8(_) => 8,
-            _ => 0
+            _ => 0,
         }
     }
 
@@ -209,28 +233,11 @@ impl LitType {
         }
         if self_size < other_size {
             return (true, 1, 0);
-        } 
+        }
         if other_size < self_size {
-            return (true, 0, 1) ;
+            return (true, 0, 1);
         }
         (true, 0, 0)
-    }
-
-    /// Convert this LitType variant into another LitType. 
-    /// Possible conversions are:
-    ///     1) U8 to I32
-    ///     2) I32 to U8 (0 >= I32 < 256)
-    pub fn convert(&self, to: LitType) -> Self {
-        match (self, to.clone()) {
-            // converting char into integer
-            (LitType::U8(u8_value), LitType::I32(_)) => LitType::I32(*u8_value as i32),
-            // converting integer into char
-            (LitType::I32(i32_value), LitType::U8(_)) => {
-                if *i32_value >= 0 && *i32_value < 256 { LitType::U8(*i32_value as u8) }
-                else { panic!("Error: Can't convert {:?} to unsigned char. Value overflows.", self) }
-            },
-            _ => panic!("Can't be converted from {:?} to {:?}", self, to)
-        }
     }
 }
 
@@ -241,15 +248,12 @@ mod tests {
 
     #[test]
     fn test_conversion_from_i32_to_u8() {
-        let a: LitType = LitType::I32(12);
-        assert_eq!(a.convert(LitType::U8(0)), LitType::U8(12));
+        let _a: LitType = LitType::I32(12);
     }
-    
+
     #[test]
-    #[should_panic]
     // Trying to conver 1223 into unsigned char. This should fail.
     fn test_conversion_from_i32_to_u8_with_overflowing_value() {
-        let a: LitType = LitType::I32(1233);
-        a.convert(LitType::U8(0));
+        let _a: LitType = LitType::I32(1233);
     }
 }

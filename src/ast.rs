@@ -1,4 +1,4 @@
-/* 
+/*
 MIT License
 
 Copyright (c) 2023 Kagati Foundation
@@ -25,7 +25,12 @@ SOFTWARE.
 extern crate lazy_static;
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{enums::*, register::{self, RegisterManager}, symtable::{self}, types::*};
+use crate::{
+    enums::*,
+    register::{self, RegisterManager},
+    symtable::{self},
+    types::*,
+};
 
 lazy_static::lazy_static! {
     static ref CMP_CONDS_LIST: Vec<&'static str> = vec!["neq", "eq", "ge", "le", "lt", "gt"];
@@ -42,37 +47,80 @@ pub struct ASTNode {
 }
 
 impl ASTNode {
-    pub fn new(op: ASTNodeKind, left: Option<ASTNode>, right: Option<ASTNode>, value: Option<LitType>, result_type: LitTypeVariant) -> Self {
-        Self { 
-            operation: op, 
-            left: Box::new(left), 
-            right: Box::new(right), 
-            mid: Box::new(None), 
+    pub fn new(
+        op: ASTNodeKind,
+        left: Option<ASTNode>,
+        right: Option<ASTNode>,
+        value: Option<LitType>,
+        result_type: LitTypeVariant,
+    ) -> Self {
+        Self {
+            operation: op,
+            left: Box::new(left),
+            right: Box::new(right),
+            mid: Box::new(None),
             value,
-            result_type
+            result_type,
         }
     }
 
     pub fn make_leaf(op: ASTNodeKind, value: LitType, result_type: LitTypeVariant) -> Self {
-        Self { 
-            operation: op, 
-            left: Box::new(None), 
-            right: Box::new(None), 
-            mid: Box::new(None), 
+        Self {
+            operation: op,
+            left: Box::new(None),
+            right: Box::new(None),
+            mid: Box::new(None),
             value: Some(value),
-            result_type
+            result_type,
         }
     }
 
-    pub fn with_mid(op: ASTNodeKind, left: Option<ASTNode>, right: Option<ASTNode>, mid: Option<ASTNode>, value: Option<LitType>, result_type: LitTypeVariant) -> Self {
-        Self { 
-            operation: op, 
-            left: Box::new(left), 
-            right: Box::new(right), 
-            mid: Box::new(mid), 
+    pub fn with_mid(
+        op: ASTNodeKind,
+        left: Option<ASTNode>,
+        right: Option<ASTNode>,
+        mid: Option<ASTNode>,
+        value: Option<LitType>,
+        result_type: LitTypeVariant,
+    ) -> Self {
+        Self {
+            operation: op,
+            left: Box::new(left),
+            right: Box::new(right),
+            mid: Box::new(mid),
             value,
-            result_type
+            result_type,
         }
+    }
+
+    /// Modify the given node's type into the 'to' type.
+    pub fn modify(&mut self, to: LitTypeVariant, op: ASTNodeKind) -> Option<ASTNode> {
+        let ltype: LitTypeVariant = self.result_type;
+        let lsize: usize = self.result_type.size();
+        let rsize: usize = to.size();
+        if !ltype.is_ptr_type() && !to.is_ptr_type() {
+            if ltype == to {
+                return Some(self.clone());
+            }
+            // tree's size is too big
+            if lsize > rsize {
+                return None;
+            }
+            if rsize > lsize {
+                return Some(ASTNode::new(
+                    ASTNodeKind::AST_WIDEN,
+                    Some(self.clone()),
+                    None,
+                    None,
+                    to,
+                ));
+            }
+        }
+        if ltype.is_ptr_type() && ltype == to && (op == ASTNodeKind::AST_NONE) {
+            return Some(self.clone());
+        }
+        // if we reach here, then types are incompatible
+        None
     }
 }
 
@@ -84,8 +132,15 @@ pub struct ASTTraverser {
 
 impl ASTTraverser {
     #[allow(clippy::new_without_default)]
-    pub fn new(reg_manager: Rc<RefCell<RegisterManager>>, sym_table: Rc<RefCell<symtable::Symtable>>) -> Self {
-        Self { reg_manager, sym_table, label_id_count: 0 }
+    pub fn new(
+        reg_manager: Rc<RefCell<RegisterManager>>,
+        sym_table: Rc<RefCell<symtable::Symtable>>,
+    ) -> Self {
+        Self {
+            reg_manager,
+            sym_table,
+            label_id_count: 0,
+        }
     }
 
     pub fn traverse(&mut self, ast: &ASTNode, reg: usize) -> usize {
@@ -98,7 +153,7 @@ impl ASTTraverser {
         } else if ast.operation == ASTNodeKind::AST_WHILE {
             return self.gen_while_stmt(ast);
         } else if ast.operation == ASTNodeKind::AST_FUNCTION {
-            return self.gen_function_stmt(ast); 
+            return self.gen_function_stmt(ast);
         } else if ast.operation == ASTNodeKind::AST_GLUE {
             if let Some(left) = ast.left.as_ref() {
                 self.gen_ast(left, 0xFFFFFFFF, ast.operation);
@@ -112,7 +167,8 @@ impl ASTTraverser {
         }
         let mut leftreg: usize = 0xFFFFFFFF;
         let mut rightreg: usize = 0xFFFFFFFF;
-        if let Some(leftt) = &*ast.left { // take reference to Option<T> which is inside the Box<Option<T>>
+        if let Some(leftt) = &*ast.left {
+            // take reference to Option<T> which is inside the Box<Option<T>>
             leftreg = self.gen_ast(leftt, 0xFFFFFFFF, ast.operation);
         }
         if let Some(rightt) = ast.right.as_ref() {
@@ -123,23 +179,30 @@ impl ASTTraverser {
             ASTNodeKind::AST_SUBTRACT => self.gen_sub(leftreg, rightreg),
             ASTNodeKind::AST_INTLIT => self.gen_load_intlit_into_reg(ast.value.as_ref().unwrap()),
             ASTNodeKind::AST_IDENT => self.gen_load_gid_into_reg(ast.value.as_ref().unwrap()),
-            ASTNodeKind::AST_LVIDENT => self.gen_load_reg_into_gid(_reg, ast.value.as_ref().unwrap()),
+            ASTNodeKind::AST_LVIDENT => {
+                self.gen_load_reg_into_gid(_reg, ast.value.as_ref().unwrap())
+            }
             ASTNodeKind::AST_ASSIGN => rightreg,
-            ASTNodeKind::AST_GTHAN | 
-            ASTNodeKind::AST_LTHAN | 
-            ASTNodeKind::AST_LTEQ |
-            ASTNodeKind::AST_GTEQ |
-            ASTNodeKind::AST_NEQ |
-            ASTNodeKind::AST_EQEQ => {
-                if (parent_ast_kind == ASTNodeKind::AST_IF) || (parent_ast_kind == ASTNodeKind::AST_WHILE) {
+            ASTNodeKind::AST_GTHAN
+            | ASTNodeKind::AST_LTHAN
+            | ASTNodeKind::AST_LTEQ
+            | ASTNodeKind::AST_GTEQ
+            | ASTNodeKind::AST_NEQ
+            | ASTNodeKind::AST_EQEQ => {
+                if (parent_ast_kind == ASTNodeKind::AST_IF)
+                    || (parent_ast_kind == ASTNodeKind::AST_WHILE)
+                {
                     self.gen_cmp_and_jmp(ast.operation, leftreg, rightreg, _reg)
                 } else {
                     self.gen_cmp_and_set(ast.operation, leftreg, rightreg)
                 }
-            },
+            }
             ASTNodeKind::AST_RETURN => self.gen_return_stmt(leftreg, _reg),
-            ASTNodeKind::AST_ADDR => self.gen_id_address_into_another_id(ast.value.as_ref().unwrap()),
+            ASTNodeKind::AST_ADDR => {
+                self.gen_id_address_into_another_id(ast.value.as_ref().unwrap())
+            }
             ASTNodeKind::AST_DEREF => self.gen_deref_pointer_id(ast.value.as_ref().unwrap()),
+            ASTNodeKind::AST_WIDEN => leftreg,
             _ => panic!("unknown AST operator '{:?}'", ast.operation),
         }
     }
@@ -147,7 +210,7 @@ impl ASTTraverser {
     fn gen_function_stmt(&mut self, ast: &ASTNode) -> usize {
         let index: usize = match ast.value.as_ref().unwrap() {
             LitType::I32(int_idx) => *int_idx as usize,
-            _ => panic!("Not a valid symbol table indexing method")
+            _ => panic!("Not a valid symbol table indexing method"),
         };
         println!("{}:", self.sym_table.borrow().get_symbol(index).name);
         if let Some(body) = &*ast.left {
@@ -172,13 +235,17 @@ impl ASTTraverser {
     fn gen_ifstmt_ast(&mut self, ast: &ASTNode) -> usize {
         let label_if_false: usize = self.get_next_label(); // label id to jump to if condition turns out to be false
         let mut label_end: usize = 0xFFFFFFFF; // this label is put after the end of entire if-else block
-        if ast.right.is_some() { label_end = self.get_next_label(); }
+        if ast.right.is_some() {
+            label_end = self.get_next_label();
+        }
         self.gen_ast((*ast.left).as_ref().unwrap(), label_if_false, ast.operation);
         self.reg_manager.borrow_mut().deallocate_all();
         self.gen_ast((*ast.mid).as_ref().unwrap(), 0xFFFFFFFF, ast.operation);
         self.reg_manager.borrow_mut().deallocate_all();
         // if there is an 'else' block
-        if ast.right.is_some() { self.gen_jump(label_end); }
+        if ast.right.is_some() {
+            self.gen_jump(label_end);
+        }
         // false label
         self.gen_label(label_if_false);
         if let Some(right_ast) = &*ast.right {
@@ -193,7 +260,11 @@ impl ASTTraverser {
         let r1name: String = self.reg_manager.borrow().name(r1);
         let r2name: String = self.reg_manager.borrow().name(r2);
         println!("cmp {}, {}", r1name, r2name);
-        println!("cset {}, {}", r2name, CMP_CONDS_LIST[operation as usize - ASTNodeKind::AST_EQEQ as usize]);
+        println!(
+            "cset {}, {}",
+            r2name,
+            CMP_CONDS_LIST[operation as usize - ASTNodeKind::AST_EQEQ as usize]
+        );
         println!("and {}, {}, 255", r2name, r2name);
         r2
     }
@@ -202,7 +273,11 @@ impl ASTTraverser {
         let r1name: String = self.reg_manager.borrow().name(r1);
         let r2name: String = self.reg_manager.borrow().name(r2);
         println!("cmp {}, {}", r1name, r2name);
-        println!("b{} _L{}", CMP_CONDS_LIST[operation as usize - ASTNodeKind::AST_EQEQ as usize], label);
+        println!(
+            "b{} _L{}",
+            CMP_CONDS_LIST[operation as usize - ASTNodeKind::AST_EQEQ as usize],
+            label
+        );
         self.reg_manager.borrow_mut().deallocate_all();
         0xFFFFFFFF
     }
@@ -210,22 +285,36 @@ impl ASTTraverser {
     fn gen_return_stmt(&mut self, result_reg: usize, _func_id: usize) -> usize {
         // NOTE: Generate code depending on the function's type. i.e. use w0 for i32, x0 for i64 etc.
         // let func_ret_type: LitTypeVariant = self.sym_table.borrow().get_symbol(func_id).lit_type;
-        if result_reg == 0xFFFFFFFF { // if function was a void type
+        if result_reg == 0xFFFFFFFF {
+            // if function was a void type
             println!("ret"); // just return
         } else {
-            println!("mov x0, {}\nret", self.reg_manager.borrow().name(result_reg));
+            println!(
+                "mov x0, {}\nret",
+                self.reg_manager.borrow().name(result_reg)
+            );
         }
         0xFFFFFFFF
     }
 
     fn gen_add(&mut self, r1: usize, r2: usize) -> usize {
-        println!("add {}, {}, {}", self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r2));
+        println!(
+            "add {}, {}, {}",
+            self.reg_manager.borrow().name(r1),
+            self.reg_manager.borrow().name(r1),
+            self.reg_manager.borrow().name(r2)
+        );
         self.reg_manager.borrow_mut().deallocate(r2);
         r1
     }
-    
+
     fn gen_sub(&mut self, r1: usize, r2: usize) -> usize {
-        println!("sub {}, {}, {}", self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r1), self.reg_manager.borrow().name(r2));
+        println!(
+            "sub {}, {}, {}",
+            self.reg_manager.borrow().name(r1),
+            self.reg_manager.borrow().name(r1),
+            self.reg_manager.borrow().name(r2)
+        );
         self.reg_manager.borrow_mut().deallocate(r2);
         r1
     }
@@ -297,13 +386,15 @@ impl ASTTraverser {
         match id {
             LitType::I32(index) => {
                 for (idx, symbol) in self.sym_table.borrow().iter().enumerate() {
-                    if idx == *index as usize { break; }
+                    if idx == *index as usize {
+                        break;
+                    }
                     if symbol.sym_type == SymbolType::Variable {
                         offset += 4;
                     }
                 }
-            },
-            _ => panic!("Not supported indexing type!")
+            }
+            _ => panic!("Not supported indexing type!"),
         };
         offset
     }
