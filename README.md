@@ -13,33 +13,43 @@ $ cargo test
 ```
 
 ### Example Input
+No bound check
 ```c
-global int a; 
-a = 4 + 5; 
-global int b;
-b = 4;
+global integer nums[5];
+global integer value;
+value = nums[0] + 12;
 ```
 
 ### Output
 ```asm
 .data
-	.align 2
-.L2:
-	.word 0
+.global nums
+nums:
+.word 0
+.word 0
+.word 0
+.word 0
+.word 0
+.data
+.global value
+value: .align 4
 	.word 0
 
 .text
-mov x4, 4
-mov x3, 5
-add x4, x4, x3
-adrp x3, .L2+0@PAGE
-add x3, x3, .L2+0@PAGEOFF
-str x4, [x3]
-mov x1, 4
-adrp x8, .L2+4@PAGE
-add x8, x8, .L2+4@PAGEOFF
-str x1, [x8]
+mov x5, 0
+mov x2, 0
+adrp x3, nums@PAGE
+add x3, x3, nums@PAGEOFF
+ldr x8, [x3, x2, lsl 3]
+mov x1, 12
+add x8, x8, x1
+adrp x1, value@PAGE
+add x1, x1, value@PAGEOFF
+str x8, [x1]
 mov x0, 0
 mov x16, 1
 svc 0x80
 ```
+
+### This compiler doesn't support array assignment yet
+i.e., for e.g., 'array[1] = 12;' is not supported.
