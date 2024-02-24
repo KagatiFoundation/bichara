@@ -234,10 +234,11 @@ pub enum ASTNodeKind {
     AST_WHILE,
     AST_FUNCTION,
     AST_FUNC_CALL,
-    AST_RETURN, // return statement AST node
-    AST_ADDR,   // for address-of operator
-    AST_DEREF,  // for dereferencing operator
-    AST_WIDEN,  // need to widen the tree
+    AST_RETURN,       // return statement AST node
+    AST_ADDR,         // for address-of operator
+    AST_DEREF,        // for dereferencing operator
+    AST_WIDEN,        // need to widen the tree
+    AST_ARRAY_ACCESS, // access array element
 }
 
 impl ASTNodeKind {

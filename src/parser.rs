@@ -39,6 +39,7 @@ enum ParseError {
     SymbolNotFound(Token),  // symbol not found; symbol has not been defined before
     NotCallable(Token),     // if a token being called is not callable type
     GlobalInsideFunction(Token),
+    UnsubscritableToken(Token),
     None, // just a placeholder
 }
 
@@ -48,6 +49,9 @@ impl std::fmt::Display for ParseError {
             ParseError::NotCallable(_) => write!(f, "not callable"),
             ParseError::GlobalInsideFunction(_) => {
                 write!(f, "global variable declaration inside a function")
+            }
+            ParseError::UnsubscritableToken(_) => {
+                write!(f, "token is not subscriptable")
             }
             _ => write!(f, "other"),
         }
@@ -506,46 +510,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_factor(&mut self) -> ParseResult {
-        let left: ParseResult = self.parse_func_call_expr();
+        let left: ParseResult = self.parse_mem_prefix();
         self.try_parsing_binary(left, vec![TokenKind::T_SLASH, TokenKind::T_STAR])
-    }
-
-    fn parse_func_call_expr(&mut self) -> ParseResult {
-        let possible_func_name_token: Token = self.current_token.clone();
-        let possible_id_node: ParseResult = self.parse_mem_prefix(); // could be other type of node than identifier node
-        match possible_id_node.as_ref() {
-            Err(_) => possible_id_node, // this node contains errornous token information
-            Ok(node) => {
-                if self.current_token.kind == TokenKind::T_LPAREN {
-                    if node.operation != ASTNodeKind::AST_IDENT {
-                        // If something is being called, then that has to be an identifier type. tokenoken
-                        return Err(ParseError::NotCallable(possible_func_name_token));
-                    }
-                    let id_type: &LitType = node.value.as_ref().unwrap();
-                    let mut symbol_index: i32 = 0x1FFFFFFF;
-                    if id_type.is_i32() {
-                        symbol_index = id_type.unwrap_i32();
-                    } else {
-                        // handle the case when we do not receive symbol index
-                    }
-                    let result_type: LitTypeVariant = self
-                        .sym_table
-                        .borrow()
-                        .get_symbol(symbol_index as usize)
-                        .clone()
-                        .lit_type;
-                    self.token_match(TokenKind::T_LPAREN); // match and ignore '('
-                    self.token_match(TokenKind::T_RPAREN); // match and ignore ')'
-                    Ok(ASTNode::make_leaf(
-                        ASTNodeKind::AST_FUNC_CALL,
-                        LitType::I32(symbol_index),
-                        result_type,
-                    ))
-                } else {
-                    possible_id_node
-                }
-            }
-        }
     }
 
     fn try_parsing_binary(
@@ -670,11 +636,18 @@ impl<'a> Parser<'a> {
                     return Err(ParseError::SymbolNotFound(current_token));
                 }
                 let symbol: Symbol = self.sym_table.borrow().get_symbol(id_index).clone();
-                Ok(ASTNode::make_leaf(
-                    ASTNodeKind::AST_IDENT,
-                    LitType::I32(id_index as i32),
-                    symbol.lit_type,
-                ))
+                let curr_tok_kind: TokenKind = self.current_token.kind;
+                if curr_tok_kind == TokenKind::T_LPAREN {
+                    self.parse_func_call_expr(&symbol, id_index, &current_token)
+                } else if curr_tok_kind == TokenKind::T_LBRACKET {
+                    self.parse_array_index_expr(&symbol, id_index, &current_token)
+                } else {
+                    Ok(ASTNode::make_leaf(
+                        ASTNodeKind::AST_IDENT,
+                        LitType::I32(id_index as i32),
+                        symbol.lit_type,
+                    ))
+                }
             }
             TokenKind::T_LPAREN => {
                 // group expression: e.g: (a * (b + c)))
@@ -688,6 +661,49 @@ impl<'a> Parser<'a> {
                 panic!("Unrecognized primitive type: {:?}", current_token);
             }
         }
+    }
+
+    fn parse_array_index_expr(
+        &mut self,
+        called_symbol: &Symbol,
+        sym_index: usize,
+        sym_token: &Token,
+    ) -> ParseResult {
+        _ = self.token_match(TokenKind::T_LBRACKET);
+        let array_access_expr_result: ParseResult = self.parse_equality();
+        if let Err(_) = array_access_expr_result {
+            return array_access_expr_result;
+        }
+        let array_access_expr: ASTNode = array_access_expr_result.ok().unwrap();
+        if called_symbol.sym_type != SymbolType::Array {
+            return Err(ParseError::UnsubscritableToken(sym_token.clone()));
+        }
+        _ = self.token_match(TokenKind::T_RBRACKET);
+        Ok(ASTNode::new(
+            ASTNodeKind::AST_ARRAY_ACCESS,
+            Some(array_access_expr),
+            None,
+            Some(LitType::I32(sym_index as i32)),
+            called_symbol.lit_type,
+        ))
+    }
+
+    fn parse_func_call_expr(
+        &mut self,
+        called_symbol: &Symbol,
+        sym_index: usize,
+        sym_token: &Token,
+    ) -> ParseResult {
+        _ = self.token_match(TokenKind::T_LPAREN);
+        if called_symbol.sym_type != SymbolType::Function {
+            return Err(ParseError::NotCallable(sym_token.clone()));
+        }
+        _ = self.token_match(TokenKind::T_RPAREN);
+        Ok(ASTNode::make_leaf(
+            ASTNodeKind::AST_FUNC_CALL,
+            LitType::I32(sym_index as i32),
+            called_symbol.lit_type,
+        ))
     }
 
     fn token_match(&mut self, kind: TokenKind) -> &Token {

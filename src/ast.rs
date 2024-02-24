@@ -203,6 +203,9 @@ impl ASTTraverser {
             }
             ASTNodeKind::AST_DEREF => self.gen_deref_pointer_id(ast.value.as_ref().unwrap()),
             ASTNodeKind::AST_WIDEN => leftreg,
+            ASTNodeKind::AST_ARRAY_ACCESS => {
+                self.gen_array_access(ast.value.as_ref().unwrap(), (*ast.left).as_ref().unwrap())
+            }
             _ => panic!("unknown AST operator '{:?}'", ast.operation),
         }
     }
@@ -295,6 +298,31 @@ impl ASTTraverser {
             );
         }
         0xFFFFFFFF
+    }
+
+    // I am not using 32-bit registers.
+    // I should have used them :(
+    fn gen_array_access(&mut self, id: &LitType, expr: &ASTNode) -> usize {
+        let expr_res_reg: usize = self.gen_ast(expr, 0xFFFFFFFF, ASTNodeKind::AST_ARRAY_ACCESS);
+        let mut reg_mgr = self.reg_manager.borrow_mut();
+        let expr_res_reg_name: String = reg_mgr.name(expr_res_reg);
+        let offset_shift: usize = match id {
+            LitType::I32(_) | // as of now, this compiler does not know how to index 32-bit int array
+            LitType::I64(_) => 3, // so I am using offset of 8 to calculate array indexes even though
+                                        // items are 32-bit
+            _ => 0,
+        };
+        // this will contains the address + offset of an array
+        let addr_reg: usize = reg_mgr.allocate();
+        let addr_reg_name: String = reg_mgr.name(addr_reg);
+        self.dump_gid_address_load_code(&addr_reg_name, id);
+        let off_addr_reg: usize = reg_mgr.allocate();
+        let off_addr_reg_name: String = reg_mgr.name(off_addr_reg);
+        println!(
+            "ldr {}, [{}, {}, lsl {}]",
+            off_addr_reg_name, addr_reg_name, expr_res_reg_name, offset_shift
+        );
+        off_addr_reg
     }
 
     fn gen_add(&mut self, r1: usize, r2: usize) -> usize {

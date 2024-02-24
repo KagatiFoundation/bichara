@@ -43,8 +43,9 @@ def main() -> char {
 */
 
 fn main() {
-    let mut tokener: tokenizer::Tokenizer =
-        tokenizer::Tokenizer::new("global integer num; num = 12; global char num2; num2 = 12;");
+    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new(
+        "global integer nums[5]; global integer value; value = nums[0] + 12;",
+    );
     let tokens: Vec<tokenizer::Token> = tokener.start_scan();
     let reg_manager: Rc<RefCell<register::RegisterManager>> =
         Rc::new(RefCell::new(register::RegisterManager::new()));
