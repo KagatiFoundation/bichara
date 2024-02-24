@@ -28,7 +28,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     enums::*,
     register::{self, RegisterManager},
-    symtable::{self},
+    symtable::{self, Symbol},
     types::*,
 };
 
@@ -339,8 +339,7 @@ impl ASTTraverser {
         let reg_name: String = self.reg_manager.borrow().name(reg);
         let value_containing_reg: usize = self.reg_manager.borrow_mut().allocate();
         let value_reg_name: String = self.reg_manager.borrow().name(value_containing_reg);
-        let id_offset: usize = self.calc_id_offset(id);
-        ASTTraverser::dump_gid_address_load(&reg_name, id_offset);
+        self.dump_gid_address_load_code(&reg_name, id);
         println!("ldr {}, [{}]", value_reg_name, reg_name);
         value_containing_reg
     }
@@ -348,10 +347,9 @@ impl ASTTraverser {
     // Refer to this page for explanation on '@PAGE' and '@PAGEOFF': https://stackoverflow.com/questions/65351533/apple-clang12-llvm-unknown-aarch64-fixup-kind
     fn gen_load_reg_into_gid(&mut self, reg: usize, id: &LitType) -> usize {
         let reg_name: String = self.reg_manager.borrow().name(reg);
-        let offset: usize = self.calc_id_offset(id);
         let addr_reg: usize = self.reg_manager.borrow_mut().allocate();
         let addr_reg_name: String = self.reg_manager.borrow().name(addr_reg);
-        ASTTraverser::dump_gid_address_load(&addr_reg_name, offset);
+        self.dump_gid_address_load_code(&addr_reg_name, id);
         println!("str {}, [{}]", reg_name, addr_reg_name);
         addr_reg
     }
@@ -360,28 +358,30 @@ impl ASTTraverser {
     fn gen_id_address_into_another_id(&mut self, id: &LitType) -> usize {
         let reg_alloced: usize = self.reg_manager.borrow_mut().allocate();
         let reg_name: String = self.reg_manager.borrow().name(reg_alloced);
-        let id_offset: usize = self.calc_id_offset(id);
-        ASTTraverser::dump_gid_address_load(&reg_name, id_offset);
+        self.dump_gid_address_load_code(&reg_name, id);
         reg_alloced
     }
 
     fn gen_deref_pointer_id(&mut self, id: &LitType) -> usize {
         let reg_alloced: usize = self.reg_manager.borrow_mut().allocate();
         let reg_name: String = self.reg_manager.borrow().name(reg_alloced);
-        let id_offset: usize = self.calc_id_offset(id);
         let value_reg: usize = self.reg_manager.borrow_mut().allocate();
         let value_reg_name: String = self.reg_manager.borrow().name(value_reg);
-        ASTTraverser::dump_gid_address_load(&reg_name, id_offset);
+        self.dump_gid_address_load_code(&reg_name, id);
         println!("ldr {}, [{}]", value_reg_name, reg_name);
         value_reg
     }
 
-    fn dump_gid_address_load(reg_name: &str, id_offset: usize) {
-        println!("adrp {}, .L2+{}@PAGE", reg_name, id_offset);
-        println!("add {}, {}, .L2+{}@PAGEOFF", reg_name, reg_name, id_offset);
+    fn dump_gid_address_load_code(&self, reg_name: &str, id: &LitType) {
+        let symbol = match id {
+            LitType::I32(_idx) => self.sym_table.borrow().get_symbol(*_idx as usize).clone(),
+            _ => panic!("Can't index symtable with this type: {:?}", id),
+        };
+        println!("adrp {}, {}@PAGE", reg_name, symbol.name);
+        println!("add {}, {}, {}@PAGEOFF", reg_name, reg_name, symbol.name);
     }
 
-    fn calc_id_offset(&self, id: &LitType) -> usize {
+    fn _calc_id_offset(&self, id: &LitType) -> usize {
         let mut offset: usize = 0;
         match id {
             LitType::I32(index) => {

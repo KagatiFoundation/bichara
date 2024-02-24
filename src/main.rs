@@ -1,4 +1,4 @@
-/* 
+/*
 MIT License
 
 Copyright (c) 2023 Kagati Foundation
@@ -24,30 +24,34 @@ SOFTWARE.
 
 use std::{cell::RefCell, rc::Rc};
 
-pub mod tokenizer;
+pub mod ast;
+pub mod enums;
 pub mod error;
 pub mod parser;
-pub mod utils;
-pub mod ast;
-pub mod symtable;
-pub mod enums;
 pub mod register;
+pub mod symtable;
+pub mod tokenizer;
 pub mod types;
+pub mod utils;
 
-/* 
-global char n; 
-def main() -> char { 
-    n = 4; 
-    return n; 
+/*
+global char n;
+def main() -> char {
+    n = 4;
+    return n;
 }
 */
 
-fn main() { 
-    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("global integer b; global integer a; a = 23;");
+fn main() {
+    let mut tokener: tokenizer::Tokenizer =
+        tokenizer::Tokenizer::new("global integer num; num = 12; global char num2; num2 = 12;");
     let tokens: Vec<tokenizer::Token> = tokener.start_scan();
-    let reg_manager: Rc<RefCell<register::RegisterManager>> = Rc::new(RefCell::new(register::RegisterManager::new()));
-    let sym_table: Rc<RefCell<symtable::Symtable>> = Rc::new(RefCell::new(symtable::Symtable::new()));
+    let reg_manager: Rc<RefCell<register::RegisterManager>> =
+        Rc::new(RefCell::new(register::RegisterManager::new()));
+    let sym_table: Rc<RefCell<symtable::Symtable>> =
+        Rc::new(RefCell::new(symtable::Symtable::new()));
     let mut p: parser::Parser = parser::Parser::new(&tokens, Rc::clone(&sym_table));
-    let mut traverser: ast::ASTTraverser = ast::ASTTraverser::new(Rc::clone(&reg_manager), Rc::clone(&sym_table));
+    let mut traverser: ast::ASTTraverser =
+        ast::ASTTraverser::new(Rc::clone(&reg_manager), Rc::clone(&sym_table));
     p.start(&mut traverser);
 }

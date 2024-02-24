@@ -99,20 +99,44 @@ impl<'a> Parser<'a> {
     }
 
     fn dump_globals(&self) {
-        println!(".data\n\t.align 2\n.L2:");
         for symbol in self.sym_table.borrow().iter() {
+            if symbol.sym_type == SymbolType::Function {
+                continue;
+            }
+            println!(".data\n.global {}", symbol.name);
             if symbol.sym_type == SymbolType::Variable {
-                match symbol.lit_type {
-                    LitTypeVariant::F32Ptr
-                    | LitTypeVariant::F64Ptr
-                    | LitTypeVariant::I16Ptr
-                    | LitTypeVariant::I32Ptr
-                    | LitTypeVariant::I64Ptr
-                    | LitTypeVariant::U8Ptr
-                    | LitTypeVariant::VoidPtr => println!("\t.space 8"),
-                    _ => println!("\t.word 0"),
+                Parser::dump_global_with_alignment(symbol);
+            } else if symbol.sym_type == SymbolType::Array {
+                let array_data_size: usize = symbol.lit_type.size();
+                println!("{}:", symbol.name);
+                for _ in 0..symbol.size {
+                    Parser::alloc_data_space(array_data_size);
                 }
             }
+        }
+    }
+
+    fn alloc_data_space(size: usize) {
+        match size {
+            1 => println!(".byte 0"),
+            4 => println!(".word 0"),
+            8 => println!(".quad 0"),
+            _ => panic!("Not possible to generate space for size: {}", size),
+        }
+    }
+
+    fn dump_global_with_alignment(symbol: &Symbol) {
+        match symbol.lit_type {
+            LitTypeVariant::F32Ptr
+            | LitTypeVariant::F64Ptr
+            | LitTypeVariant::I16Ptr
+            | LitTypeVariant::I32Ptr
+            | LitTypeVariant::I64Ptr
+            | LitTypeVariant::U8Ptr
+            | LitTypeVariant::VoidPtr => println!("{}: .align 8\n\t.quad 0", symbol.name),
+            LitTypeVariant::I32 => println!("{}: .align 4\n\t.word 0", symbol.name),
+            LitTypeVariant::U8 => println!("{}:\t.byte 0", symbol.name),
+            _ => panic!("Symbol's size is not supported right now: '{:?}'", symbol),
         }
     }
 
@@ -392,8 +416,7 @@ impl<'a> Parser<'a> {
         }
         _ = self.token_match(TokenKind::KW_GLOBAL);
         // let mut sym: MaybeUninit<Symbol> = MaybeUninit::<Symbol>::uninit();
-        let mut sym: Symbol =
-            Symbol::new(String::from(""), LitTypeVariant::I32, SymbolType::Variable);
+        let mut sym: Symbol = Symbol::uninit();
         sym.lit_type = self.parse_id_type();
         if sym.lit_type == LitTypeVariant::None {
             panic!(
@@ -403,8 +426,41 @@ impl<'a> Parser<'a> {
         }
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
         sym.name = id_token.lexeme.clone();
+        // if it is going to be an array type
+        if self.current_token.kind == TokenKind::T_LBRACKET {
+            return self.parse_global_array_var_decl_stmt(sym);
+        }
         _ = self.token_match(TokenKind::T_SEMICOLON);
+        sym.size = 1;
         self.sym_table.borrow_mut().add_symbol(sym); // track the symbol that has been defined
+        None
+    }
+
+    fn parse_global_array_var_decl_stmt(&mut self, mut sym: Symbol) -> Option<ParseError> {
+        self.skip_to_next_token(); // skip '['
+        let array_size_token: &Token = self.current_token;
+        let mut array_size_type: TokenKind = TokenKind::T_NONE;
+        for t in vec![
+            TokenKind::T_INT_NUM,
+            TokenKind::T_CHAR,
+            TokenKind::T_LONG_NUM,
+        ] {
+            if array_size_token.kind == t {
+                array_size_type = t;
+            }
+        }
+        if array_size_type == TokenKind::T_NONE {
+            panic!(
+                "Array size must be specified with an integer value. Given: '{:?}'",
+                array_size_token.lexeme
+            );
+        }
+        self.token_match(array_size_type);
+        self.token_match(TokenKind::T_RBRACKET);
+        self.token_match(TokenKind::T_SEMICOLON);
+        sym.sym_type = SymbolType::Array;
+        sym.size = array_size_token.lexeme.parse::<usize>().unwrap();
+        self.sym_table.borrow_mut().add_symbol(sym);
         None
     }
 
