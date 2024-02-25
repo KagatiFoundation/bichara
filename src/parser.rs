@@ -444,7 +444,7 @@ impl<'a> Parser<'a> {
         self.skip_to_next_token(); // skip '['
         let array_size_token: &Token = self.current_token;
         let mut array_size_type: TokenKind = TokenKind::T_NONE;
-        for t in vec![
+        for t in [
             TokenKind::T_INT_NUM,
             TokenKind::T_CHAR,
             TokenKind::T_LONG_NUM,
@@ -542,18 +542,12 @@ impl<'a> Parser<'a> {
                             left.result_type, right.result_type, ast_op
                         );
                     }
-                    let left_node: Option<ASTNode>;
-                    let mut right_node: Option<ASTNode> = None;
-                    if temp_left.is_some() {
-                        left_node = temp_left;
-                    } else {
-                        left_node = Some(left.clone());
-                    }
-                    if right_node.is_some() {
-                        right_node = temp_right;
-                    } else {
-                        right_node = Some(right.clone());
-                    }
+                    let left_node: Option<ASTNode> = if temp_left.is_some() {
+                        temp_left
+                    } else { Some(left.clone()) };
+                    let right_node: Option<ASTNode> = if temp_right.is_some() {
+                        temp_right
+                    } else { Some(right.clone()) };
                     let result_type: LitTypeVariant = left.result_type;
                     Ok(ASTNode::new(
                         ast_op,
@@ -671,7 +665,8 @@ impl<'a> Parser<'a> {
     ) -> ParseResult {
         _ = self.token_match(TokenKind::T_LBRACKET);
         let array_access_expr_result: ParseResult = self.parse_equality();
-        if let Err(_) = array_access_expr_result {
+        #[allow(clippy::question_mark)]
+        if array_access_expr_result.is_err() {
             return array_access_expr_result;
         }
         let array_access_expr: ASTNode = array_access_expr_result.ok().unwrap();
@@ -889,12 +884,71 @@ mod tests {
     */
 
     #[test]
-    fn test_return_stmt_inside_non_void_function() {
-        let mut tokener: Tokenizer = Tokenizer::new("def main() -> integer { return 1234; }");
+    fn test_array_decl_stmt_success() {
+        let mut tokener: Tokenizer = Tokenizer::new("global integer nums[12];");
         let tokens: Vec<Token> = tokener.start_scan();
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
         let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
-        let func_stmt: ParseResult = p.parse_single_stmt();
+        let array_decl_stmt: Option<ParseError> = p.parse_global_variable_decl_stmt();
+        assert!(array_decl_stmt.is_none());
+    }
+    
+    #[test]
+    #[should_panic]
+    fn test_array_decl_stmt_panic_array_size() {
+        let mut tokener: Tokenizer = Tokenizer::new("global integer nums[abcd];");
+        let tokens: Vec<Token> = tokener.start_scan();
+        let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
+        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let array_decl_stmt: Option<ParseError> = p.parse_global_variable_decl_stmt();
+        assert!(array_decl_stmt.is_none());
+    }
+    
+    #[test]
+    #[should_panic]
+    fn test_array_decl_stmt_panic_array_no_size_given() {
+        let mut tokener: Tokenizer = Tokenizer::new("global integer nums[];");
+        let tokens: Vec<Token> = tokener.start_scan();
+        let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
+        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let array_decl_stmt: Option<ParseError> = p.parse_global_variable_decl_stmt();
+        assert!(array_decl_stmt.is_none());
+    }
+
+    // helper function to parse a statement from string which does not contain variable declaration
+    fn parse_single_statement_no_decl(input: &'static str) -> ParseResult {
+        let mut tokener: Tokenizer = Tokenizer::new(input);
+        let tokens: Vec<Token> = tokener.start_scan();
+        let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
+        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        p.parse_single_stmt()
+    }
+
+    // helper function to parse a statement from string which may contain one or more variable declarations
+    fn parse_single_stmt_with_decl(input: &'static str, decl_count: usize) -> ParseResult {
+        let mut tokener: Tokenizer = Tokenizer::new(input);
+        let tokens: Vec<Token> = tokener.start_scan();
+        let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
+        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        for _ in 0..decl_count {
+            p.parse_global_variable_decl_stmt();
+        }
+        p.parse_single_stmt()
+    }
+
+    #[test]
+    fn test_array_access_stmt_success() {
+        let result: ParseResult = parse_single_stmt_with_decl("global integer nums[12]; global integer value; value = nums[5] + 12;", 2);
+        assert!(result.is_ok());
+        let node: &ASTNode = result.as_ref().unwrap();
+        let expr_node: &ASTNode = (*node.left).as_ref().unwrap();
+        let array_access: &ASTNode = (*expr_node.left).as_ref().unwrap();
+        assert_eq!(array_access.operation, ASTNodeKind::AST_ARRAY_ACCESS);
+    }
+
+    #[test]
+    fn test_return_stmt_inside_non_void_function() {
+        let func_stmt: ParseResult = parse_single_statement_no_decl("def main() -> integer { return 1234; }");
         assert!(func_stmt.is_ok());
         let upvalue: &ASTNode = func_stmt.as_ref().unwrap();
         assert_eq!(upvalue.operation, ASTNodeKind::AST_FUNCTION);

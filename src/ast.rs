@@ -28,7 +28,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     enums::*,
     register::{self, RegisterManager},
-    symtable::{self, Symbol},
+    symtable,
     types::*,
 };
 
