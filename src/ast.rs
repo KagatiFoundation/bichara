@@ -127,7 +127,7 @@ impl ASTNode {
 pub struct ASTTraverser {
     reg_manager: Rc<RefCell<register::RegisterManager>>,
     sym_table: Rc<RefCell<symtable::Symtable>>,
-    label_id_count: usize,
+    _label_id: &'static mut usize,
 }
 
 impl ASTTraverser {
@@ -135,11 +135,12 @@ impl ASTTraverser {
     pub fn new(
         reg_manager: Rc<RefCell<RegisterManager>>,
         sym_table: Rc<RefCell<symtable::Symtable>>,
+        label_id: &'static mut usize
     ) -> Self {
         Self {
             reg_manager,
             sym_table,
-            label_id_count: 0,
+            _label_id: label_id,
         }
     }
 
@@ -428,8 +429,8 @@ impl ASTTraverser {
     }
 
     fn get_next_label(&mut self) -> usize {
-        let label: usize = self.label_id_count;
-        self.label_id_count += 1;
+        let label: usize = *self._label_id;
+        (*self._label_id) += 1;
         label
     }
 

@@ -61,25 +61,28 @@ impl std::fmt::Display for ParseError {
 type ParseResult = Result<ASTNode, ParseError>;
 
 // Actual parser
-pub struct Parser<'a> {
-    tokens: &'a Vec<Token>,
+pub struct Parser {
+    tokens: Vec<Token>,
     current: usize,
-    current_token: &'a Token,
+    current_token: Token,
     sym_table: Rc<RefCell<Symtable>>, // symbol table for global identifiers
     // ID of a function that is presently being parsed. This field's value is 0xFFFFFFFF
     // if the parser is not inside a function.
     current_function_id: usize,
+    _label_id: &'static mut usize, // label generator
 }
 
-impl<'a> Parser<'a> {
+impl Parser {
     #[inline]
-    pub fn new(tokens: &'a Vec<Token>, sym_table: Rc<RefCell<Symtable>>) -> Self {
+    pub fn new(tokens: Vec<Token>, sym_table: Rc<RefCell<Symtable>>, label_id: &'static mut usize) -> Self {
+        let current_token: Token = tokens[0].clone();
         Self {
             tokens,
             current: 0,
-            current_token: &tokens[0],
+            current_token,
             sym_table,
             current_function_id: 0xFFFFFFFF,
+            _label_id: label_id
         }
     }
 
@@ -205,7 +208,7 @@ impl<'a> Parser<'a> {
         let func_return_type: LitTypeVariant = LitTypeVariant::from_token_kind(curr_tok_kind);
         if func_return_type == LitTypeVariant::None {
             error::report_unexpected_token(
-                self.current_token,
+                &self.current_token,
                 Some("Not a valid return type for a function."),
             );
         }
@@ -235,7 +238,7 @@ impl<'a> Parser<'a> {
         // check whether parser's parsing a function or not
         if self.current_function_id == 0xFFFFFFFF {
             error::report_unexpected_token(
-                self.current_token,
+                &self.current_token,
                 Some("'return' statement outside a function is not valid."),
             );
         } else {
@@ -252,7 +255,7 @@ impl<'a> Parser<'a> {
             // if function has void as a return type, panic if any expression follows the keyword 'return'
             if self.current_token.kind != TokenKind::T_SEMICOLON {
                 error::report_unexpected_token(
-                    self.current_token,
+                    &self.current_token,
                     Some("Expected ';' because function has a 'void' return type."),
                 );
             }
@@ -373,11 +376,11 @@ impl<'a> Parser<'a> {
     fn parse_assignment_stmt(&mut self) -> ParseResult {
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
         let _id_index_symt: usize = self.sym_table.borrow().find_symbol(&id_token.lexeme);
-        let symbol: Symbol = self.sym_table.borrow().get_symbol(_id_index_symt).clone();
         if _id_index_symt == 0xFFFFFFFF {
             // if the symbol has not been defined
             panic!("Assigning to an undefined symbol '{}'", id_token.lexeme);
         }
+        let symbol: Symbol = self.sym_table.borrow().get_symbol(_id_index_symt).clone();
         // Check if we are assigning to a type other than SymbolType::Variable. If yes, panic!
         if symbol.sym_type != SymbolType::Variable {
             panic!("Assigning to type '{:?}' is not allowed!", symbol.sym_type);
@@ -442,7 +445,7 @@ impl<'a> Parser<'a> {
 
     fn parse_global_array_var_decl_stmt(&mut self, mut sym: Symbol) -> Option<ParseError> {
         self.skip_to_next_token(); // skip '['
-        let array_size_token: &Token = self.current_token;
+        let array_size_token: Token = self.current_token.clone();
         let mut array_size_type: TokenKind = TokenKind::T_NONE;
         for t in [
             TokenKind::T_INT_NUM,
@@ -623,6 +626,11 @@ impl<'a> Parser<'a> {
                 LitType::F32(current_token.lexeme.parse::<f32>().unwrap()),
                 LitTypeVariant::F32,
             )),
+            TokenKind::T_STRING => {
+                println!("_L{}: .asciiz \"{}\"", *self._label_id, current_token.lexeme);
+                *self._label_id += 1;
+                Ok(ASTNode::make_leaf(ASTNodeKind::AST_STRLIT, LitType::I32(*self._label_id as i32), LitTypeVariant::U8Ptr))
+            }
             TokenKind::T_IDENTIFIER => {
                 let id_index: usize = self.sym_table.borrow().find_symbol(&current_token.lexeme);
                 if id_index == 0xFFFFFFFF {
@@ -702,7 +710,7 @@ impl<'a> Parser<'a> {
     }
 
     fn token_match(&mut self, kind: TokenKind) -> &Token {
-        let current: &Token = self.current_token;
+        let current: Token = self.current_token.clone();
         if kind != current.kind {
             panic!(
                 "Expected the token to be '{:?}' but found '{:?}'",
@@ -710,7 +718,7 @@ impl<'a> Parser<'a> {
             );
         }
         self.skip_to_next_token();
-        current
+        &self.tokens[self.current - 1]
     }
 
     fn skip_to_next_token(&mut self) {
@@ -718,7 +726,7 @@ impl<'a> Parser<'a> {
         if self.current >= self.tokens.len() {
             return;
         }
-        self.current_token = &self.tokens[self.current];
+        self.current_token = self.tokens[self.current].clone();
     }
 }
 
@@ -728,10 +736,10 @@ mod tests {
 
     #[test]
     fn test_group_expression_tree_structure() {
+        static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("(5 + (3 * 4))");
-        let tokens: Vec<Token> = tokener.start_scan();
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
         let result: ParseResult = p.parse_equality();
         assert!(result.is_ok());
         let upvalue: ASTNode = result.unwrap();
@@ -745,10 +753,10 @@ mod tests {
     // test addition operation
     #[test]
     fn test_depth_one_bin_tree() {
+        static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("5+5");
-        let tokens: Vec<Token> = tokener.start_scan();
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
         let result: ParseResult = p.parse_equality();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().operation, ASTNodeKind::AST_ADD);
@@ -757,11 +765,10 @@ mod tests {
     // test if-else block
     #[test]
     fn test_if_else_statement_block() {
-        let mut tokener: Tokenizer =
-            Tokenizer::new("if (4 > 5) { global integer a; } else { global integer b; }");
-        let tokens: Vec<Token> = tokener.start_scan();
+        static mut LABEL_ID: usize = 0;
+        let mut tokener: Tokenizer = Tokenizer::new("if (4 > 5) { global integer a; } else { global integer b; }");
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
         let result: ParseResult = p.parse_if_stmt();
         assert!(
             result.is_ok(),
@@ -790,10 +797,10 @@ mod tests {
     // dereferencing, and addressing will work.
     #[test]
     fn test_integer_id_addr_load() {
+        static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("global integer *b; global integer a; b = &a;");
-        let tokens: Vec<Token> = tokener.start_scan();
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
         p.parse_global_variable_decl_stmt();
         p.parse_global_variable_decl_stmt();
         let result: ParseResult = p.parse_single_stmt();
@@ -812,10 +819,10 @@ mod tests {
 
     #[test]
     fn test_integer_id_deref() {
+        static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("global integer *b; global integer a; a = *b;");
-        let tokens: Vec<Token> = tokener.start_scan();
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
         // Skipping first two statements. Because, global variable declaration
         // doesn't produce any AST node.
         p.parse_global_variable_decl_stmt();
@@ -834,32 +841,23 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_while_statement_block() {
-        let mut tokener: Tokenizer = Tokenizer::new("global integer *b; global integer a; a = *b;");
-        let tokens: Vec<Token> = tokener.start_scan();
-        let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
-        p.parse_global_variable_decl_stmt();
-    }
-
     // Return statement outside a function is not valid!
     #[test]
     #[should_panic]
     fn test_simple_return_stmt_outside_func() {
+        static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("return;");
-        let tokens: Vec<Token> = tokener.start_scan();
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
         _ = p.parse_single_stmt();
     }
 
     #[test]
     fn test_func_decl_stmt() {
+        static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("def main() -> void { return; }");
-        let tokens: Vec<Token> = tokener.start_scan();
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
         let func_stmt: ParseResult = p.parse_single_stmt();
         assert!(func_stmt.is_ok());
         let upvalue: &ASTNode = func_stmt.as_ref().unwrap();
@@ -885,10 +883,10 @@ mod tests {
 
     #[test]
     fn test_array_decl_stmt_success() {
+        static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("global integer nums[12];");
-        let tokens: Vec<Token> = tokener.start_scan();
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
         let array_decl_stmt: Option<ParseError> = p.parse_global_variable_decl_stmt();
         assert!(array_decl_stmt.is_none());
     }
@@ -896,10 +894,10 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_array_decl_stmt_panic_array_size() {
+        static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("global integer nums[abcd];");
-        let tokens: Vec<Token> = tokener.start_scan();
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
         let array_decl_stmt: Option<ParseError> = p.parse_global_variable_decl_stmt();
         assert!(array_decl_stmt.is_none());
     }
@@ -907,29 +905,29 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_array_decl_stmt_panic_array_no_size_given() {
+        static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("global integer nums[];");
-        let tokens: Vec<Token> = tokener.start_scan();
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
         let array_decl_stmt: Option<ParseError> = p.parse_global_variable_decl_stmt();
         assert!(array_decl_stmt.is_none());
     }
 
     // helper function to parse a statement from string which does not contain variable declaration
     fn parse_single_statement_no_decl(input: &'static str) -> ParseResult {
+        static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new(input);
-        let tokens: Vec<Token> = tokener.start_scan();
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
         p.parse_single_stmt()
     }
 
     // helper function to parse a statement from string which may contain one or more variable declarations
     fn parse_single_stmt_with_decl(input: &'static str, decl_count: usize) -> ParseResult {
+        static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new(input);
-        let tokens: Vec<Token> = tokener.start_scan();
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
         for _ in 0..decl_count {
             p.parse_global_variable_decl_stmt();
         }

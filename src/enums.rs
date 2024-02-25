@@ -239,6 +239,7 @@ pub enum ASTNodeKind {
     AST_DEREF,        // for dereferencing operator
     AST_WIDEN,        // need to widen the tree
     AST_ARRAY_ACCESS, // access array element
+    AST_STRLIT, // string literal node
 }
 
 impl ASTNodeKind {

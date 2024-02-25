@@ -42,6 +42,8 @@ def main() -> char {
 }
 */
 
+static mut LABEL_ID: usize = 0;
+
 fn main() {
     let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new(
         "global integer nums[5]; global integer value; value = nums[0] + 12;",
@@ -51,8 +53,8 @@ fn main() {
         Rc::new(RefCell::new(register::RegisterManager::new()));
     let sym_table: Rc<RefCell<symtable::Symtable>> =
         Rc::new(RefCell::new(symtable::Symtable::new()));
-    let mut p: parser::Parser = parser::Parser::new(&tokens, Rc::clone(&sym_table));
+    let mut p: parser::Parser = parser::Parser::new(tokens, Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
     let mut traverser: ast::ASTTraverser =
-        ast::ASTTraverser::new(Rc::clone(&reg_manager), Rc::clone(&sym_table));
+        ast::ASTTraverser::new(Rc::clone(&reg_manager), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
     p.start(&mut traverser);
 }

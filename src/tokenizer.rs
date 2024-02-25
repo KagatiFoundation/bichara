@@ -374,12 +374,11 @@ impl Tokenizer {
                 if self.is_at_end() {
                     self.advance_to_next_char_pos();
                     return TokenizationResult::Error(ErrorType::UnterminatedString, token_pos);
-                } else {
-                    self.advance_to_next_char_pos();
-                    let str_val: &str = std::str::from_utf8(&self.source[__start..__end]).unwrap();
-                    token.kind = TokenKind::T_STRING;
-                    token.lexeme = String::from(str_val);
                 }
+                self.advance_to_next_char_pos();
+                let str_val: &str = std::str::from_utf8(&self.source[__start..__end]).unwrap();
+                token.kind = TokenKind::T_STRING;
+                token.lexeme = String::from(str_val);
             },
             '(' | ')' | '{' | '}' | '[' | ']' | '#' | '.' | '?' | ':' | ',' | ';' => {
                 token.kind = TokenKind::from_str(self.curr_char.to_string().as_str()).unwrap();
