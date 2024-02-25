@@ -627,9 +627,10 @@ impl Parser {
                 LitTypeVariant::F32,
             )),
             TokenKind::T_STRING => {
-                println!("_L{}: .asciiz \"{}\"", *self._label_id, current_token.lexeme);
+                let str_label: usize = *self._label_id;
                 *self._label_id += 1;
-                Ok(ASTNode::make_leaf(ASTNodeKind::AST_STRLIT, LitType::I32(*self._label_id as i32), LitTypeVariant::U8Ptr))
+                println!("_L{}: .ascii \"{}\"", str_label, current_token.lexeme);
+                Ok(ASTNode::make_leaf(ASTNodeKind::AST_STRLIT, LitType::I32(str_label as i32), LitTypeVariant::U8Ptr))
             }
             TokenKind::T_IDENTIFIER => {
                 let id_index: usize = self.sym_table.borrow().find_symbol(&current_token.lexeme);

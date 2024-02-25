@@ -46,7 +46,7 @@ static mut LABEL_ID: usize = 0;
 
 fn main() {
     let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new(
-        "global integer nums[5]; global integer value; value = nums[0] + 12;",
+        "global char *name; name = \"ramesh\";",
     );
     let tokens: Vec<tokenizer::Token> = tokener.start_scan();
     let reg_manager: Rc<RefCell<register::RegisterManager>> =

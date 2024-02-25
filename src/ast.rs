@@ -207,6 +207,7 @@ impl ASTTraverser {
             ASTNodeKind::AST_ARRAY_ACCESS => {
                 self.gen_array_access(ast.value.as_ref().unwrap(), (*ast.left).as_ref().unwrap())
             }
+            ASTNodeKind::AST_STRLIT => self.gen_load_global_strlit(ast.value.as_ref().unwrap()),
             _ => panic!("unknown AST operator '{:?}'", ast.operation),
         }
     }
@@ -316,7 +317,7 @@ impl ASTTraverser {
         // this will contains the address + offset of an array
         let addr_reg: usize = reg_mgr.allocate();
         let addr_reg_name: String = reg_mgr.name(addr_reg);
-        self.dump_gid_address_load_code(&addr_reg_name, id);
+        self.dump_gid_address_load_code_from_name(&addr_reg_name, id);
         let off_addr_reg: usize = reg_mgr.allocate();
         let off_addr_reg_name: String = reg_mgr.name(off_addr_reg);
         println!(
@@ -368,7 +369,7 @@ impl ASTTraverser {
         let reg_name: String = self.reg_manager.borrow().name(reg);
         let value_containing_reg: usize = self.reg_manager.borrow_mut().allocate();
         let value_reg_name: String = self.reg_manager.borrow().name(value_containing_reg);
-        self.dump_gid_address_load_code(&reg_name, id);
+        self.dump_gid_address_load_code_from_name(&reg_name, id);
         println!("ldr {}, [{}]", value_reg_name, reg_name);
         value_containing_reg
     }
@@ -378,7 +379,7 @@ impl ASTTraverser {
         let reg_name: String = self.reg_manager.borrow().name(reg);
         let addr_reg: usize = self.reg_manager.borrow_mut().allocate();
         let addr_reg_name: String = self.reg_manager.borrow().name(addr_reg);
-        self.dump_gid_address_load_code(&addr_reg_name, id);
+        self.dump_gid_address_load_code_from_name(&addr_reg_name, id);
         println!("str {}, [{}]", reg_name, addr_reg_name);
         addr_reg
     }
@@ -387,7 +388,7 @@ impl ASTTraverser {
     fn gen_id_address_into_another_id(&mut self, id: &LitType) -> usize {
         let reg_alloced: usize = self.reg_manager.borrow_mut().allocate();
         let reg_name: String = self.reg_manager.borrow().name(reg_alloced);
-        self.dump_gid_address_load_code(&reg_name, id);
+        self.dump_gid_address_load_code_from_name(&reg_name, id);
         reg_alloced
     }
 
@@ -396,12 +397,29 @@ impl ASTTraverser {
         let reg_name: String = self.reg_manager.borrow().name(reg_alloced);
         let value_reg: usize = self.reg_manager.borrow_mut().allocate();
         let value_reg_name: String = self.reg_manager.borrow().name(value_reg);
-        self.dump_gid_address_load_code(&reg_name, id);
+        self.dump_gid_address_load_code_from_name(&reg_name, id);
         println!("ldr {}, [{}]", value_reg_name, reg_name);
         value_reg
     }
 
-    fn dump_gid_address_load_code(&self, reg_name: &str, id: &LitType) {
+    // id --> label information of the string
+    fn gen_load_global_strlit(&mut self, id: &LitType) -> usize {
+        let str_addr_reg: usize = self.reg_manager.borrow_mut().allocate();
+        let str_addr_name: String = self.reg_manager.borrow().name(str_addr_reg);
+        self.dump_gid_address_load_code_from_label_id(&str_addr_name, id);
+        str_addr_reg
+    }
+
+    fn dump_gid_address_load_code_from_label_id(&self, reg_name: &str, id: &LitType) {
+        let symbol_label_id: usize = match id {
+            LitType::I32(_idx) => *_idx as usize,
+            _ => panic!("Can't index symtable with this type: {:?}", id),
+        };
+        println!("adrp {}, _L{}@PAGE", reg_name, symbol_label_id);
+        println!("add {}, {}, _L{}@PAGEOFF", reg_name, reg_name, symbol_label_id);
+    }
+
+    fn dump_gid_address_load_code_from_name(&self, reg_name: &str, id: &LitType) {
         let symbol = match id {
             LitType::I32(_idx) => self.sym_table.borrow().get_symbol(*_idx as usize).clone(),
             _ => panic!("Can't index symtable with this type: {:?}", id),
