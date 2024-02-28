@@ -213,11 +213,15 @@ impl Parser {
             );
         }
         self.skip_to_next_token(); // skip return type
-        self.current_function_id = self.sym_table.borrow_mut().add_symbol(Symbol::new(
-            id_token.lexeme,
+        let function_id: Option<usize> = self.sym_table.borrow_mut().add_symbol(Symbol::new(
+            id_token.lexeme.clone(),
             func_return_type,
             SymbolType::Function,
         ));
+        if function_id.is_none() {
+            panic!("Symbol already defined: '{:?}'", id_token.lexeme);
+        }
+        self.current_function_id = function_id.unwrap();
         let function_body: ParseResult = self.parse_compound_stmt();
         let temp_func_id: usize = self.current_function_id;
         self.current_function_id = 0xFFFFFFFF; // exiting out of function body
@@ -242,12 +246,11 @@ impl Parser {
                 Some("'return' statement outside a function is not valid."),
             );
         } else {
-            func_symbol = Some(
-                self.sym_table
-                    .borrow()
-                    .get_symbol(self.current_function_id)
-                    .clone(),
-            );
+            let sym: Option<Symbol> = Some(self.sym_table.borrow().get_symbol(self.current_function_id).unwrap().clone());
+            if sym.is_none() {
+                panic!("Undefined function. ok");
+            }
+            func_symbol = sym;
             void_ret_type = func_symbol.as_ref().unwrap().lit_type == LitTypeVariant::Void;
         }
         _ = self.token_match(TokenKind::KW_RETURN);
@@ -375,12 +378,13 @@ impl Parser {
 
     fn parse_assignment_stmt(&mut self) -> ParseResult {
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
-        let _id_index_symt: usize = self.sym_table.borrow().find_symbol(&id_token.lexeme);
-        if _id_index_symt == 0xFFFFFFFF {
+        let _id_index_symt_op: Option<usize> = self.sym_table.borrow().find_symbol(&id_token.lexeme);
+        if _id_index_symt_op.is_none() {
             // if the symbol has not been defined
             panic!("Assigning to an undefined symbol '{}'", id_token.lexeme);
         }
-        let symbol: Symbol = self.sym_table.borrow().get_symbol(_id_index_symt).clone();
+        let _id_index_symt: usize = _id_index_symt_op.unwrap();
+        let symbol: Symbol = self.sym_table.borrow().get_symbol(_id_index_symt).unwrap().clone();
         // Check if we are assigning to a type other than SymbolType::Variable. If yes, panic!
         if symbol.sym_type != SymbolType::Variable {
             panic!("Assigning to type '{:?}' is not allowed!", symbol.sym_type);
@@ -633,12 +637,13 @@ impl Parser {
                 Ok(ASTNode::make_leaf(ASTNodeKind::AST_STRLIT, LitType::I32(str_label as i32), LitTypeVariant::U8Ptr))
             }
             TokenKind::T_IDENTIFIER => {
-                let id_index: usize = self.sym_table.borrow().find_symbol(&current_token.lexeme);
-                if id_index == 0xFFFFFFFF {
+                let id_index_op: Option<usize> = self.sym_table.borrow().find_symbol(&current_token.lexeme);
+                if id_index_op.is_none() {
                     // if symbol has not been defined
                     return Err(ParseError::SymbolNotFound(current_token));
                 }
-                let symbol: Symbol = self.sym_table.borrow().get_symbol(id_index).clone();
+                let id_index: usize = id_index_op.unwrap();
+                let symbol: Symbol = self.sym_table.borrow().get_symbol(id_index).unwrap().clone();
                 let curr_tok_kind: TokenKind = self.current_token.kind;
                 if curr_tok_kind == TokenKind::T_LPAREN {
                     self.parse_func_call_expr(&symbol, id_index, &current_token)

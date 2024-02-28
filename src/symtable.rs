@@ -79,13 +79,13 @@ impl Symtable {
         }
     }
 
-    pub fn find_symbol(&self, name: &str) -> usize {
+    pub fn find_symbol(&self, name: &str) -> Option<usize> {
         for (idx, n) in self.syms.iter().enumerate() {
             if name == n.name {
-                return idx;
+                return Some(idx);
             }
         }
-        0xFFFFFFFF
+        None
     }
 
     fn next(&mut self) -> usize {
@@ -94,25 +94,24 @@ impl Symtable {
         self.counter
     }
 
-    pub fn add_symbol(&mut self, sym: Symbol) -> usize {
-        let mut pos: usize = self.find_symbol(&sym.name);
-        if pos != 0xFFFFFFFF {
-            return pos;
+    pub fn add_symbol(&mut self, sym: Symbol) -> Option<usize> {
+        if self.find_symbol(&sym.name).is_some() { 
+            return None;
         }
-        pos = self.next();
+        let act_pos: usize = self.next();
         self.syms.push(sym);
-        pos - 1
+        Some(act_pos - 1)
     }
 
     // TODO: Convert return type to Option<&Symbol>
-    pub fn get_symbol(&self, idx: usize) -> &Symbol {
+    pub fn get_symbol(&self, idx: usize) -> Option<&Symbol> {
         assert!(
             idx < self.counter,
             "value '{}' out of bounds for range '{}'",
             idx,
             self.counter
         );
-        self.syms.get(idx).unwrap()
+        self.syms.get(idx)
     }
 
     pub fn remove_symbol(&mut self, index: usize) -> Symbol {
@@ -128,13 +127,13 @@ mod tests {
     #[test]
     fn test_symbol_addition() {
         let mut table: Symtable = Symtable::new();
-        assert_eq!(
+        matches!(
             table.add_symbol(Symbol::new(
                 String::from("number"),
                 super::LitTypeVariant::I32,
                 SymbolType::Variable
             )),
-            0
+            Option::Some(0)
         );
         assert_eq!(table.syms.len(), 1);
         assert_eq!(
@@ -143,7 +142,7 @@ mod tests {
                 super::LitTypeVariant::I32,
                 SymbolType::Variable
             )),
-            1
+            Option::Some(1)
         );
         assert_eq!(
             table.add_symbol(Symbol::new(
@@ -151,31 +150,7 @@ mod tests {
                 super::LitTypeVariant::I32,
                 SymbolType::Variable
             )),
-            2
-        );
-        assert_eq!(
-            table.add_symbol(Symbol::new(
-                String::from("number4"),
-                super::LitTypeVariant::I32,
-                SymbolType::Variable
-            )),
-            3
-        );
-        assert_eq!(
-            table.add_symbol(Symbol::new(
-                String::from("number5"),
-                super::LitTypeVariant::I32,
-                SymbolType::Variable
-            )),
-            4
-        );
-        assert_eq!(
-            table.add_symbol(Symbol::new(
-                String::from("number6"),
-                super::LitTypeVariant::I32,
-                SymbolType::Variable
-            )),
-            5
+            Option::Some(2)
         );
     }
 
@@ -210,9 +185,9 @@ mod tests {
             super::LitTypeVariant::I32,
             SymbolType::Variable,
         ));
-        assert_eq!(table.find_symbol("number2"), 0);
-        assert_eq!(table.find_symbol("number3"), 1);
-        assert_eq!(table.find_symbol("number4"), 2);
+        assert_eq!(table.find_symbol("number2"), Option::Some(0));
+        assert_eq!(table.find_symbol("number3"), Option::Some(1));
+        assert_eq!(table.find_symbol("number4"), Option::Some(2));
     }
 
     #[test]

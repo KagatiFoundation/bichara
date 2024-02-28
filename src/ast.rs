@@ -217,7 +217,8 @@ impl ASTTraverser {
             LitType::I32(int_idx) => *int_idx as usize,
             _ => panic!("Not a valid symbol table indexing method"),
         };
-        println!("{}:", self.sym_table.borrow().get_symbol(index).name);
+        let func_name: String = self.sym_table.borrow().get_symbol(index).unwrap().name.clone();
+        println!("{}:", func_name);
         if let Some(body) = &*ast.left {
             self.gen_ast(body, 0xFFFFFFFF, ast.operation);
         }
@@ -420,12 +421,13 @@ impl ASTTraverser {
     }
 
     fn dump_gid_address_load_code_from_name(&self, reg_name: &str, id: &LitType) {
-        let symbol = match id {
-            LitType::I32(_idx) => self.sym_table.borrow().get_symbol(*_idx as usize).clone(),
+        let symbol: symtable::Symbol = match id {
+            LitType::I32(_idx) => self.sym_table.borrow().get_symbol(*_idx as usize).unwrap().clone(),
             _ => panic!("Can't index symtable with this type: {:?}", id),
         };
-        println!("adrp {}, {}@PAGE", reg_name, symbol.name);
-        println!("add {}, {}, {}@PAGEOFF", reg_name, reg_name, symbol.name);
+        let sym_name: &str = &symbol.name;
+        println!("adrp {}, {}@PAGE", reg_name, sym_name);
+        println!("add {}, {}, {}@PAGEOFF", reg_name, reg_name, sym_name);
     }
 
     fn _calc_id_offset(&self, id: &LitType) -> usize {
