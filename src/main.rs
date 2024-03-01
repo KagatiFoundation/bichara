@@ -42,11 +42,10 @@ def main() -> char {
 }
 */
 
-static mut LABEL_ID: usize = 0;
-
 fn main() {
+    static mut LABEL_ID: usize = 0;
     let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new(
-        "global char *name; name = \"ramesh\";",
+        "global char *name = \"ramesh\"; global integer value = 12; value = value + value;",
     );
     let tokens: Vec<tokenizer::Token> = tokener.start_scan();
     let reg_manager: Rc<RefCell<register::RegisterManager>> =

@@ -25,7 +25,16 @@ SOFTWARE.
 use crate::tokenizer::{TokenPos, Token};
 
 pub fn error(pos: TokenPos, msg: &str) {
-    panic!("error: {}:{} {}", pos.line, pos.column, msg);
+    panic!("Error: {}:{} {}", pos.line, pos.column, msg);
+}
+
+pub fn report_errornous_token(tok: &Token, msg: &str) {
+    println!("Error: {}:{} {}", tok.pos.line, tok.pos.column, msg);
+}
+
+pub fn report_errornous_token_and_exit(tok: &Token, msg: &str, code: i32) {
+    report_errornous_token(tok, msg);
+    std::process::exit(code);
 }
 
 pub fn warning(pos: TokenPos, msg: &str) {

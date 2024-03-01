@@ -26,21 +26,29 @@ use crate::enums::*;
 use crate::types::*;
 use std::slice::Iter;
 
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum StorageClass {
+    GLOBAL, // globally visible symbol
+    LOCAL, // locally visible symbol
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct Symbol {
     pub name: String,
     pub lit_type: LitTypeVariant, // What kind of value this symbol is
     pub sym_type: SymbolType,     // What type of symbol this is. i.e. Variable or Function
     pub size: usize,              // number of elements in the symbol
+    pub class: StorageClass
 }
 
 impl Symbol {
-    pub fn new(name: String, lit: LitTypeVariant, sym_type: SymbolType) -> Self {
+    pub fn new(name: String, lit: LitTypeVariant, sym_type: SymbolType, class: StorageClass) -> Self {
         Self {
             name,
             lit_type: lit,
             sym_type,
             size: 1,
+            class
         }
     }
 
@@ -51,6 +59,7 @@ impl Symbol {
             lit_type: LitTypeVariant::None,
             sym_type: SymbolType::Variable, // we don't have a None type
             size: 0,                        // oooooh, scary
+            class: StorageClass::GLOBAL
         }
     }
 }
@@ -131,7 +140,8 @@ mod tests {
             table.add_symbol(Symbol::new(
                 String::from("number"),
                 super::LitTypeVariant::I32,
-                SymbolType::Variable
+                SymbolType::Variable,
+                crate::symtable::StorageClass::GLOBAL
             )),
             Option::Some(0)
         );
@@ -140,7 +150,8 @@ mod tests {
             table.add_symbol(Symbol::new(
                 String::from("number2"),
                 super::LitTypeVariant::I32,
-                SymbolType::Variable
+                SymbolType::Variable,
+                crate::symtable::StorageClass::GLOBAL
             )),
             Option::Some(1)
         );
@@ -148,7 +159,8 @@ mod tests {
             table.add_symbol(Symbol::new(
                 String::from("number3"),
                 super::LitTypeVariant::I32,
-                SymbolType::Variable
+                SymbolType::Variable,
+                crate::symtable::StorageClass::GLOBAL
             )),
             Option::Some(2)
         );
@@ -164,26 +176,30 @@ mod tests {
             String::from("number"),
             super::LitTypeVariant::I32,
             SymbolType::Variable,
+            crate::symtable::StorageClass::GLOBAL
         ));
     }
 
     #[test]
-    fn test_find_symbol_index_from_it_name() {
+    fn test_find_symbol_index_from_its_name() {
         let mut table: Symtable = Symtable::new();
         table.add_symbol(Symbol::new(
             String::from("number2"),
             super::LitTypeVariant::I32,
             SymbolType::Variable,
+            crate::symtable::StorageClass::GLOBAL
         ));
         table.add_symbol(Symbol::new(
             String::from("number3"),
             super::LitTypeVariant::I32,
             SymbolType::Variable,
+            crate::symtable::StorageClass::GLOBAL
         ));
         table.add_symbol(Symbol::new(
             String::from("number4"),
             super::LitTypeVariant::I32,
             SymbolType::Variable,
+            crate::symtable::StorageClass::GLOBAL
         ));
         assert_eq!(table.find_symbol("number2"), Option::Some(0));
         assert_eq!(table.find_symbol("number3"), Option::Some(1));
@@ -197,23 +213,27 @@ mod tests {
             String::from("number2"),
             super::LitTypeVariant::I32,
             SymbolType::Variable,
+            crate::symtable::StorageClass::GLOBAL
         ));
         table.add_symbol(Symbol::new(
             String::from("number3"),
             super::LitTypeVariant::I32,
             SymbolType::Variable,
+            crate::symtable::StorageClass::GLOBAL
         ));
         table.add_symbol(Symbol::new(
             String::from("number4"),
             super::LitTypeVariant::I32,
             SymbolType::Variable,
+            crate::symtable::StorageClass::GLOBAL
         ));
         assert_eq!(
             table.remove_symbol(0),
             Symbol::new(
                 String::from("number2"),
                 crate::symtable::LitTypeVariant::I32,
-                SymbolType::Variable
+                SymbolType::Variable,
+                crate::symtable::StorageClass::GLOBAL
             )
         );
     }

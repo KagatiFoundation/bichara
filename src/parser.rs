@@ -46,12 +46,21 @@ enum ParseError {
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParseError::NotCallable(_) => write!(f, "not callable"),
-            ParseError::GlobalInsideFunction(_) => {
-                write!(f, "global variable declaration inside a function")
+            ParseError::NotCallable(token) => {
+                error::report_errornous_token_and_exit(token, &format!("'{}' is not callable", token.lexeme), 1);
+                Ok(())
             }
-            ParseError::UnsubscritableToken(_) => {
-                write!(f, "token is not subscriptable")
+            ParseError::GlobalInsideFunction(token) => {
+                error::report_errornous_token_and_exit(token, "global variable declaration inside a function", 1);
+                Ok(())
+            }
+            ParseError::UnsubscritableToken(token) => {
+                error::report_errornous_token_and_exit(token, &format!("'{}' is not subscriptable", token.lexeme), 1);
+                Ok(())
+            }
+            ParseError::SymbolNotFound(token) => {
+                error::report_errornous_token_and_exit(token, &format!("Symbol is not defined: '{}'", token.lexeme), 1);
+                Ok(())
             }
             _ => write!(f, "other"),
         }
@@ -65,7 +74,7 @@ pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
     current_token: Token,
-    sym_table: Rc<RefCell<Symtable>>, // symbol table for global identifiers
+    glob_sym_table: Rc<RefCell<Symtable>>, // symbol table for global identifiers
     // ID of a function that is presently being parsed. This field's value is 0xFFFFFFFF
     // if the parser is not inside a function.
     current_function_id: usize,
@@ -74,13 +83,13 @@ pub struct Parser {
 
 impl Parser {
     #[inline]
-    pub fn new(tokens: Vec<Token>, sym_table: Rc<RefCell<Symtable>>, label_id: &'static mut usize) -> Self {
+    pub fn new(tokens: Vec<Token>, glob_sym_table: Rc<RefCell<Symtable>>, label_id: &'static mut usize) -> Self {
         let current_token: Token = tokens[0].clone();
         Self {
             tokens,
             current: 0,
             current_token,
-            sym_table,
+            glob_sym_table,
             current_function_id: 0xFFFFFFFF,
             _label_id: label_id
         }
@@ -92,8 +101,13 @@ impl Parser {
             if self.current_token.kind == TokenKind::T_EOF {
                 break;
             }
-            if let Ok(stmt) = self.parse_single_stmt() {
+            let stmt_parse_result: ParseResult = self.parse_single_stmt();
+            if let Ok(stmt) = stmt_parse_result {
                 nodes.push(stmt);
+            } else if let Some(parse_error) = stmt_parse_result.err() {
+                if parse_error != ParseError::None {
+                    panic!("{parse_error}");
+                }
             }
         }
         self.dump_globals();
@@ -106,7 +120,7 @@ impl Parser {
     }
 
     fn dump_globals(&self) {
-        for symbol in self.sym_table.borrow().iter() {
+        for symbol in self.glob_sym_table.borrow().iter() {
             if symbol.sym_type == SymbolType::Function {
                 continue;
             }
@@ -149,12 +163,7 @@ impl Parser {
 
     fn parse_single_stmt(&mut self) -> ParseResult {
         match self.current_token.kind {
-            TokenKind::KW_GLOBAL => {
-                if let Some(e) = self.parse_global_variable_decl_stmt() {
-                    panic!("{}", e);
-                }
-                Err(ParseError::UnexpectedToken(self.current_token.clone()))
-            }
+            TokenKind::KW_GLOBAL => self.parse_global_variable_decl_stmt(),
             TokenKind::T_IDENTIFIER => self.parse_assignment_stmt(),
             TokenKind::KW_IF => self.parse_if_stmt(),
             TokenKind::KW_WHILE => self.parse_while_stmt(),
@@ -213,10 +222,11 @@ impl Parser {
             );
         }
         self.skip_to_next_token(); // skip return type
-        let function_id: Option<usize> = self.sym_table.borrow_mut().add_symbol(Symbol::new(
+        let function_id: Option<usize> = self.glob_sym_table.borrow_mut().add_symbol(Symbol::new(
             id_token.lexeme.clone(),
             func_return_type,
             SymbolType::Function,
+            crate::symtable::StorageClass::GLOBAL
         ));
         if function_id.is_none() {
             panic!("Symbol already defined: '{:?}'", id_token.lexeme);
@@ -246,7 +256,7 @@ impl Parser {
                 Some("'return' statement outside a function is not valid."),
             );
         } else {
-            let sym: Option<Symbol> = Some(self.sym_table.borrow().get_symbol(self.current_function_id).unwrap().clone());
+            let sym: Option<Symbol> = Some(self.glob_sym_table.borrow().get_symbol(self.current_function_id).unwrap().clone());
             if sym.is_none() {
                 panic!("Undefined function. ok");
             }
@@ -376,54 +386,10 @@ impl Parser {
         cond_ast
     }
 
-    fn parse_assignment_stmt(&mut self) -> ParseResult {
-        let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
-        let _id_index_symt_op: Option<usize> = self.sym_table.borrow().find_symbol(&id_token.lexeme);
-        if _id_index_symt_op.is_none() {
-            // if the symbol has not been defined
-            panic!("Assigning to an undefined symbol '{}'", id_token.lexeme);
-        }
-        let _id_index_symt: usize = _id_index_symt_op.unwrap();
-        let symbol: Symbol = self.sym_table.borrow().get_symbol(_id_index_symt).unwrap().clone();
-        // Check if we are assigning to a type other than SymbolType::Variable. If yes, panic!
-        if symbol.sym_type != SymbolType::Variable {
-            panic!("Assigning to type '{:?}' is not allowed!", symbol.sym_type);
-        }
-        _ = self.token_match(TokenKind::T_EQUAL);
-        let mut bin_expr_node: ParseResult = self.parse_equality();
-        let bin_expr_res_type: LitTypeVariant = bin_expr_node.as_ref().unwrap().result_type;
-        // Test if expression type matches the variable type.
-        let compat_node: Option<ASTNode> = bin_expr_node
-            .as_mut()
-            .ok()
-            .unwrap()
-            .modify(symbol.lit_type, ASTNodeKind::AST_NONE);
-        if compat_node.is_none() {
-            panic!(
-                "Can't assign value of type '{:?}' to variable of type: '{:?}'",
-                bin_expr_res_type, symbol.lit_type
-            );
-        }
-        let _result_type: LitTypeVariant = compat_node.as_ref().unwrap().result_type;
-        _ = self.token_match(TokenKind::T_SEMICOLON);
-        let lvalueid: ASTNode = ASTNode::make_leaf(
-            ASTNodeKind::AST_LVIDENT,
-            LitType::I32(_id_index_symt as i32),
-            symbol.lit_type,
-        );
-        Ok(ASTNode::new(
-            ASTNodeKind::AST_ASSIGN,
-            compat_node,
-            Some(lvalueid),
-            None,
-            _result_type,
-        ))
-    }
-
-    fn parse_global_variable_decl_stmt(&mut self) -> Option<ParseError> {
+    fn parse_global_variable_decl_stmt(&mut self) -> ParseResult {
         if self.current_function_id != 0xFFFFFFFF {
             // if we are inside a function
-            return Some(ParseError::GlobalInsideFunction(self.current_token.clone()));
+            return Err(ParseError::GlobalInsideFunction(self.current_token.clone()));
         }
         _ = self.token_match(TokenKind::KW_GLOBAL);
         // let mut sym: MaybeUninit<Symbol> = MaybeUninit::<Symbol>::uninit();
@@ -441,13 +407,40 @@ impl Parser {
         if self.current_token.kind == TokenKind::T_LBRACKET {
             return self.parse_global_array_var_decl_stmt(sym);
         }
+        // let's check whether variable is assgined at the time of declaration
+        let mut assignment_parse_res: Option<ParseResult> = None;
+        if self.current_token.kind == TokenKind::T_EQUAL { // if identifier name is followed by an equal sign
+            self.token_match(TokenKind::T_EQUAL);
+            assignment_parse_res = Some(self.parse_equality());
+        }
         _ = self.token_match(TokenKind::T_SEMICOLON);
         sym.size = 1;
-        self.sym_table.borrow_mut().add_symbol(sym); // track the symbol that has been defined
-        None
+        // ***** NOTE *****: I am assuming that the symbol is added without any problem!!!
+        let symbol_add_pos: usize = self.glob_sym_table.borrow_mut().add_symbol(sym.clone()).unwrap(); // track the symbol that has been defined
+        if let Some(assign_ast_node_res) = assignment_parse_res {
+            let mut assign_ast_node: ASTNode = assign_ast_node_res?;
+            let compat_node: Option<ASTNode> = Parser::validate_assign_compatibility(&sym, &mut assign_ast_node);
+            let _result_type: LitTypeVariant = compat_node.as_ref().unwrap().result_type;
+            let lvalueid: ASTNode = ASTNode::make_leaf(
+                ASTNodeKind::AST_LVIDENT,
+                LitType::I32(symbol_add_pos as i32),
+                sym.lit_type,
+            );
+            return Ok(ASTNode::new(
+                ASTNodeKind::AST_ASSIGN,
+                compat_node,
+                Some(lvalueid),
+                None,
+                _result_type,
+            ));
+        }
+        if let Some(Err(parse_error)) = assignment_parse_res {
+            return Err(parse_error);
+        }
+        Err(ParseError::None) // this indicates variable is declared without assignment
     }
 
-    fn parse_global_array_var_decl_stmt(&mut self, mut sym: Symbol) -> Option<ParseError> {
+    fn parse_global_array_var_decl_stmt(&mut self, mut sym: Symbol) -> ParseResult {
         self.skip_to_next_token(); // skip '['
         let array_size_token: Token = self.current_token.clone();
         let mut array_size_type: TokenKind = TokenKind::T_NONE;
@@ -471,8 +464,8 @@ impl Parser {
         self.token_match(TokenKind::T_SEMICOLON);
         sym.sym_type = SymbolType::Array;
         sym.size = array_size_token.lexeme.parse::<usize>().unwrap();
-        self.sym_table.borrow_mut().add_symbol(sym);
-        None
+        self.glob_sym_table.borrow_mut().add_symbol(sym);
+        Err(ParseError::None) // this indicates variable is declared without assignment
     }
 
     fn parse_id_type(&mut self) -> LitTypeVariant {
@@ -491,6 +484,51 @@ impl Parser {
             typ = LitTypeVariant::pointer_type(typ);
         }
         typ
+    }
+    
+    fn parse_assignment_stmt(&mut self) -> ParseResult {
+        let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
+        let _id_index_symt_op: Option<usize> = self.glob_sym_table.borrow().find_symbol(&id_token.lexeme);
+        if _id_index_symt_op.is_none() {
+            // if the symbol has not been defined
+            panic!("Assigning to an undefined symbol '{}'", id_token.lexeme);
+        }
+        let _id_index_symt: usize = _id_index_symt_op.unwrap();
+        let symbol: Symbol = self.glob_sym_table.borrow().get_symbol(_id_index_symt).unwrap().clone();
+        // Check if we are assigning to a type other than SymbolType::Variable. If yes, panic!
+        if symbol.sym_type != SymbolType::Variable {
+            panic!("Assigning to type '{:?}' is not allowed!", symbol.sym_type);
+        }
+        _ = self.token_match(TokenKind::T_EQUAL);
+        let bin_expr_parse_result: ParseResult = self.parse_equality();
+        let mut bin_expr_ast_node: ASTNode = bin_expr_parse_result?;
+        let compat_node: Option<ASTNode> = Parser::validate_assign_compatibility(&symbol, &mut bin_expr_ast_node);
+        let _result_type: LitTypeVariant = compat_node.as_ref().unwrap().result_type;
+        _ = self.token_match(TokenKind::T_SEMICOLON);
+        let lvalueid: ASTNode = ASTNode::make_leaf(
+            ASTNodeKind::AST_LVIDENT,
+            LitType::I32(_id_index_symt as i32),
+            symbol.lit_type,
+        );
+        Ok(ASTNode::new(
+            ASTNodeKind::AST_ASSIGN,
+            compat_node,
+            Some(lvalueid),
+            None,
+            _result_type,
+        ))
+    }
+
+    fn validate_assign_compatibility(symbol: &Symbol, node: &mut ASTNode) -> Option<ASTNode> {
+        let result_type: LitTypeVariant = node.result_type;
+        let compat_node: Option<ASTNode> = node.modify(symbol.lit_type, ASTNodeKind::AST_NONE);
+        if compat_node.is_none() {
+            panic!(
+                "Can't assign value of type '{:?}' to variable of type: '{:?}'",
+                result_type, symbol.lit_type
+            );
+        }
+        compat_node
     }
 
     fn parse_equality(&mut self) -> ParseResult {
@@ -637,13 +675,13 @@ impl Parser {
                 Ok(ASTNode::make_leaf(ASTNodeKind::AST_STRLIT, LitType::I32(str_label as i32), LitTypeVariant::U8Ptr))
             }
             TokenKind::T_IDENTIFIER => {
-                let id_index_op: Option<usize> = self.sym_table.borrow().find_symbol(&current_token.lexeme);
+                let id_index_op: Option<usize> = self.glob_sym_table.borrow().find_symbol(&current_token.lexeme);
                 if id_index_op.is_none() {
                     // if symbol has not been defined
                     return Err(ParseError::SymbolNotFound(current_token));
                 }
                 let id_index: usize = id_index_op.unwrap();
-                let symbol: Symbol = self.sym_table.borrow().get_symbol(id_index).unwrap().clone();
+                let symbol: Symbol = self.glob_sym_table.borrow().get_symbol(id_index).unwrap().clone();
                 let curr_tok_kind: TokenKind = self.current_token.kind;
                 if curr_tok_kind == TokenKind::T_LPAREN {
                     self.parse_func_call_expr(&symbol, id_index, &current_token)
@@ -807,8 +845,8 @@ mod tests {
         let mut tokener: Tokenizer = Tokenizer::new("global integer *b; global integer a; b = &a;");
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
         let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
-        p.parse_global_variable_decl_stmt();
-        p.parse_global_variable_decl_stmt();
+        _ = p.parse_global_variable_decl_stmt();
+        _ = p.parse_global_variable_decl_stmt();
         let result: ParseResult = p.parse_single_stmt();
         assert!(result.is_ok());
         let upvalue: &ASTNode = result.as_ref().unwrap();
@@ -831,8 +869,8 @@ mod tests {
         let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
         // Skipping first two statements. Because, global variable declaration
         // doesn't produce any AST node.
-        p.parse_global_variable_decl_stmt();
-        p.parse_global_variable_decl_stmt();
+        _ = p.parse_global_variable_decl_stmt();
+        _ = p.parse_global_variable_decl_stmt();
         let result: ParseResult = p.parse_single_stmt();
         assert!(result.is_ok());
         let upvalue: &ASTNode = result.as_ref().unwrap();
@@ -893,8 +931,8 @@ mod tests {
         let mut tokener: Tokenizer = Tokenizer::new("global integer nums[12];");
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
         let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
-        let array_decl_stmt: Option<ParseError> = p.parse_global_variable_decl_stmt();
-        assert!(array_decl_stmt.is_none());
+        let array_decl_stmt: ParseResult = p.parse_global_variable_decl_stmt();
+        assert!(array_decl_stmt.is_err()); // ParseError::None
     }
     
     #[test]
@@ -904,8 +942,8 @@ mod tests {
         let mut tokener: Tokenizer = Tokenizer::new("global integer nums[abcd];");
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
         let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
-        let array_decl_stmt: Option<ParseError> = p.parse_global_variable_decl_stmt();
-        assert!(array_decl_stmt.is_none());
+        let array_decl_stmt: ParseResult = p.parse_global_variable_decl_stmt();
+        assert!(array_decl_stmt.is_err()); // ParseError::None
     }
     
     #[test]
@@ -915,8 +953,8 @@ mod tests {
         let mut tokener: Tokenizer = Tokenizer::new("global integer nums[];");
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
         let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
-        let array_decl_stmt: Option<ParseError> = p.parse_global_variable_decl_stmt();
-        assert!(array_decl_stmt.is_none());
+        let array_decl_stmt: ParseResult = p.parse_global_variable_decl_stmt();
+        assert!(array_decl_stmt.is_err()); // ParseError::None
     }
 
     // helper function to parse a statement from string which does not contain variable declaration
@@ -935,7 +973,7 @@ mod tests {
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
         let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
         for _ in 0..decl_count {
-            p.parse_global_variable_decl_stmt();
+            _ = p.parse_global_variable_decl_stmt();
         }
         p.parse_single_stmt()
     }
