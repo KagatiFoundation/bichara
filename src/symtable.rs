@@ -38,7 +38,8 @@ pub struct Symbol {
     pub lit_type: LitTypeVariant, // What kind of value this symbol is
     pub sym_type: SymbolType,     // What type of symbol this is. i.e. Variable or Function
     pub size: usize,              // number of elements in the symbol
-    pub class: StorageClass
+    pub class: StorageClass,
+    pub local_offset: i32, // for locals, offset from the stack base pointer
 }
 
 impl Symbol {
@@ -48,7 +49,8 @@ impl Symbol {
             lit_type: lit,
             sym_type,
             size: 1,
-            class
+            class,
+            local_offset: 0,
         }
     }
 
@@ -59,7 +61,8 @@ impl Symbol {
             lit_type: LitTypeVariant::None,
             sym_type: SymbolType::Variable, // we don't have a None type
             size: 0,                        // oooooh, scary
-            class: StorageClass::GLOBAL
+            class: StorageClass::GLOBAL,
+            local_offset: 0,
         }
     }
 }
@@ -83,7 +86,7 @@ impl Symtable {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
-            syms: vec![],
+            syms: vec![Symbol::uninit(); NSYMBOLS],
             counter: 0,
         }
     }
@@ -98,7 +101,7 @@ impl Symtable {
     }
 
     fn next(&mut self) -> usize {
-        assert!(self.counter < NSYMBOLS);
+        assert!(self.counter < NSYMBOLS, "Symbol table is full!");
         self.counter += 1;
         self.counter
     }
@@ -112,10 +115,26 @@ impl Symtable {
         Some(act_pos - 1)
     }
 
+    pub fn insert(&mut self, pos: usize, sym: Symbol) -> Option<usize> {
+        assert!(
+            pos < NSYMBOLS,
+            "value '{}' out of bounds for range '{}'",
+            pos,
+            self.counter
+        );
+        if let Some(found) = self.get_symbol(pos) {
+            if found.lit_type != LitTypeVariant::None {
+                panic!("Symbol already present at this position: {}", pos);
+            }
+        }
+        self.syms[pos] = sym;
+        Some(pos)
+    }
+
     // TODO: Convert return type to Option<&Symbol>
     pub fn get_symbol(&self, idx: usize) -> Option<&Symbol> {
         assert!(
-            idx < self.counter,
+            idx < NSYMBOLS,
             "value '{}' out of bounds for range '{}'",
             idx,
             self.counter

@@ -25,7 +25,7 @@ SOFTWARE.
 use core::panic;
 use std::fmt::Display;
 
-use crate::enums::TokenKind;
+use crate::{ast::ASTNode, enums::{ASTNodeKind, TokenKind}};
 
 // Literal value types
 #[derive(Debug, Clone)]
@@ -239,6 +239,36 @@ impl LitType {
         }
         (true, 0, 0)
     }
+}
+
+/// Modify the given node's type into the 'to' type.
+pub fn modify_ast_node_type(node: &mut ASTNode, to: LitTypeVariant, op: ASTNodeKind) -> Option<ASTNode> {
+    let ltype: LitTypeVariant = node.result_type;
+    let lsize: usize = node.result_type.size();
+    let rsize: usize = to.size();
+    if !ltype.is_ptr_type() && !to.is_ptr_type() {
+        if ltype == to {
+            return Some(node.clone());
+        }
+        // tree's size is too big
+        if lsize > rsize {
+            return None;
+        }
+        if rsize > lsize {
+            return Some(ASTNode::new(
+                ASTNodeKind::AST_WIDEN,
+                Some(node.clone()),
+                None,
+                None,
+                to,
+            ));
+        }
+    }
+    if ltype.is_ptr_type() && ltype == to && (op == ASTNodeKind::AST_NONE) {
+        return Some(node.clone());
+    }
+    // if we reach here, then types are incompatible
+    None
 }
 
 // tests

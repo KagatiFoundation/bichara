@@ -29,8 +29,12 @@ use std::rc::Rc;
 use crate::ast::*;
 use crate::enums::*;
 use crate::error;
+use crate::function::FunctionInfo;
+use crate::function::FunctionInfoTable;
+use crate::symtable;
 use crate::symtable::*;
 use crate::tokenizer::*;
+use crate::types;
 use crate::types::*;
 
 #[derive(Eq, PartialEq, Debug)]
@@ -74,24 +78,32 @@ pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
     current_token: Token,
-    glob_sym_table: Rc<RefCell<Symtable>>, // symbol table for global identifiers
+    main_sym_table: Rc<RefCell<Symtable>>, // symbol table for global identifiers
     // ID of a function that is presently being parsed. This field's value is 0xFFFFFFFF
     // if the parser is not inside a function.
+    func_info_table: Rc<RefCell<FunctionInfoTable>>,
     current_function_id: usize,
     _label_id: &'static mut usize, // label generator
+    local_offset: i32, // offset of a new local variable
+    next_global_sym_pos: usize, // position of next global symbol
+    next_local_sym_pos: usize, // position of next local symbol
 }
 
 impl Parser {
     #[inline]
-    pub fn new(tokens: Vec<Token>, glob_sym_table: Rc<RefCell<Symtable>>, label_id: &'static mut usize) -> Self {
+    pub fn new(tokens: Vec<Token>, main_sym_table: Rc<RefCell<Symtable>>, func_info_table: Rc<RefCell<FunctionInfoTable>>, label_id: &'static mut usize) -> Self {
         let current_token: Token = tokens[0].clone();
         Self {
             tokens,
             current: 0,
             current_token,
-            glob_sym_table,
+            main_sym_table,
+            func_info_table,
             current_function_id: 0xFFFFFFFF,
-            _label_id: label_id
+            _label_id: label_id,
+            local_offset: 0,
+            next_global_sym_pos: 0,
+            next_local_sym_pos: NSYMBOLS - 1
         }
     }
 
@@ -116,12 +128,13 @@ impl Parser {
         for node in &nodes {
             traverser.traverse(node, self.current_function_id);
         }
-        println!("mov x0, 0\nmov x16, 1\nsvc 0x80");
     }
 
     fn dump_globals(&self) {
-        for symbol in self.glob_sym_table.borrow().iter() {
-            if symbol.sym_type == SymbolType::Function {
+        for symbol in self.main_sym_table.borrow().iter() {
+            // symbol information is not generated if any of the following conditions matches
+            let not_process_cond: Vec<bool> = vec![symbol.sym_type == SymbolType::Function, symbol.lit_type == LitTypeVariant::None, symbol.class == StorageClass::LOCAL];
+            if not_process_cond.iter().any(|item| *item) {
                 continue;
             }
             println!(".data\n.global {}", symbol.name);
@@ -163,7 +176,8 @@ impl Parser {
 
     fn parse_single_stmt(&mut self) -> ParseResult {
         match self.current_token.kind {
-            TokenKind::KW_GLOBAL => self.parse_global_variable_decl_stmt(),
+            TokenKind::KW_GLOBAL => self.parse_var_decl_stmt(StorageClass::GLOBAL),
+            TokenKind::KW_LOCAL => self.parse_var_decl_stmt(StorageClass::LOCAL),
             TokenKind::T_IDENTIFIER => self.parse_assignment_stmt(),
             TokenKind::KW_IF => self.parse_if_stmt(),
             TokenKind::KW_WHILE => self.parse_while_stmt(),
@@ -222,7 +236,7 @@ impl Parser {
             );
         }
         self.skip_to_next_token(); // skip return type
-        let function_id: Option<usize> = self.glob_sym_table.borrow_mut().add_symbol(Symbol::new(
+        let function_id: Option<usize> = self.add_symbol_global(Symbol::new(
             id_token.lexeme.clone(),
             func_return_type,
             SymbolType::Function,
@@ -232,9 +246,16 @@ impl Parser {
             panic!("Symbol already defined: '{:?}'", id_token.lexeme);
         }
         self.current_function_id = function_id.unwrap();
+        // function body
         let function_body: ParseResult = self.parse_compound_stmt();
         let temp_func_id: usize = self.current_function_id;
         self.current_function_id = 0xFFFFFFFF; // exiting out of function body
+        // function information collection
+        let stack_offset: i32 = (self.local_offset + 15) & !15;
+        let func_info: FunctionInfo = FunctionInfo::new(id_token.lexeme.clone(), stack_offset, func_return_type);
+        self.func_info_table.borrow_mut().add(func_info);
+        // reset offset counter after parsing a function
+        self.local_offset = 0; 
         Ok(ASTNode::new(
             ASTNodeKind::AST_FUNCTION,
             function_body.ok(),
@@ -256,7 +277,7 @@ impl Parser {
                 Some("'return' statement outside a function is not valid."),
             );
         } else {
-            let sym: Option<Symbol> = Some(self.glob_sym_table.borrow().get_symbol(self.current_function_id).unwrap().clone());
+            let sym: Option<Symbol> = Some(self.main_sym_table.borrow().get_symbol(self.current_function_id).unwrap().clone());
             if sym.is_none() {
                 panic!("Undefined function. ok");
             }
@@ -386,28 +407,43 @@ impl Parser {
         cond_ast
     }
 
-    fn parse_global_variable_decl_stmt(&mut self) -> ParseResult {
-        if self.current_function_id != 0xFFFFFFFF {
-            // if we are inside a function
-            return Err(ParseError::GlobalInsideFunction(self.current_token.clone()));
+    fn parse_var_decl_stmt(&mut self, var_class: symtable::StorageClass) -> ParseResult {
+        let inside_func: bool = self.current_function_id != 0xFFFFFFFF;
+        match var_class {
+            StorageClass::LOCAL => {
+                assert!(inside_func, "local variable outside a function???");
+                _ = self.token_match(TokenKind::KW_LOCAL);
+            },
+            StorageClass::GLOBAL => {
+                assert!(!inside_func, "global variable inside a function???");
+                _ = self.token_match(TokenKind::KW_GLOBAL);
+            }
         }
-        _ = self.token_match(TokenKind::KW_GLOBAL);
-        // let mut sym: MaybeUninit<Symbol> = MaybeUninit::<Symbol>::uninit();
         let mut sym: Symbol = Symbol::uninit();
-        sym.lit_type = self.parse_id_type();
-        if sym.lit_type == LitTypeVariant::None {
+        sym.class = var_class;
+        let sym_id_type: LitTypeVariant = self.parse_id_type();
+        if sym_id_type == LitTypeVariant::None {
             panic!(
                 "Can't create variable of type {:?}",
                 self.current_token.kind
             );
         }
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
+        // this following code is to check if the variable exists in the same scope already!!!
+        let symbol_info: Option<(usize, StorageClass)> = self.find_symbol(&id_token.lexeme);
+        if let Some((_sym_pos, sym_class)) = symbol_info {
+            // if the variable is being defined in the same scope
+            if sym_class == var_class {
+                println!("Duplicate symbol definition in this scope: '{:?}'", id_token);
+            }
+        }
+        sym.lit_type = sym_id_type;
         sym.name = id_token.lexeme.clone();
         // if it is going to be an array type
         if self.current_token.kind == TokenKind::T_LBRACKET {
-            return self.parse_global_array_var_decl_stmt(sym);
+            return self.parse_array_var_decl_stmt(sym);
         }
-        // let's check whether variable is assgined at the time of declaration
+        // checking whether variable is assgined at the time of it's declaration
         let mut assignment_parse_res: Option<ParseResult> = None;
         if self.current_token.kind == TokenKind::T_EQUAL { // if identifier name is followed by an equal sign
             self.token_match(TokenKind::T_EQUAL);
@@ -415,22 +451,29 @@ impl Parser {
         }
         _ = self.token_match(TokenKind::T_SEMICOLON);
         sym.size = 1;
-        // ***** NOTE *****: I am assuming that the symbol is added without any problem!!!
-        let symbol_add_pos: usize = self.glob_sym_table.borrow_mut().add_symbol(sym.clone()).unwrap(); // track the symbol that has been defined
+        // test assignability
         if let Some(assign_ast_node_res) = assignment_parse_res {
             let mut assign_ast_node: ASTNode = assign_ast_node_res?;
             let compat_node: Option<ASTNode> = Parser::validate_assign_compatibility(&sym, &mut assign_ast_node);
             let _result_type: LitTypeVariant = compat_node.as_ref().unwrap().result_type;
+            // ***** NOTE *****: I am assuming that the symbol is added without any problem!!!
+            let symbol_add_pos: usize = if inside_func {
+                sym.local_offset = self.gen_next_local_offset(_result_type);
+                self.add_symbol_local(sym.clone()).unwrap()
+            } else {
+                self.add_symbol_global(sym.clone()).unwrap() 
+            };
             let lvalueid: ASTNode = ASTNode::make_leaf(
                 ASTNodeKind::AST_LVIDENT,
                 LitType::I32(symbol_add_pos as i32),
                 sym.lit_type,
             );
+            // calculate offset here
             return Ok(ASTNode::new(
                 ASTNodeKind::AST_ASSIGN,
                 compat_node,
                 Some(lvalueid),
-                None,
+                Some(LitType::I32(symbol_add_pos as i32)),
                 _result_type,
             ));
         }
@@ -440,7 +483,15 @@ impl Parser {
         Err(ParseError::None) // this indicates variable is declared without assignment
     }
 
-    fn parse_global_array_var_decl_stmt(&mut self, mut sym: Symbol) -> ParseResult {
+    fn gen_next_local_offset(&mut self, var_type: LitTypeVariant) -> i32 {
+        let temp_offset: i32 = if var_type.size() > 4 {
+            var_type.size() as i32
+        } else { 4 };
+        self.local_offset += temp_offset;
+        self.local_offset
+    }
+
+    fn parse_array_var_decl_stmt(&mut self, mut sym: Symbol) -> ParseResult {
         self.skip_to_next_token(); // skip '['
         let array_size_token: Token = self.current_token.clone();
         let mut array_size_type: TokenKind = TokenKind::T_NONE;
@@ -464,7 +515,11 @@ impl Parser {
         self.token_match(TokenKind::T_SEMICOLON);
         sym.sym_type = SymbolType::Array;
         sym.size = array_size_token.lexeme.parse::<usize>().unwrap();
-        self.glob_sym_table.borrow_mut().add_symbol(sym);
+        if sym.class == StorageClass::LOCAL {
+            self.add_symbol_local(sym);
+        } else {
+            self.add_symbol_global(sym);
+        }
         Err(ParseError::None) // this indicates variable is declared without assignment
     }
 
@@ -488,13 +543,13 @@ impl Parser {
     
     fn parse_assignment_stmt(&mut self) -> ParseResult {
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
-        let _id_index_symt_op: Option<usize> = self.glob_sym_table.borrow().find_symbol(&id_token.lexeme);
+        let _id_index_symt_op: Option<usize> = self.main_sym_table.borrow().find_symbol(&id_token.lexeme);
         if _id_index_symt_op.is_none() {
             // if the symbol has not been defined
             panic!("Assigning to an undefined symbol '{}'", id_token.lexeme);
         }
         let _id_index_symt: usize = _id_index_symt_op.unwrap();
-        let symbol: Symbol = self.glob_sym_table.borrow().get_symbol(_id_index_symt).unwrap().clone();
+        let symbol: Symbol = self.main_sym_table.borrow().get_symbol(_id_index_symt).unwrap().clone();
         // Check if we are assigning to a type other than SymbolType::Variable. If yes, panic!
         if symbol.sym_type != SymbolType::Variable {
             panic!("Assigning to type '{:?}' is not allowed!", symbol.sym_type);
@@ -521,7 +576,7 @@ impl Parser {
 
     fn validate_assign_compatibility(symbol: &Symbol, node: &mut ASTNode) -> Option<ASTNode> {
         let result_type: LitTypeVariant = node.result_type;
-        let compat_node: Option<ASTNode> = node.modify(symbol.lit_type, ASTNodeKind::AST_NONE);
+        let compat_node: Option<ASTNode> = types::modify_ast_node_type(node, symbol.lit_type, ASTNodeKind::AST_NONE);
         if compat_node.is_none() {
             panic!(
                 "Can't assign value of type '{:?}' to variable of type: '{:?}'",
@@ -579,8 +634,8 @@ impl Parser {
                     let ast_op: ASTNodeKind = ASTNodeKind::from_token_kind(current_token_kind);
                     let right_side_tree: ParseResult = self.parse_mem_prefix();
                     let mut right: ASTNode = right_side_tree?;
-                    let temp_left: Option<ASTNode> = left.modify(right.result_type, ast_op);
-                    let temp_right: Option<ASTNode> = right.modify(left.result_type, ast_op);
+                    let temp_left: Option<ASTNode> = types::modify_ast_node_type(left, right.result_type, ast_op);
+                    let temp_right: Option<ASTNode> = types::modify_ast_node_type(&mut right, left.result_type, ast_op);
                     if temp_left.is_none() && temp_right.is_none() {
                         panic!(
                             "Incompatible types: '{:?}' and '{:?}' for operator '{:?}'",
@@ -675,13 +730,13 @@ impl Parser {
                 Ok(ASTNode::make_leaf(ASTNodeKind::AST_STRLIT, LitType::I32(str_label as i32), LitTypeVariant::U8Ptr))
             }
             TokenKind::T_IDENTIFIER => {
-                let id_index_op: Option<usize> = self.glob_sym_table.borrow().find_symbol(&current_token.lexeme);
+                let id_index_op: Option<usize> = self.main_sym_table.borrow().find_symbol(&current_token.lexeme);
                 if id_index_op.is_none() {
                     // if symbol has not been defined
                     return Err(ParseError::SymbolNotFound(current_token));
                 }
                 let id_index: usize = id_index_op.unwrap();
-                let symbol: Symbol = self.glob_sym_table.borrow().get_symbol(id_index).unwrap().clone();
+                let symbol: Symbol = self.main_sym_table.borrow().get_symbol(id_index).unwrap().clone();
                 let curr_tok_kind: TokenKind = self.current_token.kind;
                 if curr_tok_kind == TokenKind::T_LPAREN {
                     self.parse_func_call_expr(&symbol, id_index, &current_token)
@@ -753,6 +808,46 @@ impl Parser {
         ))
     }
 
+    fn add_symbol_global(&mut self, sym: Symbol) -> Option<usize> {
+        let insert_pos: Option<usize> = self.main_sym_table.borrow_mut().insert(self.next_global_sym_pos, sym);
+        self.next_global_sym_pos += 1;
+        insert_pos
+    }
+    
+    fn add_symbol_local(&mut self, sym: Symbol) -> Option<usize> {
+        let insert_pos: Option<usize> = self.main_sym_table.borrow_mut().insert(self.next_local_sym_pos, sym);
+        self.next_local_sym_pos -= 1;
+        insert_pos
+    }
+
+    fn find_symbol(&self, name: &str) -> Option<(usize, StorageClass)> {
+        if let Some(global_pos) = self.find_symbol_global(name) {
+            return Some((global_pos, StorageClass::GLOBAL));
+        }
+        if let Some(local_pos) = self.find_symbol_local(name) {
+            return Some((local_pos, StorageClass::LOCAL));
+        }
+        None
+    }
+
+    fn find_symbol_global(&self, name: &str) -> Option<usize> {
+        for (pos, symbol) in self.main_sym_table.borrow().iter().enumerate() {
+            if symbol.name == name {
+                return Some(pos);
+            }
+        }
+        None
+    }
+
+    fn find_symbol_local(&self, name: &str) -> Option<usize> {
+        for (pos, symbol) in self.main_sym_table.borrow().iter().rev().enumerate() {
+            if symbol.name == name {
+                return Some(pos);
+            }
+        }
+        None
+    }
+
     fn token_match(&mut self, kind: TokenKind) -> &Token {
         let current: Token = self.current_token.clone();
         if kind != current.kind {
@@ -783,7 +878,8 @@ mod tests {
         static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("(5 + (3 * 4))");
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
+        let func_table: Rc<RefCell<FunctionInfoTable>> = Rc::new(RefCell::new(FunctionInfoTable::new()));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), Rc::clone(&func_table), unsafe { &mut LABEL_ID });
         let result: ParseResult = p.parse_equality();
         assert!(result.is_ok());
         let upvalue: ASTNode = result.unwrap();
@@ -800,7 +896,8 @@ mod tests {
         static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("5+5");
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
+        let func_table: Rc<RefCell<FunctionInfoTable>> = Rc::new(RefCell::new(FunctionInfoTable::new()));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), Rc::clone(&func_table), unsafe { &mut LABEL_ID });
         let result: ParseResult = p.parse_equality();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().operation, ASTNodeKind::AST_ADD);
@@ -812,7 +909,8 @@ mod tests {
         static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("if (4 > 5) { global integer a; } else { global integer b; }");
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
+        let func_table: Rc<RefCell<FunctionInfoTable>> = Rc::new(RefCell::new(FunctionInfoTable::new()));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), Rc::clone(&func_table), unsafe { &mut LABEL_ID });
         let result: ParseResult = p.parse_if_stmt();
         assert!(
             result.is_ok(),
@@ -844,9 +942,10 @@ mod tests {
         static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("global integer *b; global integer a; b = &a;");
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
-        _ = p.parse_global_variable_decl_stmt();
-        _ = p.parse_global_variable_decl_stmt();
+        let func_table: Rc<RefCell<FunctionInfoTable>> = Rc::new(RefCell::new(FunctionInfoTable::new()));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), Rc::clone(&func_table), unsafe { &mut LABEL_ID });
+        _ = p.parse_var_decl_stmt(StorageClass::GLOBAL);
+        _ = p.parse_var_decl_stmt(StorageClass::GLOBAL);
         let result: ParseResult = p.parse_single_stmt();
         assert!(result.is_ok());
         let upvalue: &ASTNode = result.as_ref().unwrap();
@@ -866,11 +965,12 @@ mod tests {
         static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("global integer *b; global integer a; a = *b;");
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
+        let func_table: Rc<RefCell<FunctionInfoTable>> = Rc::new(RefCell::new(FunctionInfoTable::new()));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), Rc::clone(&func_table), unsafe { &mut LABEL_ID });
         // Skipping first two statements. Because, global variable declaration
         // doesn't produce any AST node.
-        _ = p.parse_global_variable_decl_stmt();
-        _ = p.parse_global_variable_decl_stmt();
+        _ = p.parse_var_decl_stmt(StorageClass::GLOBAL);
+        _ = p.parse_var_decl_stmt(StorageClass::GLOBAL);
         let result: ParseResult = p.parse_single_stmt();
         assert!(result.is_ok());
         let upvalue: &ASTNode = result.as_ref().unwrap();
@@ -892,7 +992,8 @@ mod tests {
         static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("return;");
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
+        let func_table: Rc<RefCell<FunctionInfoTable>> = Rc::new(RefCell::new(FunctionInfoTable::new()));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), Rc::clone(&func_table), unsafe { &mut LABEL_ID });
         _ = p.parse_single_stmt();
     }
 
@@ -901,7 +1002,8 @@ mod tests {
         static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("def main() -> void { return; }");
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
+        let func_table: Rc<RefCell<FunctionInfoTable>> = Rc::new(RefCell::new(FunctionInfoTable::new()));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), Rc::clone(&func_table), unsafe { &mut LABEL_ID });
         let func_stmt: ParseResult = p.parse_single_stmt();
         assert!(func_stmt.is_ok());
         let upvalue: &ASTNode = func_stmt.as_ref().unwrap();
@@ -930,8 +1032,9 @@ mod tests {
         static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("global integer nums[12];");
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
-        let array_decl_stmt: ParseResult = p.parse_global_variable_decl_stmt();
+        let func_table: Rc<RefCell<FunctionInfoTable>> = Rc::new(RefCell::new(FunctionInfoTable::new()));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), Rc::clone(&func_table), unsafe { &mut LABEL_ID });
+        let array_decl_stmt: ParseResult = p.parse_var_decl_stmt(StorageClass::GLOBAL);
         assert!(array_decl_stmt.is_err()); // ParseError::None
     }
     
@@ -941,8 +1044,9 @@ mod tests {
         static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("global integer nums[abcd];");
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
-        let array_decl_stmt: ParseResult = p.parse_global_variable_decl_stmt();
+        let func_table: Rc<RefCell<FunctionInfoTable>> = Rc::new(RefCell::new(FunctionInfoTable::new()));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), Rc::clone(&func_table), unsafe { &mut LABEL_ID });
+        let array_decl_stmt: ParseResult = p.parse_var_decl_stmt(StorageClass::GLOBAL);
         assert!(array_decl_stmt.is_err()); // ParseError::None
     }
     
@@ -952,8 +1056,9 @@ mod tests {
         static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new("global integer nums[];");
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
-        let array_decl_stmt: ParseResult = p.parse_global_variable_decl_stmt();
+        let func_table: Rc<RefCell<FunctionInfoTable>> = Rc::new(RefCell::new(FunctionInfoTable::new()));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), Rc::clone(&func_table), unsafe { &mut LABEL_ID });
+        let array_decl_stmt: ParseResult = p.parse_var_decl_stmt(StorageClass::GLOBAL);
         assert!(array_decl_stmt.is_err()); // ParseError::None
     }
 
@@ -962,7 +1067,8 @@ mod tests {
         static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new(input);
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
+        let func_table: Rc<RefCell<FunctionInfoTable>> = Rc::new(RefCell::new(FunctionInfoTable::new()));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), Rc::clone(&func_table), unsafe { &mut LABEL_ID });
         p.parse_single_stmt()
     }
 
@@ -971,9 +1077,10 @@ mod tests {
         static mut LABEL_ID: usize = 0;
         let mut tokener: Tokenizer = Tokenizer::new(input);
         let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
+        let func_table: Rc<RefCell<FunctionInfoTable>> = Rc::new(RefCell::new(FunctionInfoTable::new()));
+        let mut p: Parser = Parser::new(tokener.start_scan(), Rc::clone(&sym_table), Rc::clone(&func_table), unsafe { &mut LABEL_ID });
         for _ in 0..decl_count {
-            _ = p.parse_global_variable_decl_stmt();
+            _ = p.parse_var_decl_stmt(StorageClass::GLOBAL);
         }
         p.parse_single_stmt()
     }

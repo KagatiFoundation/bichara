@@ -26,10 +26,7 @@ extern crate lazy_static;
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    enums::*,
-    register::{self, RegisterManager},
-    symtable,
-    types::*,
+    enums::*, function::{self, FunctionInfo}, register::{self, RegisterManager}, symtable::{self, StorageClass, Symbol}, types::*
 };
 
 lazy_static::lazy_static! {
@@ -92,41 +89,12 @@ impl ASTNode {
             result_type,
         }
     }
-
-    /// Modify the given node's type into the 'to' type.
-    pub fn modify(&mut self, to: LitTypeVariant, op: ASTNodeKind) -> Option<ASTNode> {
-        let ltype: LitTypeVariant = self.result_type;
-        let lsize: usize = self.result_type.size();
-        let rsize: usize = to.size();
-        if !ltype.is_ptr_type() && !to.is_ptr_type() {
-            if ltype == to {
-                return Some(self.clone());
-            }
-            // tree's size is too big
-            if lsize > rsize {
-                return None;
-            }
-            if rsize > lsize {
-                return Some(ASTNode::new(
-                    ASTNodeKind::AST_WIDEN,
-                    Some(self.clone()),
-                    None,
-                    None,
-                    to,
-                ));
-            }
-        }
-        if ltype.is_ptr_type() && ltype == to && (op == ASTNodeKind::AST_NONE) {
-            return Some(self.clone());
-        }
-        // if we reach here, then types are incompatible
-        None
-    }
 }
 
 pub struct ASTTraverser {
     reg_manager: Rc<RefCell<register::RegisterManager>>,
     sym_table: Rc<RefCell<symtable::Symtable>>,
+    func_info_table: Rc<RefCell<function::FunctionInfoTable>>,
     _label_id: &'static mut usize,
 }
 
@@ -135,11 +103,13 @@ impl ASTTraverser {
     pub fn new(
         reg_manager: Rc<RefCell<RegisterManager>>,
         sym_table: Rc<RefCell<symtable::Symtable>>,
+        func_info_table: Rc<RefCell<function::FunctionInfoTable>>,
         label_id: &'static mut usize
     ) -> Self {
         Self {
             reg_manager,
             sym_table,
+            func_info_table,
             _label_id: label_id,
         }
     }
@@ -179,10 +149,8 @@ impl ASTTraverser {
             ASTNodeKind::AST_ADD => self.gen_add(leftreg, rightreg),
             ASTNodeKind::AST_SUBTRACT => self.gen_sub(leftreg, rightreg),
             ASTNodeKind::AST_INTLIT => self.gen_load_intlit_into_reg(ast.value.as_ref().unwrap()),
-            ASTNodeKind::AST_IDENT => self.gen_load_gid_into_reg(ast.value.as_ref().unwrap()),
-            ASTNodeKind::AST_LVIDENT => {
-                self.gen_load_reg_into_gid(_reg, ast.value.as_ref().unwrap())
-            }
+            ASTNodeKind::AST_IDENT => self.gen_load_id_into_reg(ast.value.as_ref().unwrap()),
+            ASTNodeKind::AST_LVIDENT => self.gen_load_reg_into_id(_reg, ast.value.as_ref().unwrap()),
             ASTNodeKind::AST_ASSIGN => rightreg,
             ASTNodeKind::AST_GTHAN
             | ASTNodeKind::AST_LTHAN
@@ -218,10 +186,13 @@ impl ASTTraverser {
             _ => panic!("Not a valid symbol table indexing method"),
         };
         let func_name: String = self.sym_table.borrow().get_symbol(index).unwrap().name.clone();
-        println!("{}:", func_name);
+        let func_info: FunctionInfo = self.func_info_table.borrow().get(&func_name).unwrap().clone();
+        println!(".global _{}\n_{}:", func_name, func_name);
+        println!("sub sp, sp, {}", func_info.stack_size);
         if let Some(body) = &*ast.left {
             self.gen_ast(body, 0xFFFFFFFF, ast.operation);
         }
+        println!("add sp, sp, {}", func_info.stack_size);
         0xFFFFFFFF
     }
 
@@ -365,24 +336,35 @@ impl ASTTraverser {
 
     // Load value from a variable into a register.
     // Return the number of the register
-    fn gen_load_gid_into_reg(&mut self, id: &LitType) -> usize {
-        let reg: usize = self.reg_manager.borrow_mut().allocate();
-        let reg_name: String = self.reg_manager.borrow().name(reg);
+    fn gen_load_id_into_reg(&mut self, id: &LitType) -> usize {
         let value_containing_reg: usize = self.reg_manager.borrow_mut().allocate();
         let value_reg_name: String = self.reg_manager.borrow().name(value_containing_reg);
-        self.dump_gid_address_load_code_from_name(&reg_name, id);
-        println!("ldr {}, [{}]", value_reg_name, reg_name);
+        let symbol: Symbol = self.get_symbol_from_index(id);
+        if symbol.class == StorageClass::GLOBAL {
+            let reg: usize = self.reg_manager.borrow_mut().allocate();
+            let reg_name: String = self.reg_manager.borrow().name(reg);
+            self.dump_gid_address_load_code_from_name(&reg_name, id);
+            println!("ldr {}, [{}]", value_reg_name, reg_name);
+        } else {
+            println!("ldr {}, [sp, {}]", value_reg_name, symbol.local_offset);
+        }
         value_containing_reg
     }
 
     // Refer to this page for explanation on '@PAGE' and '@PAGEOFF': https://stackoverflow.com/questions/65351533/apple-clang12-llvm-unknown-aarch64-fixup-kind
-    fn gen_load_reg_into_gid(&mut self, reg: usize, id: &LitType) -> usize {
+    fn gen_load_reg_into_id(&mut self, reg: usize, id: &LitType) -> usize {
         let reg_name: String = self.reg_manager.borrow().name(reg);
-        let addr_reg: usize = self.reg_manager.borrow_mut().allocate();
-        let addr_reg_name: String = self.reg_manager.borrow().name(addr_reg);
-        self.dump_gid_address_load_code_from_name(&addr_reg_name, id);
-        println!("str {}, [{}]", reg_name, addr_reg_name);
-        addr_reg
+        let symbol: Symbol = self.get_symbol_from_index(id);
+        if symbol.class == StorageClass::GLOBAL {
+            let addr_reg: usize = self.reg_manager.borrow_mut().allocate();
+            let addr_reg_name: String = self.reg_manager.borrow().name(addr_reg);
+            self.dump_gid_address_load_code_from_name(&addr_reg_name, id);
+            println!("str {}, [{}]", reg_name, addr_reg_name);
+            addr_reg
+        } else {
+            println!("mov {}, [sp, {}]", reg_name, symbol.local_offset);
+            0xFFFFFFFF
+        }
     }
 
     // Generally speaking, loading one variable's address into another variable
@@ -425,9 +407,11 @@ impl ASTTraverser {
             LitType::I32(_idx) => self.sym_table.borrow().get_symbol(*_idx as usize).unwrap().clone(),
             _ => panic!("Can't index symtable with this type: {:?}", id),
         };
-        let sym_name: &str = &symbol.name;
-        println!("adrp {}, {}@PAGE", reg_name, sym_name);
-        println!("add {}, {}, {}@PAGEOFF", reg_name, reg_name, sym_name);
+        if symbol.class == StorageClass::GLOBAL {
+            let sym_name: &str = &symbol.name;
+            println!("adrp {}, {}@PAGE", reg_name, sym_name);
+            println!("add {}, {}, {}@PAGEOFF", reg_name, reg_name, sym_name);
+        }
     }
 
     fn _calc_id_offset(&self, id: &LitType) -> usize {
@@ -446,6 +430,13 @@ impl ASTTraverser {
             _ => panic!("Not supported indexing type!"),
         };
         offset
+    }
+
+    fn get_symbol_from_index(&self, id: &LitType) -> Symbol {
+        match id {
+            LitType::I32(_idx) => self.sym_table.borrow().get_symbol(*_idx as usize).unwrap().clone(),
+            _ => panic!("Can't index symtable with this type: {:?}", id),
+        }
     }
 
     fn get_next_label(&mut self) -> usize {

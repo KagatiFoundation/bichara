@@ -33,6 +33,7 @@ pub mod symtable;
 pub mod tokenizer;
 pub mod types;
 pub mod utils;
+pub mod function;
 
 /*
 global char n;
@@ -45,15 +46,15 @@ def main() -> char {
 fn main() {
     static mut LABEL_ID: usize = 0;
     let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new(
-        "global char *name = \"ramesh\"; global integer value = 12; value = value + value;",
+        "def main() -> void { local integer a = 45; local integer b = 12; a = b; }",
     );
-    let tokens: Vec<tokenizer::Token> = tokener.start_scan();
     let reg_manager: Rc<RefCell<register::RegisterManager>> =
         Rc::new(RefCell::new(register::RegisterManager::new()));
     let sym_table: Rc<RefCell<symtable::Symtable>> =
         Rc::new(RefCell::new(symtable::Symtable::new()));
-    let mut p: parser::Parser = parser::Parser::new(tokens, Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
+    let func_table: Rc<RefCell<function::FunctionInfoTable>> = Rc::new(RefCell::new(function::FunctionInfoTable::new()));
+    let mut p: parser::Parser = parser::Parser::new(tokener.start_scan(), Rc::clone(&sym_table), Rc::clone(&func_table), unsafe { &mut LABEL_ID });
     let mut traverser: ast::ASTTraverser =
-        ast::ASTTraverser::new(Rc::clone(&reg_manager), Rc::clone(&sym_table), unsafe { &mut LABEL_ID });
+        ast::ASTTraverser::new(Rc::clone(&reg_manager), Rc::clone(&sym_table), Rc::clone(&func_table), unsafe { &mut LABEL_ID });
     p.start(&mut traverser);
 }
