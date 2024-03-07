@@ -193,6 +193,11 @@ impl ASTTraverser {
             self.gen_ast(body, 0xFFFFFFFF, ast.operation);
         }
         println!("add sp, sp, {}", func_info.stack_size);
+        // in case the function has a void return type, we manually insert a 
+        // "ret" instruction at the end of the function
+        if func_info.return_type == LitTypeVariant::Void {
+            println!("ret");
+        }
         0xFFFFFFFF
     }
 
@@ -262,10 +267,7 @@ impl ASTTraverser {
     fn gen_return_stmt(&mut self, result_reg: usize, _func_id: usize) -> usize {
         // NOTE: Generate code depending on the function's type. i.e. use w0 for i32, x0 for i64 etc.
         // let func_ret_type: LitTypeVariant = self.sym_table.borrow().get_symbol(func_id).lit_type;
-        if result_reg == 0xFFFFFFFF {
-            // if function was a void type
-            println!("ret"); // just return
-        } else {
+        if result_reg != 0xFFFFFFFF {
             println!(
                 "mov x0, {}\nret",
                 self.reg_manager.borrow().name(result_reg)
@@ -344,9 +346,9 @@ impl ASTTraverser {
             let reg: usize = self.reg_manager.borrow_mut().allocate();
             let reg_name: String = self.reg_manager.borrow().name(reg);
             self.dump_gid_address_load_code_from_name(&reg_name, id);
-            println!("ldr {}, [{}]", value_reg_name, reg_name);
+            println!("ldr {}, [{}] // load {}", value_reg_name, reg_name, symbol.name);
         } else {
-            println!("ldr {}, [sp, {}]", value_reg_name, symbol.local_offset);
+            println!("ldr {}, [sp, {}] // load {}", value_reg_name, symbol.local_offset, symbol.name);
         }
         value_containing_reg
     }
@@ -359,10 +361,10 @@ impl ASTTraverser {
             let addr_reg: usize = self.reg_manager.borrow_mut().allocate();
             let addr_reg_name: String = self.reg_manager.borrow().name(addr_reg);
             self.dump_gid_address_load_code_from_name(&addr_reg_name, id);
-            println!("str {}, [{}]", reg_name, addr_reg_name);
+            println!("str {}, [{}] // store into {}", reg_name, addr_reg_name, symbol.name);
             addr_reg
         } else {
-            println!("mov {}, [sp, {}]", reg_name, symbol.local_offset);
+            println!("str {}, [sp, {}] // store into {}", reg_name, symbol.local_offset, symbol.name);
             0xFFFFFFFF
         }
     }

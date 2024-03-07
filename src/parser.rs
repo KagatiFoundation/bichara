@@ -457,12 +457,10 @@ impl Parser {
             let compat_node: Option<ASTNode> = Parser::validate_assign_compatibility(&sym, &mut assign_ast_node);
             let _result_type: LitTypeVariant = compat_node.as_ref().unwrap().result_type;
             // ***** NOTE *****: I am assuming that the symbol is added without any problem!!!
-            let symbol_add_pos: usize = if inside_func {
+            if inside_func {
                 sym.local_offset = self.gen_next_local_offset(_result_type);
-                self.add_symbol_local(sym.clone()).unwrap()
-            } else {
-                self.add_symbol_global(sym.clone()).unwrap() 
-            };
+            }
+            let symbol_add_pos: usize = self.add_symbol_global(sym.clone()).unwrap();
             let lvalueid: ASTNode = ASTNode::make_leaf(
                 ASTNodeKind::AST_LVIDENT,
                 LitType::I32(symbol_add_pos as i32),
@@ -480,6 +478,7 @@ impl Parser {
         if let Some(Err(parse_error)) = assignment_parse_res {
             return Err(parse_error);
         }
+        self.add_symbol_local(sym.clone()).unwrap();
         Err(ParseError::None) // this indicates variable is declared without assignment
     }
 
@@ -801,6 +800,9 @@ impl Parser {
             return Err(ParseError::NotCallable(sym_token.clone()));
         }
         _ = self.token_match(TokenKind::T_RPAREN);
+        // Allocating extra 16 bytes to store x29(Frame Pointer), and x30(Link Register).
+        // Storing and then loading them is collectively called a Frame Record.
+        self.local_offset += 16; 
         Ok(ASTNode::make_leaf(
             ASTNodeKind::AST_FUNC_CALL,
             LitType::I32(sym_index as i32),
