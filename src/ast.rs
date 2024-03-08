@@ -175,6 +175,9 @@ impl ASTTraverser {
             ASTNodeKind::AST_ARRAY_ACCESS => {
                 self.gen_array_access(ast.value.as_ref().unwrap(), (*ast.left).as_ref().unwrap())
             }
+            ASTNodeKind::AST_FUNC_CALL => {
+                0xFFFFFFFF
+            }
             ASTNodeKind::AST_STRLIT => self.gen_load_global_strlit(ast.value.as_ref().unwrap()),
             _ => panic!("unknown AST operator '{:?}'", ast.operation),
         }

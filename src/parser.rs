@@ -186,7 +186,11 @@ impl Parser {
             TokenKind::KW_DEF => self.parse_function_stmt(),
             TokenKind::KW_RETURN => self.parse_return_stmt(),
             TokenKind::T_EOF => Err(ParseError::UnexpectedToken(self.current_token.clone())),
-            _ => self.parse_equality(),
+            _ => {
+                let result: ParseResult = self.parse_equality();
+                self.token_match(TokenKind::T_SEMICOLON);
+                result
+            }
         }
     }
 
@@ -256,6 +260,8 @@ impl Parser {
         self.func_info_table.borrow_mut().add(func_info);
         // reset offset counter after parsing a function
         self.local_offset = 0; 
+        // clear all the local variables
+        self.clear_locals_section();
         Ok(ASTNode::new(
             ASTNodeKind::AST_FUNCTION,
             function_body.ok(),
@@ -263,6 +269,15 @@ impl Parser {
             Some(LitType::I32(temp_func_id as i32)),
             func_return_type,
         ))
+    }
+
+    // Remove locals from symbol table after parsing a function.
+    fn clear_locals_section(&mut self) {
+        let mut sym_table: std::cell::RefMut<'_, Symtable> = self.main_sym_table.borrow_mut();
+        for index in (self.next_local_sym_pos+1)..(NSYMBOLS-1) {
+            sym_table.insert(index, Symbol::uninit());
+        }
+        self.next_local_sym_pos = NSYMBOLS - 1;
     }
 
     #[allow(unused_mut)]
@@ -418,9 +433,11 @@ impl Parser {
                 assert!(!inside_func, "global variable inside a function???");
                 _ = self.token_match(TokenKind::KW_GLOBAL);
             }
+            StorageClass::PARAM => {
+                unimplemented!()
+            }
         }
         let mut sym: Symbol = Symbol::uninit();
-        sym.class = var_class;
         let sym_id_type: LitTypeVariant = self.parse_id_type();
         if sym_id_type == LitTypeVariant::None {
             panic!(
@@ -429,45 +446,47 @@ impl Parser {
             );
         }
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
-        // this following code is to check if the variable exists in the same scope already!!!
-        let symbol_info: Option<(usize, StorageClass)> = self.find_symbol(&id_token.lexeme);
-        if let Some((_sym_pos, sym_class)) = symbol_info {
-            // if the variable is being defined in the same scope
-            if sym_class == var_class {
-                println!("Duplicate symbol definition in this scope: '{:?}'", id_token);
-            }
-        }
+        // CHECK IF THE VARIABLE EXISTS IN THE SAME SCOPE ALREADY!!!
+        // symbol info
+        sym.class = var_class;
         sym.lit_type = sym_id_type;
         sym.name = id_token.lexeme.clone();
+        sym.size = 1;
         // if it is going to be an array type
         if self.current_token.kind == TokenKind::T_LBRACKET {
             return self.parse_array_var_decl_stmt(sym);
         }
-        // checking whether variable is assgined at the time of it's declaration
+        // checking whether variable is assigned at the time of it's declaration
         let mut assignment_parse_res: Option<ParseResult> = None;
         if self.current_token.kind == TokenKind::T_EQUAL { // if identifier name is followed by an equal sign
-            self.token_match(TokenKind::T_EQUAL);
+            _ = self.token_match(TokenKind::T_EQUAL); // match and ignore '=' sign
             assignment_parse_res = Some(self.parse_equality());
         }
-        _ = self.token_match(TokenKind::T_SEMICOLON);
-        sym.size = 1;
+        if let Some(Err(parse_error)) = assignment_parse_res {
+            return Err(parse_error);
+        }
         // test assignability
+        let mut return_result: ParseResult = Err(ParseError::None); // this indicates variable is declared without assignment
+        // ***** NOTE *****: I am assuming that the symbol is added without any problem!!!
+        let symbol_add_pos: usize = if inside_func {
+            self.add_symbol_local(sym.clone()).unwrap()
+        } else {
+            self.add_symbol_global(sym.clone()).unwrap()
+        };
         if let Some(assign_ast_node_res) = assignment_parse_res {
             let mut assign_ast_node: ASTNode = assign_ast_node_res?;
             let compat_node: Option<ASTNode> = Parser::validate_assign_compatibility(&sym, &mut assign_ast_node);
             let _result_type: LitTypeVariant = compat_node.as_ref().unwrap().result_type;
-            // ***** NOTE *****: I am assuming that the symbol is added without any problem!!!
             if inside_func {
                 sym.local_offset = self.gen_next_local_offset(_result_type);
             }
-            let symbol_add_pos: usize = self.add_symbol_global(sym.clone()).unwrap();
             let lvalueid: ASTNode = ASTNode::make_leaf(
                 ASTNodeKind::AST_LVIDENT,
                 LitType::I32(symbol_add_pos as i32),
                 sym.lit_type,
             );
             // calculate offset here
-            return Ok(ASTNode::new(
+            return_result = Ok(ASTNode::new(
                 ASTNodeKind::AST_ASSIGN,
                 compat_node,
                 Some(lvalueid),
@@ -475,11 +494,8 @@ impl Parser {
                 _result_type,
             ));
         }
-        if let Some(Err(parse_error)) = assignment_parse_res {
-            return Err(parse_error);
-        }
-        self.add_symbol_local(sym.clone()).unwrap();
-        Err(ParseError::None) // this indicates variable is declared without assignment
+        _ = self.token_match(TokenKind::T_SEMICOLON);
+        return_result
     }
 
     fn gen_next_local_offset(&mut self, var_type: LitTypeVariant) -> i32 {
@@ -542,26 +558,25 @@ impl Parser {
     
     fn parse_assignment_stmt(&mut self) -> ParseResult {
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
-        let _id_index_symt_op: Option<usize> = self.main_sym_table.borrow().find_symbol(&id_token.lexeme);
-        if _id_index_symt_op.is_none() {
-            // if the symbol has not been defined
-            panic!("Assigning to an undefined symbol '{}'", id_token.lexeme);
+        let symbol_info: Option<(usize, StorageClass)> = self.find_symbol(&id_token.lexeme);
+        if symbol_info.is_none() {
+            return Err(ParseError::SymbolNotFound(id_token));
         }
-        let _id_index_symt: usize = _id_index_symt_op.unwrap();
-        let symbol: Symbol = self.main_sym_table.borrow().get_symbol(_id_index_symt).unwrap().clone();
+        let id_index_symt: usize = symbol_info.unwrap().0;
+        let symbol: Symbol = self.main_sym_table.borrow().get_symbol(id_index_symt).unwrap().clone();
         // Check if we are assigning to a type other than SymbolType::Variable. If yes, panic!
         if symbol.sym_type != SymbolType::Variable {
             panic!("Assigning to type '{:?}' is not allowed!", symbol.sym_type);
         }
         _ = self.token_match(TokenKind::T_EQUAL);
-        let bin_expr_parse_result: ParseResult = self.parse_equality();
-        let mut bin_expr_ast_node: ASTNode = bin_expr_parse_result?;
+        let mut bin_expr_ast_node: ASTNode = self.parse_equality()?;
         let compat_node: Option<ASTNode> = Parser::validate_assign_compatibility(&symbol, &mut bin_expr_ast_node);
+        // following code is going to break at some point. unwrap()ing an Option type without checking?
         let _result_type: LitTypeVariant = compat_node.as_ref().unwrap().result_type;
         _ = self.token_match(TokenKind::T_SEMICOLON);
         let lvalueid: ASTNode = ASTNode::make_leaf(
             ASTNodeKind::AST_LVIDENT,
-            LitType::I32(_id_index_symt as i32),
+            LitType::I32(id_index_symt as i32),
             symbol.lit_type,
         );
         Ok(ASTNode::new(
@@ -631,8 +646,7 @@ impl Parser {
                 if ok {
                     self.skip_to_next_token(); // skip the operator
                     let ast_op: ASTNodeKind = ASTNodeKind::from_token_kind(current_token_kind);
-                    let right_side_tree: ParseResult = self.parse_mem_prefix();
-                    let mut right: ASTNode = right_side_tree?;
+                    let mut right: ASTNode = self.parse_mem_prefix()?;
                     let temp_left: Option<ASTNode> = types::modify_ast_node_type(left, right.result_type, ast_op);
                     let temp_right: Option<ASTNode> = types::modify_ast_node_type(&mut right, left.result_type, ast_op);
                     if temp_left.is_none() && temp_right.is_none() {
@@ -725,16 +739,21 @@ impl Parser {
             TokenKind::T_STRING => {
                 let str_label: usize = *self._label_id;
                 *self._label_id += 1;
+                let str_const_symbol: Symbol = Symbol::new(format!("_L{}---{}", str_label, current_token.lexeme.clone()), LitTypeVariant::U8Ptr, SymbolType::Constant, StorageClass::GLOBAL);
+                self.add_symbol_global(str_const_symbol);
                 println!("_L{}: .ascii \"{}\"", str_label, current_token.lexeme);
                 Ok(ASTNode::make_leaf(ASTNodeKind::AST_STRLIT, LitType::I32(str_label as i32), LitTypeVariant::U8Ptr))
             }
             TokenKind::T_IDENTIFIER => {
-                let id_index_op: Option<usize> = self.main_sym_table.borrow().find_symbol(&current_token.lexeme);
-                if id_index_op.is_none() {
-                    // if symbol has not been defined
+                let sym_find_res: Option<usize> = if self.is_scope_func() {
+                    Some(self.find_symbol(&current_token.lexeme).unwrap().0)
+                } else {
+                    self.find_symbol_global(&current_token.lexeme)
+                };
+                if sym_find_res.is_none() {
                     return Err(ParseError::SymbolNotFound(current_token));
                 }
-                let id_index: usize = id_index_op.unwrap();
+                let id_index: usize = sym_find_res.unwrap();
                 let symbol: Symbol = self.main_sym_table.borrow().get_symbol(id_index).unwrap().clone();
                 let curr_tok_kind: TokenKind = self.current_token.kind;
                 if curr_tok_kind == TokenKind::T_LPAREN {
@@ -765,7 +784,7 @@ impl Parser {
 
     fn parse_array_index_expr(
         &mut self,
-        called_symbol: &Symbol,
+        indexed_symbol: &Symbol,
         sym_index: usize,
         sym_token: &Token,
     ) -> ParseResult {
@@ -776,7 +795,7 @@ impl Parser {
             return array_access_expr_result;
         }
         let array_access_expr: ASTNode = array_access_expr_result.ok().unwrap();
-        if called_symbol.sym_type != SymbolType::Array {
+        if indexed_symbol.sym_type != SymbolType::Array {
             return Err(ParseError::UnsubscritableToken(sym_token.clone()));
         }
         _ = self.token_match(TokenKind::T_RBRACKET);
@@ -785,7 +804,7 @@ impl Parser {
             Some(array_access_expr),
             None,
             Some(LitType::I32(sym_index as i32)),
-            called_symbol.lit_type,
+            indexed_symbol.lit_type,
         ))
     }
 
@@ -823,31 +842,45 @@ impl Parser {
     }
 
     fn find_symbol(&self, name: &str) -> Option<(usize, StorageClass)> {
-        if let Some(global_pos) = self.find_symbol_global(name) {
-            return Some((global_pos, StorageClass::GLOBAL));
+        // first search in the local scope to determine if a symbol exists in this scope
+        if let Some(global_pos) = self.find_symbol_local(name) {
+            return Some((global_pos, StorageClass::LOCAL));
         }
-        if let Some(local_pos) = self.find_symbol_local(name) {
-            return Some((local_pos, StorageClass::LOCAL));
+        // then inquire global scope
+        if let Some(local_pos) = self.find_symbol_global(name) {
+            return Some((local_pos, StorageClass::GLOBAL));
         }
         None
     }
 
     fn find_symbol_global(&self, name: &str) -> Option<usize> {
-        for (pos, symbol) in self.main_sym_table.borrow().iter().enumerate() {
-            if symbol.name == name {
-                return Some(pos);
+        for index in 0..self.next_global_sym_pos {
+            if let Some(symbol) = self.main_sym_table.borrow().get_symbol(index) {
+                if symbol.name == name {
+                    return Some(index);
+                }
             }
         }
         None
     }
 
     fn find_symbol_local(&self, name: &str) -> Option<usize> {
-        for (pos, symbol) in self.main_sym_table.borrow().iter().rev().enumerate() {
-            if symbol.name == name {
-                return Some(pos);
+        for index in (self.next_local_sym_pos+1)..NSYMBOLS {
+            if let Some(symbol) = self.main_sym_table.borrow().get_symbol(index) {
+                if symbol.name == name {
+                    return Some(index);
+                }
             }
         }
         None
+    }
+
+    fn is_scope_global(&self) -> bool {
+        self.current_function_id == 0xFFFFFFFF
+    }
+
+    fn is_scope_func(&self) -> bool {
+        self.current_function_id != 0xFFFFFFFF
     }
 
     fn token_match(&mut self, kind: TokenKind) -> &Token {

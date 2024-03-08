@@ -46,7 +46,7 @@ def main() -> char {
 fn main() {
     static mut LABEL_ID: usize = 0;
     let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new(
-        "def main() -> void { local integer a = 12; return; } def dummy() -> void { local integer c = 45; c = main(); return; }",
+        "global integer a; def main() -> void { local integer b = 45; b = a; }",
     );
     let reg_manager: Rc<RefCell<register::RegisterManager>> =
         Rc::new(RefCell::new(register::RegisterManager::new()));

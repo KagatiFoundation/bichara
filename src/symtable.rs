@@ -30,6 +30,7 @@ use std::slice::Iter;
 pub enum StorageClass {
     GLOBAL, // globally visible symbol
     LOCAL, // locally visible symbol
+    PARAM, // locally visible function parameter
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -67,7 +68,7 @@ impl Symbol {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Symtable {
     syms: Vec<Symbol>, //
     counter: usize,    // next free slot in the table
@@ -122,11 +123,6 @@ impl Symtable {
             pos,
             self.counter
         );
-        if let Some(found) = self.get_symbol(pos) {
-            if found.lit_type != LitTypeVariant::None {
-                panic!("Symbol already present at this position: {}", pos);
-            }
-        }
         self.syms[pos] = sym;
         Some(pos)
     }

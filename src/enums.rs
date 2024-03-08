@@ -32,6 +32,7 @@ pub enum SymbolType {
     Variable,
     Function,
     Array,
+    Constant, // for now, this is used to represent only the string literals
 }
 
 // Token Type Of The Program
