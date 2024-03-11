@@ -103,11 +103,10 @@ impl Symtable {
     }
 
     pub fn add_symbol(&mut self, sym: Symbol) -> Option<usize> {
-        // Symbol with the same name already exists in this table
+        let act_pos: usize = self.next();
         if self.find_symbol(&sym.name).is_some() { 
             return None;
         }
-        let act_pos: usize = self.next();
         self.syms.push(sym);
         Some(act_pos - 1)
     }
@@ -142,13 +141,13 @@ impl Symtable {
 
 #[cfg(test)]
 mod tests {
-    use super::{Symbol, SymbolType, Symtable, NSYMBOLS};
+    use super::{Symbol, SymbolType, Symtable};
 
     #[test]
     fn test_symbol_addition() {
         let mut table: Symtable = Symtable::new();
         matches!(
-            table.add_symbol(Symbol::new(
+            table.insert(0, Symbol::new(
                 String::from("number"),
                 super::LitTypeVariant::I32,
                 SymbolType::Variable,
@@ -156,9 +155,8 @@ mod tests {
             )),
             Option::Some(0)
         );
-        assert_eq!(table.syms.len(), 1);
         assert_eq!(
-            table.add_symbol(Symbol::new(
+            table.insert(1, Symbol::new(
                 String::from("number2"),
                 super::LitTypeVariant::I32,
                 SymbolType::Variable,
@@ -167,7 +165,7 @@ mod tests {
             Option::Some(1)
         );
         assert_eq!(
-            table.add_symbol(Symbol::new(
+            table.insert(2, Symbol::new(
                 String::from("number3"),
                 super::LitTypeVariant::I32,
                 SymbolType::Variable,
@@ -177,36 +175,22 @@ mod tests {
         );
     }
 
-    // This test insures that no more than 1024 symbols are defined in program.
-    #[test]
-    #[should_panic(expected = "assertion failed")]
-    fn test_more_than_1024_symbols_creates_panic_situation() {
-        let mut table: Symtable = Symtable::new();
-        table.counter = NSYMBOLS;
-        table.add_symbol(Symbol::new(
-            String::from("number"),
-            super::LitTypeVariant::I32,
-            SymbolType::Variable,
-            crate::symtable::StorageClass::GLOBAL
-        ));
-    }
-
     #[test]
     fn test_find_symbol_index_from_its_name() {
         let mut table: Symtable = Symtable::new();
-        table.add_symbol(Symbol::new(
+        table.insert(0, Symbol::new(
             String::from("number2"),
             super::LitTypeVariant::I32,
             SymbolType::Variable,
             crate::symtable::StorageClass::GLOBAL
         ));
-        table.add_symbol(Symbol::new(
+        table.insert(1, Symbol::new(
             String::from("number3"),
             super::LitTypeVariant::I32,
             SymbolType::Variable,
             crate::symtable::StorageClass::GLOBAL
         ));
-        table.add_symbol(Symbol::new(
+        table.insert(2, Symbol::new(
             String::from("number4"),
             super::LitTypeVariant::I32,
             SymbolType::Variable,
@@ -220,19 +204,19 @@ mod tests {
     #[test]
     fn test_symbol_removal() {
         let mut table: Symtable = Symtable::new();
-        table.add_symbol(Symbol::new(
+        table.insert(0, Symbol::new(
             String::from("number2"),
             super::LitTypeVariant::I32,
             SymbolType::Variable,
             crate::symtable::StorageClass::GLOBAL
         ));
-        table.add_symbol(Symbol::new(
+        table.insert(1, Symbol::new(
             String::from("number3"),
             super::LitTypeVariant::I32,
             SymbolType::Variable,
             crate::symtable::StorageClass::GLOBAL
         ));
-        table.add_symbol(Symbol::new(
+        table.insert(2, Symbol::new(
             String::from("number4"),
             super::LitTypeVariant::I32,
             SymbolType::Variable,
