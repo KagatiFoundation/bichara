@@ -22,21 +22,82 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use std::collections::HashMap;
+#![allow(clippy::new_without_default)]
 
+use std::collections::HashMap;
 use crate::types::LitTypeVariant;
+
+/// Limit of local variables in a function.
+pub const LOCAL_LIMIT: usize = 1024;
+
+#[derive(Clone)]
+pub struct LocalSymbol {
+    pub name: String,
+    pub sym_type: LitTypeVariant,
+    pub offset: usize,
+}
+
+#[derive(Clone)]
+pub struct LocalSymtable {
+    pub syms: Vec<LocalSymbol>,
+    pub counter: usize,
+}
+
+impl LocalSymtable {
+    pub fn new() -> Self {
+        Self {
+            syms: vec![],
+            counter: 0
+        }
+    }
+
+    /// Add a new symbol
+    pub fn add(&mut self, symbol: LocalSymbol) -> usize {
+        assert!(self.syms.len() < LOCAL_LIMIT, "Local variable count has exceeded the limit of '{}'", LOCAL_LIMIT);
+        self.syms.push(symbol);
+        self.syms.len() - 1
+    }
+
+    /// Get the position of symbol with the provided name if it exists
+    pub fn position(&self, name: &str) -> Option<usize> {
+        assert!(name.is_empty(), "Name can't be an empty string");
+        self.syms.iter().position(|item| item.name == name)
+    }
+
+    /// Get the symbol with the provided name if it exists
+    pub fn get(&self, name: &str) -> Option<&LocalSymbol> {
+        if let Some(pos) = self.position(name) {
+            return self.syms.get(pos);
+        }
+        None
+    }
+
+    pub fn remove(&mut self, name: &str) -> Option<LocalSymbol> {
+        if let Some(pos) = self.position(name) {
+            return Some(self.syms.remove(pos));
+        }
+        None
+    }
+}
 
 #[derive(Clone)]
 pub struct FunctionInfo {
     pub name: String,
+    pub func_id: usize,
     pub stack_size: i32,
-    pub return_type: LitTypeVariant
+    pub return_type: LitTypeVariant,
+    /// Contains information about the variables defined locally in 'this' function
+    pub local_syms: LocalSymtable
 }
 
 impl FunctionInfo {
-    pub fn new(name: String, stack_size: i32, return_type: LitTypeVariant) -> Self {
+    pub fn new(name: String, func_id: usize, stack_size: i32, return_type: LitTypeVariant) -> Self {
         Self {
-            name, stack_size, return_type
+            name, 
+            func_id,
+            stack_size, 
+            return_type, 
+            local_syms: LocalSymtable::new()
         }
     }
 }
@@ -46,7 +107,6 @@ pub struct FunctionInfoTable {
 }
 
 impl FunctionInfoTable {
-    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             functions: HashMap::new()

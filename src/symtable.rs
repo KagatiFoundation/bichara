@@ -93,12 +93,7 @@ impl Symtable {
     }
 
     pub fn find_symbol(&self, name: &str) -> Option<usize> {
-        for (idx, n) in self.syms.iter().enumerate() {
-            if name == n.name {
-                return Some(idx);
-            }
-        }
-        None
+        self.syms.iter().position(|sym| sym.name == name)
     }
 
     fn next(&mut self) -> usize {
@@ -108,6 +103,7 @@ impl Symtable {
     }
 
     pub fn add_symbol(&mut self, sym: Symbol) -> Option<usize> {
+        // Symbol with the same name already exists in this table
         if self.find_symbol(&sym.name).is_some() { 
             return None;
         }

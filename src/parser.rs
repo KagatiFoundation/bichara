@@ -37,7 +37,7 @@ use crate::tokenizer::*;
 use crate::types;
 use crate::types::*;
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Clone)]
 enum ParseError {
     UnexpectedToken(Token), // unexpected token was encountered
     SymbolNotFound(Token),  // symbol not found; symbol has not been defined before
@@ -72,6 +72,8 @@ impl std::fmt::Display for ParseError {
 }
 
 type ParseResult = Result<ASTNode, ParseError>;
+type StmtResult = Result<ASTNode, ParseError>;
+type ExprResult = Result<ASTNode, ParseError>;
 
 // Actual parser
 pub struct Parser {
@@ -256,12 +258,12 @@ impl Parser {
         self.current_function_id = 0xFFFFFFFF; // exiting out of function body
         // function information collection
         let stack_offset: i32 = (self.local_offset + 15) & !15;
-        let func_info: FunctionInfo = FunctionInfo::new(id_token.lexeme.clone(), stack_offset, func_return_type);
+        let func_info: FunctionInfo = FunctionInfo::new(id_token.lexeme.clone(), function_id.unwrap(), stack_offset, func_return_type);
         self.func_info_table.borrow_mut().add(func_info);
         // reset offset counter after parsing a function
         self.local_offset = 0; 
         // clear all the local variables
-        self.clear_locals_section();
+        // self.clear_locals_section();
         Ok(ASTNode::new(
             ASTNodeKind::AST_FUNCTION,
             function_body.ok(),
@@ -274,7 +276,7 @@ impl Parser {
     // Remove locals from symbol table after parsing a function.
     fn clear_locals_section(&mut self) {
         let mut sym_table: std::cell::RefMut<'_, Symtable> = self.main_sym_table.borrow_mut();
-        for index in (self.next_local_sym_pos+1)..(NSYMBOLS-1) {
+        for index in (self.next_local_sym_pos+1)..NSYMBOLS {
             sym_table.insert(index, Symbol::uninit());
         }
         self.next_local_sym_pos = NSYMBOLS - 1;
@@ -602,6 +604,11 @@ impl Parser {
 
     fn parse_equality(&mut self) -> ParseResult {
         let left: ParseResult = self.parse_comparision();
+        loop {
+            // repeatedly parse expression
+            let a: i32 = 23;
+            if a == 23 { break; }
+        }
         self.try_parsing_binary(left, vec![TokenKind::T_EQEQ, TokenKind::T_NEQ])
     }
 
@@ -629,52 +636,28 @@ impl Parser {
     }
 
     fn try_parsing_binary(
-        &mut self,
-        mut left_side_tree: ParseResult,
-        tokens: Vec<TokenKind>,
+        &mut self, 
+        left_side_tree: ParseResult, 
+        tokens: Vec<TokenKind>
     ) -> ParseResult {
-        let mut ok: bool = false;
-        match left_side_tree {
-            Ok(ref mut left) => {
-                let current_token_kind: TokenKind = self.current_token.kind;
-                for token in tokens {
-                    if token == current_token_kind {
-                        ok = true;
-                        break;
-                    }
-                }
-                if ok {
-                    self.skip_to_next_token(); // skip the operator
-                    let ast_op: ASTNodeKind = ASTNodeKind::from_token_kind(current_token_kind);
-                    let mut right: ASTNode = self.parse_mem_prefix()?;
-                    let temp_left: Option<ASTNode> = types::modify_ast_node_type(left, right.result_type, ast_op);
-                    let temp_right: Option<ASTNode> = types::modify_ast_node_type(&mut right, left.result_type, ast_op);
-                    if temp_left.is_none() && temp_right.is_none() {
-                        panic!(
-                            "Incompatible types: '{:?}' and '{:?}' for operator '{:?}'",
-                            left.result_type, right.result_type, ast_op
-                        );
-                    }
-                    let left_node: Option<ASTNode> = if temp_left.is_some() {
-                        temp_left
-                    } else { Some(left.clone()) };
-                    let right_node: Option<ASTNode> = if temp_right.is_some() {
-                        temp_right
-                    } else { Some(right.clone()) };
-                    let result_type: LitTypeVariant = left.result_type;
-                    Ok(ASTNode::new(
-                        ast_op,
-                        left_node,
-                        right_node,
-                        None,
-                        result_type,
-                    ))
-                } else {
-                    left_side_tree
-                }
-            }
-            _ => left_side_tree,
+        let mut left: ASTNode = left_side_tree.clone()?;
+        let current_token_kind: TokenKind = self.current_token.kind;
+        if !tokens.contains(&current_token_kind) {
+            return left_side_tree;
         }
+        self.skip_to_next_token(); // skip the operator
+        let ast_op: ASTNodeKind = ASTNodeKind::from_token_kind(current_token_kind);
+        let mut right: ASTNode = self.parse_mem_prefix()?;
+        let modif_left_node: Option<ASTNode> = types::modify_ast_node_type(&mut left, right.result_type, ast_op);
+        let modif_right_node: Option<ASTNode> = types::modify_ast_node_type(&mut right, left.result_type, ast_op);
+        if modif_left_node.is_none() && modif_right_node.is_none() {
+            panic!(
+                "Incompatible types: '{:?}' and '{:?}' for operator '{:?}'",
+                left.result_type, right.result_type, ast_op
+            );
+        }
+        let result_type: LitTypeVariant = modif_left_node.as_ref().unwrap().result_type;
+        Ok(ASTNode::new(ast_op, modif_left_node, modif_right_node, None, result_type))
     }
 
     // parse memory related prefixes such as '*' for dereferencing and '&' for memory address

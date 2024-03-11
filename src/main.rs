@@ -34,6 +34,10 @@ pub mod tokenizer;
 pub mod types;
 pub mod utils;
 pub mod function;
+pub mod ast2;
+pub mod symbol;
+pub mod ast_gen;
+pub mod reg;
 
 /*
 global char n;
@@ -45,9 +49,7 @@ def main() -> char {
 
 fn main() {
     static mut LABEL_ID: usize = 0;
-    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new(
-        "global integer a; def main() -> void { local integer b = 45; b = a; }",
-    );
+    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("global integer a = 23;");
     let reg_manager: Rc<RefCell<register::RegisterManager>> =
         Rc::new(RefCell::new(register::RegisterManager::new()));
     let sym_table: Rc<RefCell<symtable::Symtable>> =
