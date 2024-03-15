@@ -36,7 +36,7 @@ pub mod utils;
 pub mod function;
 pub mod ast2;
 pub mod symbol;
-pub mod ast_gen;
+pub mod code_gen;
 pub mod reg;
 
 /*
