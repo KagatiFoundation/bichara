@@ -22,6 +22,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use crate::ast2::AST;
 use crate::ast2::ASTOperation;
 use crate::types::LitType;
@@ -51,7 +54,7 @@ pub trait CodeGen {
         &mut self, ast_node: &AST, 
         reg: usize, 
         parent_ast_kind: ASTOperation) 
-    -> usize where Self: Sized + RegManager {
+    -> usize where Self: Sized {
         if ast_node.operation == ASTOperation::AST_IF {
             return self.gen_if_stmt(ast_node);
         } else if ast_node.operation == ASTOperation::AST_WHILE {
@@ -147,4 +150,6 @@ pub trait CodeGen {
     fn gen_array_access(&mut self, id: &LitType, expr: &AST) -> usize;
 
     fn gen_return_stmt(&mut self, result_reg: usize, _func_id: usize) -> usize;
+
+    fn reg_manager(&self) -> Rc<RefCell<RegManager>>;
 }

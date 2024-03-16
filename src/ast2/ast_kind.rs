@@ -22,14 +22,43 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-mod source_file;
-mod ast;
-mod expr;
-mod stmt;
-mod ast_kind;
+use super::{Expr, Stmt};
 
-pub use source_file::*;
-pub use ast::*;
-pub use expr::*;
-pub use stmt::*;
-pub use ast_kind::*;
+pub enum ASTKind {
+    StmtAST(Stmt),
+    ExprAST(Expr)
+}
+
+impl ASTKind {
+    /// Checks if the ASTKind is a statement variant.
+    pub fn is_stmt(&self) -> bool {
+        matches!(self, ASTKind::StmtAST(_))
+    }
+
+    /// Checks if the ASTKind is an expression variant.
+    pub fn is_expr(&self) -> bool {
+        matches!(self, ASTKind::ExprAST(_))
+    }
+
+    /// Unwraps the ASTKind, returning the contained statement.
+    ///
+    /// # Panics
+    /// Panics if the ASTKind is not a statement kind.
+    pub fn unwrap_stmt(self) -> Stmt {
+        match self {
+            Self::StmtAST(stmt) => stmt,
+            _ => panic!("ASTKind is not a statement kind!")
+        }
+    }
+
+    /// Unwraps the ASTKind, returning the contained expression.
+    ///
+    /// # Panics
+    /// Panics if the ASTKind is not an expression kind.
+    pub fn unwrap_expr(self) -> Expr {
+        match self {
+            Self::ExprAST(expr) => expr,
+            _ => panic!("ASTKind is not an expression kind!")
+        }
+    }
+}

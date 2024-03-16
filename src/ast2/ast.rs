@@ -26,24 +26,7 @@ SOFTWARE.
 
 use crate::types::{LitType, LitTypeVariant};
 
-pub struct IfStmt;
-
-pub enum Stmt {
-    IfStmt(IfStmt)
-}
-
-pub struct SubscriptExpr {
-
-}
-
-pub enum Expr {
-    Subscript(SubscriptExpr),
-}
-
-pub enum ASTKind {
-    Stmt(Stmt),
-    Expr(Expr)
-}
+use super::ASTKind;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum ASTOperation {

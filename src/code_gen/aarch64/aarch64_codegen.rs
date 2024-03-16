@@ -25,10 +25,9 @@ SOFTWARE.
 use std::{cell::RefCell, rc::Rc};
 
 use crate::ast2::{ASTOperation, AST};
-use crate::code_gen::register::RegManager;
 use crate::code_gen::CodeGen;
 use crate::function::{FunctionInfo, FunctionInfoTable};
-use crate::register::RegisterManager;
+use crate::code_gen::register::RegManager;
 use crate::symtable::{StorageClass, Symbol, Symtable};
 use crate::types::{LitType, LitTypeVariant};
 
@@ -38,7 +37,7 @@ lazy_static::lazy_static! {
 
 pub struct Aarch64CodeGen {
     _label_id: &'static mut usize,
-    reg_manager: Rc<RefCell<RegisterManager>>,
+    reg_manager: Rc<RefCell<RegManager>>,
     func_info_table: Rc<RefCell<FunctionInfoTable>>,
     sym_table: Rc<RefCell<Symtable>>,
 }
@@ -266,9 +265,27 @@ impl CodeGen for Aarch64CodeGen {
         );
         off_addr_reg
     }
+    
+    fn reg_manager(&self) -> Rc<RefCell<RegManager>> {
+        Rc::clone(&self.reg_manager)
+    }
 }
 
 impl Aarch64CodeGen {
+    pub fn new(
+        reg_manager: Rc<RefCell<RegManager>>,
+        sym_table: Rc<RefCell<Symtable>>,
+        func_info_table: Rc<RefCell<FunctionInfoTable>>,
+        label_id: &'static mut usize
+    ) -> Self {
+        Self {
+            reg_manager,
+            sym_table,
+            func_info_table,
+            _label_id: label_id,
+        }
+    }
+
     fn get_symbol_from_index(&self, id: &LitType) -> Symbol {
         match id {
             LitType::I32(_idx) => self.sym_table.borrow().get_symbol(*_idx as usize).unwrap().clone(),
@@ -301,11 +318,5 @@ impl Aarch64CodeGen {
             println!("adrp {}, {}@PAGE", reg_name, sym_name);
             println!("add {}, {}, {}@PAGEOFF", reg_name, reg_name, sym_name);
         }
-    }
-}
-
-impl RegManager for Aarch64CodeGen {
-    fn reg_manager(&self) -> Rc<RefCell<RegisterManager>> {
-        Rc::clone(&self.reg_manager)
     }
 }

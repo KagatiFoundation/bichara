@@ -37,7 +37,6 @@ pub mod function;
 pub mod ast2;
 pub mod symbol;
 pub mod code_gen;
-pub mod reg;
 
 /*
 global char n;

@@ -27,6 +27,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::ast::*;
+use crate::ast2::Expr;
+use crate::ast2::Stmt;
 use crate::enums::*;
 use crate::error;
 use crate::function::FunctionInfo;
@@ -72,8 +74,8 @@ impl std::fmt::Display for ParseError {
 }
 
 type ParseResult = Result<ASTNode, ParseError>;
-type StmtResult = Result<ASTNode, ParseError>;
-type ExprResult = Result<ASTNode, ParseError>;
+type StmtResult = Result<Stmt, ParseError>;
+type ExprResult = Result<Expr, ParseError>;
 
 // Actual parser
 pub struct Parser {

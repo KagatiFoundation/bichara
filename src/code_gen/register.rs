@@ -22,10 +22,61 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use std::{cell::RefCell, rc::Rc};
+use std::collections::HashMap;
 
-use crate::register::RegisterManager;
+pub struct RegManager {
+    registers: HashMap<String, u8>
+}
 
-pub trait RegManager {
-    fn reg_manager(&self) -> Rc<RefCell<RegisterManager>>;
+impl RegManager {
+    #[allow(clippy::new_without_default)]
+    pub fn new(reg_names: Vec<String>) -> Self {
+        Self {
+            registers: {
+                let mut regs: HashMap<String, u8> = HashMap::<String, u8>::new();
+                for name in reg_names {
+                    regs.insert(name, 1);
+                }
+                regs
+            }
+        }
+    }    
+
+    pub fn allocate(&mut self) -> usize {
+        for (index, (reg_name, status)) in self.registers.iter().enumerate() {
+            if *status == 1 {
+                self.registers.insert(reg_name.clone(), 0);
+                return index;
+            }
+        }
+        panic!("out of registers");
+    }
+
+    pub fn deallocate(&mut self, index: usize) {
+        let mut dealloc_name: String = String::from("");
+        for (dindex, (reg_name, _)) in self.registers.iter().enumerate() {
+            if dindex == index {
+                dealloc_name = reg_name.clone();
+                break;
+            }
+        }
+        self.registers.insert(dealloc_name, 1);
+    }
+
+    pub fn deallocate_all(&mut self) {
+        for (_, value) in self.registers.iter_mut() {
+            *value = 1;
+        }
+    }
+
+    pub fn name(&self, index: usize) -> String {
+        let mut dealloc_name: String = String::from("");
+        for (dindex, (reg_name, _)) in self.registers.iter().enumerate() {
+            if dindex == index {
+                dealloc_name = reg_name.clone();
+                break;
+            }
+        }
+        dealloc_name 
+    }
 }
