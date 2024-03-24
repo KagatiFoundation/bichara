@@ -25,6 +25,7 @@ SOFTWARE.
 use std::cell::RefMut;
 use std::cell::RefCell;
 
+use crate::ast::Stmt;
 use crate::ast::{
     ASTOperation, 
     AST
@@ -135,8 +136,9 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
     }
 
     fn gen_function_stmt(&mut self, ast: &AST) -> usize {
-        let index: usize = match ast.value.as_ref().unwrap() {
-            LitType::I32(int_idx) => *int_idx as usize,
+        let possible_func_decl: Stmt = ast.kind.clone().unwrap_stmt();
+        let index: usize = match possible_func_decl {
+            Stmt::FuncDecl(func_decl) => func_decl.func_id,
             _ => panic!("Not a valid symbol table indexing method"),
         };
         let func_name: String = self.sym_table.get_symbol(index).unwrap().name.clone();

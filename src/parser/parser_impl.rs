@@ -139,7 +139,6 @@ impl<'a> Parser<'a> {
                         ASTOperation::AST_GLUE,
                         left.clone(),
                         tree.ok(),
-                        None,
                         LitTypeVariant::None,
                     ));
                 }
@@ -196,7 +195,6 @@ impl<'a> Parser<'a> {
             ASTOperation::AST_FUNCTION,
             function_body.ok(),
             None,
-            Some(LitType::I32(temp_func_id as i32)),
             func_return_type,
         ))
     }
@@ -236,7 +234,6 @@ impl<'a> Parser<'a> {
                     ReturnStmt { func_id: self.current_function_id }
                 )),
                 ASTOperation::AST_RETURN,
-                None,
                 LitTypeVariant::Void,
             ));
         }
@@ -251,7 +248,6 @@ impl<'a> Parser<'a> {
             ASTOperation::AST_RETURN,
             return_expr.ok(),
             None,
-            None,
             return_expr_type,
         ))
     }
@@ -264,7 +260,6 @@ impl<'a> Parser<'a> {
             ASTOperation::AST_WHILE,
             cond_ast.ok(),
             while_body.ok(),
-            None,
             LitTypeVariant::None,
         ))
     }
@@ -292,7 +287,6 @@ impl<'a> Parser<'a> {
             ASTOperation::AST_GLUE,
             for_body.ok(),
             incr_ast.ok(),
-            None,
             LitTypeVariant::None,
         );
         tree = AST::new(
@@ -300,7 +294,6 @@ impl<'a> Parser<'a> {
             ASTOperation::AST_WHILE,
             cond_ast.ok(),
             Some(tree),
-            None,
             LitTypeVariant::None,
         );
         Ok(AST::new(
@@ -308,7 +301,6 @@ impl<'a> Parser<'a> {
             ASTOperation::AST_GLUE,
             pre_stmt.ok(),
             Some(tree),
-            None,
             LitTypeVariant::None,
         ))
     }
@@ -327,7 +319,6 @@ impl<'a> Parser<'a> {
             cond_ast.ok(),
             if_false_ast.ok(),
             if_true_ast.ok(),
-            None,
             LitTypeVariant::None,
         ))
     }
@@ -413,7 +404,6 @@ impl<'a> Parser<'a> {
             let lvalueid: AST = AST::create_leaf(
                 ASTKind::StmtAST(Stmt::LValue(symbol_add_pos)),
                 ASTOperation::AST_LVIDENT,
-                None,
                 sym.lit_type,
             );
             // calculate offset here
@@ -422,7 +412,6 @@ impl<'a> Parser<'a> {
                 ASTOperation::AST_ASSIGN,
                 compat_node,
                 Some(lvalueid),
-                None,
                 _result_type,
             ));
         }
@@ -490,12 +479,16 @@ impl<'a> Parser<'a> {
     
     fn parse_assignment_stmt(&mut self) -> ParseResult {
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
-        let symbol_info: Option<(usize, StorageClass)> = self.find_symbol(&id_token.lexeme);
-        if symbol_info.is_none() {
+        let symbol_search_result: Option<(usize, StorageClass)> = self.find_symbol(&id_token.lexeme);
+        if symbol_search_result.is_none() {
             return Err(ParseError::SymbolNotFound(id_token));
         }
-        let id_index_symt: usize = symbol_info.unwrap().0;
+        let id_index_symt: usize = symbol_search_result.unwrap().0;
         let symbol: Symbol = self.main_sym_table.get_symbol(id_index_symt).unwrap().clone();
+        // we are in global scope but trying to assign to a local variable
+        if self.is_scope_global() && symbol.class == StorageClass::LOCAL {
+            return Err(ParseError::SymbolNotFound(id_token));
+        }
         // Check if we are assigning to a type other than SymbolType::Variable. If yes, panic!
         if symbol.sym_type != SymbolType::Variable {
             panic!("Assigning to type '{:?}' is not allowed!", symbol.sym_type);
@@ -509,7 +502,6 @@ impl<'a> Parser<'a> {
         let lvalueid: AST = AST::create_leaf(
             ASTKind::StmtAST(Stmt::LValue(id_index_symt)),
             ASTOperation::AST_LVIDENT,
-            None,
             symbol.lit_type,
         );
         Ok(AST::new(
@@ -517,7 +509,6 @@ impl<'a> Parser<'a> {
             ASTOperation::AST_ASSIGN,
             compat_node,
             Some(lvalueid),
-            None,
             _result_type,
         ))
     }
@@ -584,7 +575,6 @@ impl<'a> Parser<'a> {
             &mut AST::create_leaf(
                 left.kind, 
                 ast_op, 
-                None, 
                 left.result_type
             ), 
             right.result_type,
@@ -594,7 +584,6 @@ impl<'a> Parser<'a> {
             &mut AST::create_leaf(
                     right.kind, 
                     ast_op, 
-                    None, 
                     right.result_type
                 ), 
             left.result_type, 
@@ -619,7 +608,6 @@ impl<'a> Parser<'a> {
                     )
                 ),
                 ast_op,
-                None,
                 result_type
             )
         )
@@ -649,7 +637,7 @@ impl<'a> Parser<'a> {
                 let mut tree: ParseResult = self.parse_mem_prefix();
                 if let Ok(ref mut add_tree) = tree {
                     if add_tree.operation != ASTOperation::AST_IDENT {
-                        panic!("Can't dereference type '{:?}'", add_tree.value);
+                        panic!("Can't dereference type '{:?}'", add_tree.result_type);
                     }
                     add_tree.operation = ASTOperation::AST_DEREF;
                     add_tree.result_type = LitTypeVariant::value_type(add_tree.result_type);
@@ -680,7 +668,6 @@ impl<'a> Parser<'a> {
                         result_type: LitTypeVariant::U8Ptr
                     })),
                     ASTOperation::AST_STRLIT, 
-                    None,
                     LitTypeVariant::U8Ptr
                 ))
             }
@@ -707,7 +694,6 @@ impl<'a> Parser<'a> {
                             result_type: symbol.lit_type
                         })),
                         ASTOperation::AST_IDENT,
-                        None,
                         symbol.lit_type,
                     ))
                 }
@@ -735,7 +721,6 @@ impl<'a> Parser<'a> {
                 }
             )),
             operation,
-            None,
             value.variant()
         )
     }
@@ -764,7 +749,6 @@ impl<'a> Parser<'a> {
                 result_type: indexed_symbol.lit_type
             })),
             ASTOperation::AST_ARRAY_ACCESS,
-            None,
             indexed_symbol.lit_type,
         ))
     }
@@ -789,7 +773,6 @@ impl<'a> Parser<'a> {
                 result_type: called_symbol.lit_type
             })),
             ASTOperation::AST_FUNC_CALL,
-            None,
             called_symbol.lit_type,
         ))
     }
@@ -1009,13 +992,13 @@ mod tests {
         let func_stmt: ParseResult = p.parse_single_stmt();
         assert!(func_stmt.is_ok());
         let upvalue: &AST = func_stmt.as_ref().unwrap();
+        matches!(upvalue.kind, ASTKind::StmtAST(Stmt::FuncDecl(_)));
         assert_eq!(upvalue.operation, ASTOperation::AST_FUNCTION);
         assert_eq!(upvalue.result_type, LitTypeVariant::Void);
         assert_eq!(
             upvalue.left.as_ref().unwrap().operation,
             ASTOperation::AST_RETURN
         );
-        matches!(upvalue.value.as_ref().unwrap(), LitType::I32(_)); // id of function 'main'
     }
 
     /*
@@ -1110,6 +1093,5 @@ mod tests {
             left_node.left.as_ref().unwrap().operation,
             ASTOperation::AST_INTLIT
         ); // function should return an integer literal
-        matches!(upvalue.value.as_ref().unwrap(), LitType::I32(_)); // id of function 'main'
     }
 }

@@ -24,7 +24,7 @@ SOFTWARE.
 
 #![allow(non_camel_case_types)]
 
-use crate::{tokenizer::TokenKind, types::{LitType, LitTypeVariant}};
+use crate::{tokenizer::TokenKind, types::LitTypeVariant};
 
 use super::ASTKind;
 
@@ -121,7 +121,6 @@ pub struct AST {
     pub left: Option<Box<AST>>,
     pub mid: Option<Box<AST>>,
     pub right: Option<Box<AST>>,
-    pub value: Option<LitType>,
     pub result_type: LitTypeVariant
 }
 
@@ -131,7 +130,6 @@ impl AST {
         op: ASTOperation, 
         left: Option<AST>, 
         right: Option<AST>, 
-        value: Option<LitType>, 
         result_type: LitTypeVariant
     ) -> Self {
         Self {
@@ -140,7 +138,6 @@ impl AST {
             left: left.map(Box::new),
             mid: None,
             right: right.map(Box::new),
-            value,
             result_type
         }
     }
@@ -148,7 +145,6 @@ impl AST {
     pub fn create_leaf(
         kind: ASTKind,
         operation: ASTOperation, 
-        value: Option<LitType>, 
         result_type: LitTypeVariant
     ) -> Self {
         Self {
@@ -157,7 +153,6 @@ impl AST {
             left: None,
             mid: None,
             right: None,
-            value,
             result_type
         }
     }
@@ -168,7 +163,6 @@ impl AST {
         left: Option<AST>, 
         mid: Option<AST>, 
         right: Option<AST>, 
-        value: Option<LitType>, 
         result_type: LitTypeVariant
     ) -> Self {
         Self {
@@ -177,7 +171,6 @@ impl AST {
             left: left.map(Box::new),
             mid: mid.map(Box::new),
             right: right.map(Box::new),
-            value,
             result_type
         }
     }

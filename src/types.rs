@@ -263,7 +263,6 @@ pub fn modify_ast_node_type(node: &mut AST, to: LitTypeVariant, op: ASTOperation
                 ASTOperation::AST_WIDEN,
                 Some(node.clone()),
                 None,
-                None,
                 to,
             ));
         }

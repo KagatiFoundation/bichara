@@ -52,7 +52,7 @@ def main() -> char {
 
 fn main() {
     static mut LABEL_ID: usize = 0;
-    let mut tokener: Tokenizer = Tokenizer::new("global integer number; def main() -> void { number = 34; local integer b = 23; return; } b = 23;");
+    let mut tokener: Tokenizer = Tokenizer::new("global integer num2; def main() -> void { num = 23; return; }");
     let mut symt: Symtable = Symtable::new();
     let mut funct: FunctionInfoTable = FunctionInfoTable::new();
     let mut pars: Parser = Parser::new(tokener.start_scan(), &mut symt, &mut funct, unsafe {

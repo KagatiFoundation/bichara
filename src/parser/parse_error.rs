@@ -50,7 +50,7 @@ impl std::fmt::Display for ParseError {
                 Ok(())
             }
             ParseError::SymbolNotFound(token) => {
-                error::report_errornous_token_and_exit(token, &format!("Symbol is not defined: '{}'", token.lexeme), 1);
+                error::report_errornous_token_and_exit(token, &format!("Undefined symbol: '{}'", token.lexeme), 1);
                 Ok(())
             }
             _ => write!(f, "other"),
