@@ -33,6 +33,49 @@ use crate::types::LitType;
 use super::register::RegManager;
 
 pub trait CodeGen {
+    /// Starts the code generation process.
+    ///
+    /// This method initializes code generation by generating global symbols and marking the start of the `.text` section.
+    ///
+    /// # Arguments
+    ///
+    /// * `nodes` - The Abstract Syntax Tree (AST) list used for code generation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use code_gen::CodeGen;
+    /// use ast::AST;
+    ///
+    /// let mut generator = CodeGen::new();
+    /// let ast = AST::new();
+    /// generator.start_gen(&ast);
+    /// ```
+    fn start_gen(&mut self, nodes: Vec<AST>) where Self: Sized {
+        self.gen_global_symbol();
+        // .text section starts from here
+        println!("\n.text");
+        for node in &nodes {
+            self.gen_code_from_ast(node, 0xFFFFFFFF, ASTOperation::AST_NONE);
+        }
+    }
+
+    /// Generate global symbols into the data section.
+    ///
+    /// This function iterates over the main symbol table, printing symbol 
+    /// information for each global symbol. Symbols are skipped if they meet 
+    /// any of the following conditions:
+    ///   - The symbol type is `Function`.
+    ///   - The literal type is `None`.
+    ///   - The storage class is `LOCAL`.
+    /// 
+    /// For each processed global symbol, the appropriate `.data` directive and 
+    /// symbol name are printed. If the symbol is a variable, its global data is 
+    /// printed with proper alignment using `dump_global_with_alignment`. If the 
+    /// symbol is an array, the appropriate data space is allocated for each element 
+    /// based on its size and data type.
+    fn gen_global_symbol(&self);
+
     /// Generates code for a given AST node and returns a register index 
     /// for further processing.
     ///

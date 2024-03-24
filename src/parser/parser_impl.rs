@@ -23,7 +23,6 @@ SOFTWARE.
 */
 
 use core::panic;
-
 use crate::ast::ASTKind;
 use crate::ast::ASTOperation;
 use crate::ast::BinExpr;
@@ -48,7 +47,7 @@ use crate::ParseError;
 /// parsing failure.
 type ParseResult = Result<AST, ParseError>;
 
-// Actual parser
+/// Represents a parser for converting tokens into an abstract syntax tree (AST).
 pub struct Parser<'a> {
     tokens: Vec<Token>,
     current: usize,
@@ -102,54 +101,7 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        self.dump_globals();
-        // .text section starts from here
-        println!("\n.text");
         nodes
-    }
-
-    fn dump_globals(&self) {
-        for symbol in self.main_sym_table.iter() {
-            // symbol information is not generated if any of the following conditions matches
-            let not_process_cond: Vec<bool> = vec![symbol.sym_type == SymbolType::Function, symbol.lit_type == LitTypeVariant::None, symbol.class == StorageClass::LOCAL];
-            if not_process_cond.iter().any(|item| *item) {
-                continue;
-            }
-            println!(".data\n.global {}", symbol.name);
-            if symbol.sym_type == SymbolType::Variable {
-                Parser::dump_global_with_alignment(symbol);
-            } else if symbol.sym_type == SymbolType::Array {
-                let array_data_size: usize = symbol.lit_type.size();
-                println!("{}:", symbol.name);
-                for _ in 0..symbol.size {
-                    Parser::alloc_data_space(array_data_size);
-                }
-            }
-        }
-    }
-
-    fn alloc_data_space(size: usize) {
-        match size {
-            1 => println!(".byte 0"),
-            4 => println!(".word 0"),
-            8 => println!(".quad 0"),
-            _ => panic!("Not possible to generate space for size: {}", size),
-        }
-    }
-
-    fn dump_global_with_alignment(symbol: &Symbol) {
-        match symbol.lit_type {
-            LitTypeVariant::F32Ptr
-            | LitTypeVariant::F64Ptr
-            | LitTypeVariant::I16Ptr
-            | LitTypeVariant::I32Ptr
-            | LitTypeVariant::I64Ptr
-            | LitTypeVariant::U8Ptr
-            | LitTypeVariant::VoidPtr => println!("{}: .align 8\n\t.quad 0", symbol.name),
-            LitTypeVariant::I32 => println!("{}: .align 4\n\t.word 0", symbol.name),
-            LitTypeVariant::U8 => println!("{}:\t.byte 0", symbol.name),
-            _ => panic!("Symbol's size is not supported right now: '{:?}'", symbol),
-        }
     }
 
     fn parse_single_stmt(&mut self) -> ParseResult {

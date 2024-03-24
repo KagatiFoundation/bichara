@@ -34,10 +34,7 @@ pub mod code_gen;
 use std::cell::RefCell;
 use parser::*;
 use symbol::*;
-use ast::{
-    ASTOperation, 
-    AST
-};
+use ast::AST;
 use code_gen::{
     Aarch64CodeGen,
     CodeGen,
@@ -55,7 +52,7 @@ def main() -> char {
 
 fn main() {
     static mut LABEL_ID: usize = 0;
-    let mut tokener: Tokenizer = Tokenizer::new("global integer number; def main() -> void { number = 34; local integer b = 23; return; }");
+    let mut tokener: Tokenizer = Tokenizer::new("global integer number; def main() -> void { number = 34; local integer b = 23; return; } b = 23;");
     let mut symt: Symtable = Symtable::new();
     let mut funct: FunctionInfoTable = FunctionInfoTable::new();
     let mut pars: Parser = Parser::new(tokener.start_scan(), &mut symt, &mut funct, unsafe {
@@ -72,7 +69,5 @@ fn main() {
     let mut cg: Aarch64CodeGen = Aarch64CodeGen::new(rm, &mut symt, &mut funct, unsafe {
         &mut LABEL_ID
     });
-    for node in &nodes {
-        cg.gen_code_from_ast(node, 0xFFFFFFFF, ASTOperation::AST_NONE);
-    }
+    cg.start_gen(nodes);
 }

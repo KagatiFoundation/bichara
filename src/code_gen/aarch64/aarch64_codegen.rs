@@ -42,6 +42,7 @@ use crate::types::{
     LitType, 
     LitTypeVariant
 };
+use crate::SymbolType;
 
 lazy_static::lazy_static! {
     static ref CMP_CONDS_LIST: Vec<&'static str> = vec!["neq", "eq", "ge", "le", "lt", "gt"];
@@ -55,6 +56,26 @@ pub struct Aarch64CodeGen<'a> {
 }
 
 impl<'a> CodeGen for Aarch64CodeGen<'a> {
+    fn gen_global_symbol(&self) {
+        for symbol in self.sym_table.iter() {
+            // symbol information is not generated if any of the following conditions matches
+            let not_process_cond: Vec<bool> = vec![symbol.sym_type == SymbolType::Function, symbol.lit_type == LitTypeVariant::None, symbol.class == StorageClass::LOCAL];
+            if not_process_cond.iter().any(|item| *item) {
+                continue;
+            }
+            println!(".data\n.global {}", symbol.name);
+            if symbol.sym_type == SymbolType::Variable {
+                Aarch64CodeGen::dump_global_with_alignment(symbol);
+            } else if symbol.sym_type == SymbolType::Array {
+                let array_data_size: usize = symbol.lit_type.size();
+                println!("{}:", symbol.name);
+                for _ in 0..symbol.size {
+                    Aarch64CodeGen::alloc_data_space(array_data_size);
+                }
+            }
+        }
+    }
+    
     fn gen_if_stmt(&mut self, ast: &crate::ast::AST) -> usize {
         let label_if_false: usize = self.get_next_label(); // label id to jump to if condition turns out to be false
         let mut label_end: usize = 0xFFFFFFFF; // this label is put after the end of entire if-else block
@@ -120,11 +141,13 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
         };
         let func_name: String = self.sym_table.get_symbol(index).unwrap().name.clone();
         let func_info: FunctionInfo = self.func_info_table.get(&func_name).unwrap().clone();
+        // function preamble
         println!(".global _{}\n_{}:", func_name, func_name);
         println!("sub sp, sp, {}", func_info.stack_size);
         if let Some(ref body) = ast.left {
             self.gen_code_from_ast(body, 0xFFFFFFFF, ast.operation);
         }
+        // function postamble
         println!("add sp, sp, {}", func_info.stack_size);
         // in case the function has a void return type, we manually insert a 
         // "ret" instruction at the end of the function
@@ -320,6 +343,30 @@ impl<'a> Aarch64CodeGen<'a> {
             let sym_name: &str = &symbol.name;
             println!("adrp {}, {}@PAGE", reg_name, sym_name);
             println!("add {}, {}, {}@PAGEOFF", reg_name, reg_name, sym_name);
+        }
+    }
+
+    fn alloc_data_space(size: usize) {
+        match size {
+            1 => println!(".byte 0"),
+            4 => println!(".word 0"),
+            8 => println!(".quad 0"),
+            _ => panic!("Not possible to generate space for size: {}", size),
+        }
+    }
+
+    fn dump_global_with_alignment(symbol: &Symbol) {
+        match symbol.lit_type {
+            LitTypeVariant::F32Ptr
+            | LitTypeVariant::F64Ptr
+            | LitTypeVariant::I16Ptr
+            | LitTypeVariant::I32Ptr
+            | LitTypeVariant::I64Ptr
+            | LitTypeVariant::U8Ptr
+            | LitTypeVariant::VoidPtr => println!("{}: .align 8\n\t.quad 0", symbol.name),
+            LitTypeVariant::I32 => println!("{}: .align 4\n\t.word 0", symbol.name),
+            LitTypeVariant::U8 => println!("{}:\t.byte 0", symbol.name),
+            _ => panic!("Symbol's size is not supported right now: '{:?}'", symbol),
         }
     }
 }
