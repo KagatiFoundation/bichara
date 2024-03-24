@@ -1,4 +1,4 @@
-/* 
+/*
 MIT License
 
 Copyright (c) 2023 Kagati Foundation
@@ -22,19 +22,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#![allow(unused)]
-#![allow(non_camel_case_types)]
+use std::collections::HashMap;
+use std::str::FromStr;
 
-use core::num;
-use core::panic;
-use std::{collections::HashMap, str::FromStr, cmp};
+use super::token_kind::*;
+use super::token::*;
 
 extern crate lazy_static;
 use lazy_static::lazy_static;
-
-use crate::error::*;
-use crate::utils::*;
-use crate::enums::*;
 
 lazy_static! {
     static ref KEYWORDS: HashMap<&'static str, TokenKind> = {
@@ -81,36 +76,6 @@ lazy_static! {
     };
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct TokenPos {
-    pub line: usize,
-    pub column: usize,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Token {
-    pub kind: TokenKind,
-    pub lexeme: String,
-    pub pos: TokenPos,
-}
-
-impl Token {
-    #[inline]
-    pub fn new(kind: TokenKind, lexeme: String, pos: TokenPos) -> Token {
-        Token { kind, lexeme, pos }
-    }
-
-    // to mark something as erronous token
-    #[inline]
-    pub fn none() -> Token {
-        Token {
-            kind: TokenKind::T_NONE,
-            lexeme: String::from(""),
-            pos: TokenPos { line: 0, column: 0 }
-        }
-    }
-}
-
 #[derive(Debug, PartialEq, Eq)]
 enum ErrorType {
     UnterminatedString,
@@ -126,7 +91,6 @@ enum TokenizationResult {
 pub struct Tokenizer {
     line: usize,
     source: &'static [u8],
-    keywords: HashMap<String, TokenKind>,
     curr_char: char, // current char
     next_char_pos: usize, // position from the start
     col_counter: usize, // column counter
@@ -134,11 +98,9 @@ pub struct Tokenizer {
 
 impl Tokenizer {
     pub fn new(source: &'static str) -> Tokenizer {
-        let mut keywords: HashMap<String, TokenKind> = HashMap::new();
         Tokenizer {
             line: 1, 
             source: source.as_bytes(),
-            keywords,
             curr_char: ' ', // space 
             next_char_pos: 0,
             col_counter: 1
@@ -149,10 +111,9 @@ impl Tokenizer {
 impl Tokenizer {
     pub fn start_scan(&mut self) -> Vec<Token> {
         let mut tokens: Vec<Token> = Vec::new();
-        let source_len: usize = self.source.len();
         self.advance_to_next_char_pos();
         loop {
-            let mut result: TokenizationResult = self.get_token();
+            let result: TokenizationResult = self.get_token();
             match result {
                 TokenizationResult::Success(mut token) => {
                     if token.lexeme.is_empty() {
@@ -169,7 +130,7 @@ impl Tokenizer {
                 TokenizationResult::Error(err_type, pos) => {
                     match err_type {
                         ErrorType::UnterminatedString => {
-                            error(pos, "missing terminating '\"' character");
+                            crate::error::error(pos, "missing terminating '\"' character");
                         },
                         _ => {
                             panic!("{:?}", err_type);
@@ -258,14 +219,6 @@ impl Tokenizer {
                 self.advance_to_next_char_pos();
                 if self.curr_char == '=' {
                     token.kind = TokenKind::T_CARETEQ;
-                    self.advance_to_next_char_pos();
-                }
-            },
-            '&' => {
-                token.kind = TokenKind::T_AMPERSAND;
-                self.advance_to_next_char_pos();
-                if self.curr_char == '=' {
-                    token.kind = TokenKind::T_AMPERSANDEQ;
                     self.advance_to_next_char_pos();
                 }
             },

@@ -23,17 +23,7 @@ SOFTWARE.
 */
 
 #![allow(non_camel_case_types)]
-
 use std::str::FromStr;
-
-// The types of symbol names inside the symbol table
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
-pub enum SymbolType {
-    Variable,
-    Function,
-    Array,
-    Constant, // for now, this is used to represent only the string literals
-}
 
 // Token Type Of The Program
 #[derive(Copy, Clone, PartialEq, Hash, Eq, Debug)]
@@ -206,57 +196,6 @@ impl FromStr for TokenKind {
             "," => Ok(Self::T_COMMA),
             ";" => Ok(Self::T_SEMICOLON),
             _ => Ok(Self::T_NONE),
-        }
-    }
-}
-
-// AST Node Types
-#[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Clone, Copy)]
-pub enum ASTNodeKind {
-    AST_NONE,     // used as a placeholder
-    AST_ADD = 10, // an AST node with "+" as the root node
-    AST_SUBTRACT, // an AST node with "-" as the root node
-    AST_MULTIPLY, // an AST node with "*" as the root node
-    AST_DIVIDE,   // an AST node with "/" as the root node
-    // below this are relational operators
-    AST_EQEQ,  // equal equal
-    AST_NEQ,   // not equal
-    AST_LTEQ,  // less than or equal to
-    AST_GTEQ,  // greate than equal to
-    AST_GTHAN, // greater than
-    AST_LTHAN, // less than
-    // end of relational operators
-    AST_INTLIT, // a leaf AST node with literal integer value
-    AST_IDENT,  // a leaf AST node with an identifier name
-    AST_LVIDENT,
-    AST_ASSIGN,
-    AST_GLUE,
-    AST_IF,
-    AST_WHILE,
-    AST_FUNCTION,
-    AST_FUNC_CALL,
-    AST_RETURN,       // return statement AST node
-    AST_ADDR,         // for address-of operator
-    AST_DEREF,        // for dereferencing operator
-    AST_WIDEN,        // need to widen the tree
-    AST_ARRAY_ACCESS, // access array element
-    AST_STRLIT, // string literal node
-}
-
-impl ASTNodeKind {
-    pub fn from_token_kind(kind: TokenKind) -> ASTNodeKind {
-        match kind {
-            TokenKind::T_PLUS => Self::AST_ADD,
-            TokenKind::T_MINUS => Self::AST_SUBTRACT,
-            TokenKind::T_STAR => Self::AST_MULTIPLY,
-            TokenKind::T_SLASH => Self::AST_DIVIDE,
-            TokenKind::T_EQEQ => Self::AST_EQEQ,
-            TokenKind::T_NEQ => Self::AST_NEQ,
-            TokenKind::T_GTHAN => Self::AST_GTHAN,
-            TokenKind::T_LTHAN => Self::AST_LTHAN,
-            TokenKind::T_GTEQ => Self::AST_GTEQ,
-            TokenKind::T_LTEQ => Self::AST_LTEQ,
-            _ => unimplemented!("Not implemented for now!"),
         }
     }
 }

@@ -22,23 +22,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-pub mod enums;
 pub mod error;
 pub mod parser;
-pub mod register;
-pub mod symtable;
 pub mod tokenizer;
 pub mod types;
 pub mod utils;
-pub mod function;
 pub mod ast;
 pub mod symbol;
 pub mod code_gen;
 
 use std::cell::RefCell;
-use function::FunctionInfoTable;
-use parser::Parser;
-use symtable::Symtable;
+use parser::*;
+use symbol::*;
 use ast::{
     ASTOperation, 
     AST
@@ -48,6 +43,7 @@ use code_gen::{
     CodeGen,
     RegManager
 };
+use tokenizer::Tokenizer;
 
 /*
 global char n;
@@ -59,7 +55,7 @@ def main() -> char {
 
 fn main() {
     static mut LABEL_ID: usize = 0;
-    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("global integer number; def main() -> void { number = 34; local integer b = 23; return; }");
+    let mut tokener: Tokenizer = Tokenizer::new("global integer number; def main() -> void { number = 34; local integer b = 23; return; }");
     let mut symt: Symtable = Symtable::new();
     let mut funct: FunctionInfoTable = FunctionInfoTable::new();
     let mut pars: Parser = Parser::new(tokener.start_scan(), &mut symt, &mut funct, unsafe {

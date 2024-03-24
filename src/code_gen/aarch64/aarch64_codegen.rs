@@ -30,15 +30,13 @@ use crate::ast::{
     AST
 };
 use crate::code_gen::CodeGen;
-use crate::function::{
-    FunctionInfo, 
-    FunctionInfoTable
-};
 use crate::code_gen::register::RegManager;
-use crate::symtable::{
+use crate::symbol::{
     StorageClass, 
     Symbol, 
-    Symtable
+    Symtable,
+    FunctionInfo,
+    FunctionInfoTable
 };
 use crate::types::{
     LitType, 

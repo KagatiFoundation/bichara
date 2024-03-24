@@ -36,50 +36,16 @@ use crate::ast::ReturnStmt;
 use crate::ast::Stmt;
 use crate::ast::SubscriptExpr;
 use crate::ast::AST;
-use crate::enums::*;
 use crate::error;
-use crate::function::FunctionInfo;
-use crate::function::FunctionInfoTable;
-use crate::symtable;
-use crate::symtable::*;
+use crate::symbol::*;
 use crate::tokenizer::*;
 use crate::types;
 use crate::types::*;
+use crate::ParseError;
 
-#[derive(Eq, PartialEq, Debug, Clone)]
-enum ParseError {
-    UnexpectedToken(Token), // unexpected token was encountered
-    SymbolNotFound(Token),  // symbol not found; symbol has not been defined before
-    NotCallable(Token),     // if a token being called is not callable type
-    GlobalInsideFunction(Token),
-    UnsubscritableToken(Token),
-    None, // just a placeholder
-}
-
-impl std::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ParseError::NotCallable(token) => {
-                error::report_errornous_token_and_exit(token, &format!("'{}' is not callable", token.lexeme), 1);
-                Ok(())
-            }
-            ParseError::GlobalInsideFunction(token) => {
-                error::report_errornous_token_and_exit(token, "global variable declaration inside a function", 1);
-                Ok(())
-            }
-            ParseError::UnsubscritableToken(token) => {
-                error::report_errornous_token_and_exit(token, &format!("'{}' is not subscriptable", token.lexeme), 1);
-                Ok(())
-            }
-            ParseError::SymbolNotFound(token) => {
-                error::report_errornous_token_and_exit(token, &format!("Symbol is not defined: '{}'", token.lexeme), 1);
-                Ok(())
-            }
-            _ => write!(f, "other"),
-        }
-    }
-}
-
+/// A type alias representing the result of parsing, which can either 
+/// be an AST node on successful parsing or a ParseError indicating a 
+/// parsing failure.
 type ParseResult = Result<AST, ParseError>;
 
 // Actual parser
@@ -257,7 +223,7 @@ impl<'a> Parser<'a> {
             id_token.lexeme.clone(),
             func_return_type,
             SymbolType::Function,
-            crate::symtable::StorageClass::GLOBAL
+            StorageClass::GLOBAL
         ));
         if function_id.is_none() {
             panic!("Symbol already defined: '{:?}'", id_token.lexeme);
@@ -434,7 +400,7 @@ impl<'a> Parser<'a> {
         cond_ast
     }
 
-    fn parse_var_decl_stmt(&mut self, var_class: symtable::StorageClass) -> ParseResult {
+    fn parse_var_decl_stmt(&mut self, var_class: StorageClass) -> ParseResult {
         let inside_func: bool = self.current_function_id != 0xFFFFFFFF;
         match var_class {
             StorageClass::LOCAL => {

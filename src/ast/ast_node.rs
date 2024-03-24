@@ -24,7 +24,7 @@ SOFTWARE.
 
 #![allow(non_camel_case_types)]
 
-use crate::{enums::TokenKind, types::{LitType, LitTypeVariant}};
+use crate::{tokenizer::TokenKind, types::{LitType, LitTypeVariant}};
 
 use super::ASTKind;
 

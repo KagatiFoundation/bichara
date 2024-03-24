@@ -1,4 +1,4 @@
-/* 
+/*
 MIT License
 
 Copyright (c) 2023 Kagati Foundation
@@ -22,25 +22,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use crate::tokenizer::{Token, TokenPos};
+mod token;
+mod token_kind;
+mod tokenizer_impl;
 
-pub fn error(pos: TokenPos, msg: &str) {
-    panic!("Error: {}:{} {}", pos.line, pos.column, msg);
-}
-
-pub fn report_errornous_token(tok: &Token, msg: &str) {
-    println!("Error: {}:{} {}", tok.pos.line, tok.pos.column, msg);
-}
-
-pub fn report_errornous_token_and_exit(tok: &Token, msg: &str, code: i32) {
-    report_errornous_token(tok, msg);
-    std::process::exit(code);
-}
-
-pub fn warning(pos: TokenPos, msg: &str) {
-    panic!("warning: {}:{} {}", pos.line, pos.column, msg);
-}
-
-pub fn report_unexpected_token(token: &Token, hint: Option<&str>) {
-    panic!("Error: unexpected token '{}' at {}:{}. {}", token.lexeme, token.pos.line, token.pos.column, if let Some(h) = hint { h } else { "" });
-}
+pub use token::*;
+pub use token_kind::*;
+pub use tokenizer_impl::*;

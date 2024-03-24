@@ -25,7 +25,7 @@ SOFTWARE.
 use core::panic;
 use std::fmt::Display;
 
-use crate::{ast::{ASTKind, ASTOperation, Expr, WidenExpr, AST}, enums::TokenKind};
+use crate::{ast::{ASTKind, ASTOperation, Expr, WidenExpr, AST}, tokenizer::TokenKind};
 
 // Literal value types
 #[derive(Debug, Clone)]
