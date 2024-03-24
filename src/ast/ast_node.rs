@@ -24,11 +24,11 @@ SOFTWARE.
 
 #![allow(non_camel_case_types)]
 
-use crate::types::{LitType, LitTypeVariant};
+use crate::{enums::TokenKind, types::{LitType, LitTypeVariant}};
 
 use super::ASTKind;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, PartialOrd, Debug)]
 pub enum ASTOperation {
     AST_NONE,     // used as a placeholder
     AST_ADD = 10, // an AST node with "+" as the root node
@@ -58,6 +58,24 @@ pub enum ASTOperation {
     AST_WIDEN,        // need to widen the tree
     AST_ARRAY_ACCESS, // access array element
     AST_STRLIT, // string literal node
+}
+
+impl ASTOperation {
+    pub fn from_token_kind(kind: TokenKind) -> Self {
+        match kind {
+            TokenKind::T_PLUS => Self::AST_ADD,
+            TokenKind::T_MINUS => Self::AST_SUBTRACT,
+            TokenKind::T_STAR => Self::AST_MULTIPLY,
+            TokenKind::T_SLASH => Self::AST_DIVIDE,
+            TokenKind::T_EQEQ => Self::AST_EQEQ,
+            TokenKind::T_NEQ => Self::AST_NEQ,
+            TokenKind::T_GTHAN => Self::AST_GTHAN,
+            TokenKind::T_LTHAN => Self::AST_LTHAN,
+            TokenKind::T_GTEQ => Self::AST_GTEQ,
+            TokenKind::T_LTEQ => Self::AST_LTEQ,
+            _ => unimplemented!("Not implemented for now!"),
+        }
+    }
 }
 
 /// Represents a node in the Abstract Syntax Tree (AST).
@@ -96,12 +114,71 @@ pub enum ASTOperation {
 ///     result_type: LitTypeVariant::Int, // Result type is integer
 /// };
 /// ```
+#[derive(Clone, Debug)]
 pub struct AST {
     pub kind: ASTKind,
     pub operation: ASTOperation,
-    pub left: Box<Option<AST>>,
-    pub mid: Box<Option<AST>>,
-    pub right: Box<Option<AST>>,
+    pub left: Option<Box<AST>>,
+    pub mid: Option<Box<AST>>,
+    pub right: Option<Box<AST>>,
     pub value: Option<LitType>,
     pub result_type: LitTypeVariant
+}
+
+impl AST {
+    pub fn new(
+        kind: ASTKind, 
+        op: ASTOperation, 
+        left: Option<AST>, 
+        right: Option<AST>, 
+        value: Option<LitType>, 
+        result_type: LitTypeVariant
+    ) -> Self {
+        Self {
+            kind,
+            operation: op,
+            left: left.map(Box::new),
+            mid: None,
+            right: right.map(Box::new),
+            value,
+            result_type
+        }
+    }
+
+    pub fn create_leaf(
+        kind: ASTKind,
+        operation: ASTOperation, 
+        value: Option<LitType>, 
+        result_type: LitTypeVariant
+    ) -> Self {
+        Self {
+            kind,
+            operation,
+            left: None,
+            mid: None,
+            right: None,
+            value,
+            result_type
+        }
+    }
+    
+    pub fn with_mid(
+        kind: ASTKind, 
+        op: ASTOperation, 
+        left: Option<AST>, 
+        mid: Option<AST>, 
+        right: Option<AST>, 
+        value: Option<LitType>, 
+        result_type: LitTypeVariant
+    ) -> Self {
+        Self {
+            kind,
+            operation: op,
+            left: left.map(Box::new),
+            mid: mid.map(Box::new),
+            right: right.map(Box::new),
+            value,
+            result_type
+        }
+    }
 }

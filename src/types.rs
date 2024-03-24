@@ -25,7 +25,7 @@ SOFTWARE.
 use core::panic;
 use std::fmt::Display;
 
-use crate::{ast::ASTNode, enums::{ASTNodeKind, TokenKind}};
+use crate::{ast::{ASTKind, ASTOperation, Expr, WidenExpr, AST}, enums::TokenKind};
 
 // Literal value types
 #[derive(Debug, Clone)]
@@ -242,7 +242,7 @@ impl LitType {
 }
 
 /// Modify the given node's type into the 'to' type.
-pub fn modify_ast_node_type(node: &mut ASTNode, to: LitTypeVariant, op: ASTNodeKind) -> Option<ASTNode> {
+pub fn modify_ast_node_type(node: &mut AST, to: LitTypeVariant, op: ASTOperation) -> Option<AST> {
     let ltype: LitTypeVariant = node.result_type;
     let lsize: usize = node.result_type.size();
     let rsize: usize = to.size();
@@ -255,8 +255,12 @@ pub fn modify_ast_node_type(node: &mut ASTNode, to: LitTypeVariant, op: ASTNodeK
             return None;
         }
         if rsize > lsize {
-            return Some(ASTNode::new(
-                ASTNodeKind::AST_WIDEN,
+            return Some(AST::new(
+                ASTKind::ExprAST(Expr::Widen(WidenExpr{
+                    from: Box::new(node.clone()),
+                    result_type: to
+                })),
+                ASTOperation::AST_WIDEN,
                 Some(node.clone()),
                 None,
                 None,
@@ -264,7 +268,7 @@ pub fn modify_ast_node_type(node: &mut ASTNode, to: LitTypeVariant, op: ASTNodeK
             ));
         }
     }
-    if ltype.is_ptr_type() && ltype == to && (op == ASTNodeKind::AST_NONE) {
+    if ltype.is_ptr_type() && ltype == to && (op == ASTOperation::AST_NONE) {
         return Some(node.clone());
     }
     // if we reach here, then types are incompatible

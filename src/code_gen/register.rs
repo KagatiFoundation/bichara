@@ -24,6 +24,15 @@ SOFTWARE.
 
 use std::collections::HashMap;
 
+/// Manages the allocation and status of registers.
+/// 
+/// This struct maintains a mapping between register names and their statuses,
+/// where a status of '1' indicates that the register is free for allocation,
+/// and a status of '0' indicates that the register is not available.
+/// 
+/// # Fields
+/// 
+/// * `registers` - A HashMap that maps register names (String) to their statuses (u8).
 pub struct RegManager {
     registers: HashMap<String, u8>
 }
@@ -56,7 +65,7 @@ impl RegManager {
         let mut dealloc_name: String = String::from("");
         for (dindex, (reg_name, _)) in self.registers.iter().enumerate() {
             if dindex == index {
-                dealloc_name = reg_name.clone();
+                dealloc_name.push_str(reg_name);
                 break;
             }
         }
@@ -64,8 +73,8 @@ impl RegManager {
     }
 
     pub fn deallocate_all(&mut self) {
-        for (_, value) in self.registers.iter_mut() {
-            *value = 1;
+        for (_, reg_status) in self.registers.iter_mut() {
+            *reg_status = 1;
         }
     }
 
@@ -78,5 +87,25 @@ impl RegManager {
             }
         }
         dealloc_name 
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use super::RegManager;
+
+    #[test]
+    fn test_allocation_of_one_register() {
+        let rm: RefCell<RegManager> = RefCell::new(RegManager::new({
+            let mut regs: Vec<String> = vec![];
+            for i in 0..8 {
+                regs.push(format!("x{}", i));
+                regs.push(format!("w{}", i));
+            }
+            regs
+        }));
+        let reg: usize = rm.borrow_mut().allocate();
+        assert!(reg != 0xFFFFFFFF);
     }
 }

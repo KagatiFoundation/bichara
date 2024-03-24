@@ -22,9 +22,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use std::{cell::RefCell, rc::Rc};
-
-pub mod ast;
 pub mod enums;
 pub mod error;
 pub mod parser;
@@ -34,9 +31,23 @@ pub mod tokenizer;
 pub mod types;
 pub mod utils;
 pub mod function;
-pub mod ast2;
+pub mod ast;
 pub mod symbol;
 pub mod code_gen;
+
+use std::cell::RefCell;
+use function::FunctionInfoTable;
+use parser::Parser;
+use symtable::Symtable;
+use ast::{
+    ASTOperation, 
+    AST
+};
+use code_gen::{
+    Aarch64CodeGen,
+    CodeGen,
+    RegManager
+};
 
 /*
 global char n;
@@ -48,14 +59,24 @@ def main() -> char {
 
 fn main() {
     static mut LABEL_ID: usize = 0;
-    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("global integer a = 23;");
-    let reg_manager: Rc<RefCell<register::RegisterManager>> =
-        Rc::new(RefCell::new(register::RegisterManager::new()));
-    let sym_table: Rc<RefCell<symtable::Symtable>> =
-        Rc::new(RefCell::new(symtable::Symtable::new()));
-    let func_table: Rc<RefCell<function::FunctionInfoTable>> = Rc::new(RefCell::new(function::FunctionInfoTable::new()));
-    let mut p: parser::Parser = parser::Parser::new(tokener.start_scan(), Rc::clone(&sym_table), Rc::clone(&func_table), unsafe { &mut LABEL_ID });
-    let mut traverser: ast::ASTTraverser =
-        ast::ASTTraverser::new(Rc::clone(&reg_manager), Rc::clone(&sym_table), Rc::clone(&func_table), unsafe { &mut LABEL_ID });
-    p.start(&mut traverser);
+    let mut tokener: tokenizer::Tokenizer = tokenizer::Tokenizer::new("global integer number; def main() -> void { number = 34; local integer b = 23; return; }");
+    let mut symt: Symtable = Symtable::new();
+    let mut funct: FunctionInfoTable = FunctionInfoTable::new();
+    let mut pars: Parser = Parser::new(tokener.start_scan(), &mut symt, &mut funct, unsafe {
+        &mut LABEL_ID
+    });
+    let nodes: Vec<AST> = pars.parse();
+    let rm: RefCell<RegManager> = RefCell::new(RegManager::new({
+        let mut regs: Vec<String> = vec![];
+        for i in 0..8 {
+            regs.push(format!("x{}", i));
+        }
+        regs
+    }));
+    let mut cg: Aarch64CodeGen = Aarch64CodeGen::new(rm, &mut symt, &mut funct, unsafe {
+        &mut LABEL_ID
+    });
+    for node in &nodes {
+        cg.gen_code_from_ast(node, 0xFFFFFFFF, ASTOperation::AST_NONE);
+    }
 }
