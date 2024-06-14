@@ -125,6 +125,17 @@ pub struct AST {
 }
 
 impl AST {
+    pub fn empty() -> Self {
+        Self {
+            kind: ASTKind::Empty,
+            operation: ASTOperation::AST_NONE,
+            left: None,
+            right: None,
+            mid: None,
+            result_type: LitTypeVariant::None
+        }
+    }
+
     pub fn new(
         kind: ASTKind, 
         op: ASTOperation, 

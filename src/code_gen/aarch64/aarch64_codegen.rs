@@ -57,7 +57,7 @@ pub struct Aarch64CodeGen<'a> {
 }
 
 impl<'a> CodeGen for Aarch64CodeGen<'a> {
-    fn gen_global_symbol(&self) {
+    fn gen_global_symbols(&self) {
         for symbol in self.sym_table.iter() {
             // symbol information is not generated if any of the following conditions matches
             let not_process_cond: Vec<bool> = vec![symbol.sym_type == SymbolType::Function, symbol.lit_type == LitTypeVariant::None, symbol.class == StorageClass::LOCAL];
@@ -77,15 +77,12 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
         }
     }
     
-    fn gen_if_stmt(&mut self, ast: &crate::ast::AST) -> usize {
+    fn gen_if_stmt(&mut self, ast: &AST) -> usize {
         let label_if_false: usize = self.get_next_label(); // label id to jump to if condition turns out to be false
-        let mut label_end: usize = 0xFFFFFFFF; // this label is put after the end of entire if-else block
-        if ast.right.is_some() {
-            label_end = self.get_next_label();
-        }
-        self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_if_false, ast.operation);
+        let label_end: usize = self.get_next_label(); // this label is put after the end of entire if-else block
+        let cond_result_reg: usize = self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_if_false, ast.operation);
         self.reg_manager.borrow_mut().deallocate_all();
-        self.gen_code_from_ast(ast.mid.as_ref().unwrap(), 0xFFFFFFFF, ast.operation);
+        self.gen_code_from_ast(ast.mid.as_ref().unwrap(), cond_result_reg, ast.operation);
         self.reg_manager.borrow_mut().deallocate_all();
         // if there is an 'else' block
         if ast.right.is_some() {
@@ -99,14 +96,6 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
             self.gen_label(label_end);
         }
         0xFFFFFFFF
-    }
-    
-    fn gen_jump(&self, label_id: usize) {
-        println!("b _L{}", label_id);
-    }
-
-    fn gen_label(&mut self, label: usize) {
-        println!("_L{}:", label);
     }
     
     fn gen_cmp_and_set(&self, operation: ASTOperation, r1: usize, r2: usize) -> usize {
@@ -150,12 +139,7 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
             self.gen_code_from_ast(body, 0xFFFFFFFF, ast.operation);
         }
         // function postamble
-        println!("add sp, sp, {}", func_info.stack_size);
-        // in case the function has a void return type, we manually insert a 
-        // "ret" instruction at the end of the function
-        if func_info.return_type == LitTypeVariant::Void {
-            println!("ret");
-        }
+        println!("add sp, sp, {}\nret", func_info.stack_size);
         0xFFFFFFFF
     }
 
@@ -209,15 +193,16 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
 
     // Load a integer literal into a register
     fn gen_load_intlit_into_reg(&mut self, value: &LitType) -> usize {
-        let r: usize = self.reg_manager.borrow_mut().allocate();
-        let reg_name: String = self.reg_manager.borrow().name(r);
+        let reg: usize = self.reg_manager.borrow_mut().allocate();
+        let reg_name: String = self.reg_manager.borrow().name(reg);
         let int_value: i64 = match value {
+            LitType::I64(int_val) => *int_val,
             LitType::I32(int_val) => *int_val as i64,
             LitType::U8(u8_val) => *u8_val as i64,
             _ => panic!("Not a recognized type of integer: {:?}", value),
         };
         println!("mov {}, {}", reg_name, int_value);
-        r
+        reg
     }
 
     // Generally speaking, loading one variable's address into another variable
@@ -273,7 +258,7 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
         // let func_ret_type: LitTypeVariant = self.sym_table.get_symbol(func_id).lit_type;
         if result_reg != 0xFFFFFFFF {
             println!(
-                "mov x0, {}\nret",
+                "mov x0, {}",
                 self.reg_manager.borrow().name(result_reg)
             );
         }
@@ -282,12 +267,12 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
 
     fn gen_array_access(&mut self, id: usize, expr: &AST) -> usize {
         let expr_res_reg: usize = self.gen_code_from_ast(expr, 0xFFFFFFFF, ASTOperation::AST_ARRAY_ACCESS);
-        let mut reg_mgr = self.reg_manager.borrow_mut();
+        let mut reg_mgr: RefMut<RegManager> = self.reg_manager.borrow_mut();
         let expr_res_reg_name: String = reg_mgr.name(expr_res_reg);
         let symbol: &Symbol = self.sym_table.get_symbol(id).unwrap();
         let offset_shift: usize = match symbol.lit_type {
             LitTypeVariant::I32 | // as of now, this compiler does not know how to index 32-bit int array
-            LitTypeVariant::I64 => 3, // so I am using offset of 8 to calculate array indexes even though
+            LitTypeVariant::I64 => 3, // so I am using offset of 8 bytes to calculate array indexes even though
                                         // items are 32-bit
             _ => 0,
         };
@@ -302,6 +287,36 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
             off_addr_reg_name, addr_reg_name, expr_res_reg_name, offset_shift
         );
         off_addr_reg
+    }
+    
+    fn gen_array_access2(&mut self, symbol_id: usize, index: usize) -> usize {
+        let mut reg_mgr: RefMut<RegManager> = self.reg_manager.borrow_mut();
+        let expr_res_reg_name: String = reg_mgr.name(index);
+        let symbol: &Symbol = self.sym_table.get_symbol(symbol_id).unwrap();
+        let offset_shift: usize = match symbol.lit_type {
+            LitTypeVariant::I32 => 2,
+            LitTypeVariant::I64 => 3,
+            _ => 0,
+        };
+        // this will contain the address + offset of an array
+        let addr_reg: usize = reg_mgr.allocate();
+        let addr_reg_name: String = reg_mgr.name(addr_reg);
+        self.dump_gid_address_load_code_from_name(&addr_reg_name, symbol_id);
+        let off_addr_reg: usize = reg_mgr.allocate();
+        let off_addr_reg_name: String = reg_mgr.name(off_addr_reg);
+        println!(
+            "ldr {}, [{}, {}, lsl {}]",
+            off_addr_reg_name, addr_reg_name, expr_res_reg_name, offset_shift
+        );
+        off_addr_reg
+    }
+    
+    fn gen_jump(&self, label_id: usize) {
+        println!("b _L{}", label_id);
+    }
+
+    fn gen_label(&mut self, label: usize) {
+        println!("_L{}:", label);
     }
     
     fn reg_manager(&self) -> RefMut<RegManager> {

@@ -28,6 +28,7 @@ use super::{Expr, Stmt};
 pub enum ASTKind {
     StmtAST(Stmt),
     ExprAST(Expr),
+    Empty
 }
 
 impl ASTKind {

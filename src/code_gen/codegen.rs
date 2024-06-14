@@ -24,11 +24,14 @@ SOFTWARE.
 
 use std::cell::RefMut;
 
+use crate::ast::BinExpr;
 use crate::ast::Expr;
+use crate::ast::LitValExpr;
 use crate::ast::Stmt;
 use crate::ast::AST;
 use crate::ast::ASTOperation;
 use crate::types::LitType;
+use crate::types::LitTypeVariant;
 
 use super::register::RegManager;
 
@@ -52,7 +55,7 @@ pub trait CodeGen {
     /// generator.start_gen(&ast);
     /// ```
     fn start_gen(&mut self, nodes: Vec<AST>) where Self: Sized {
-        self.gen_global_symbol();
+        self.gen_global_symbols();
         // .text section starts from here
         println!("\n.text");
         for node in &nodes {
@@ -74,7 +77,7 @@ pub trait CodeGen {
     /// printed with proper alignment using `dump_global_with_alignment`. If the 
     /// symbol is an array, the appropriate data space is allocated for each element 
     /// based on its size and data type.
-    fn gen_global_symbol(&self);
+    fn gen_global_symbols(&self);
 
     /// Generates code for a given AST node and returns a register index 
     /// for further processing.
@@ -100,11 +103,11 @@ pub trait CodeGen {
         parent_ast_kind: ASTOperation) 
     -> usize where Self: Sized {
         if ast_node.operation == ASTOperation::AST_IF {
-            return self.gen_if_stmt(ast_node);
+            self.gen_if_stmt(ast_node)
         } else if ast_node.operation == ASTOperation::AST_WHILE {
-            return self.gen_while_stmt(ast_node);
+            self.gen_while_stmt(ast_node)
         } else if ast_node.operation == ASTOperation::AST_FUNCTION {
-            return self.gen_function_stmt(ast_node);
+            self.gen_function_stmt(ast_node)
         } else if ast_node.operation == ASTOperation::AST_GLUE {
             if let Some(left) = ast_node.left.as_ref() {
                 self.gen_code_from_ast(left, 0xFFFFFFFF, ast_node.operation);
@@ -115,48 +118,101 @@ pub trait CodeGen {
                 self.reg_manager().deallocate_all();
             }
             return 0xFFFFFFFF;
+        } else if ast_node.operation == ASTOperation::AST_ASSIGN {
+            let possible_lv_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
+            return match possible_lv_stmt {
+                Stmt::Assignment(asst) => {
+                    #[allow(unused_assignments)] // turn of this annoying warning
+                    let mut expr_res_reg: usize = 0;
+                    let assign_right_kind: crate::ast::ASTKind = ast_node.right.as_ref().unwrap().kind.clone();
+                    match assign_right_kind {
+                        crate::ast::ASTKind::StmtAST(_) => todo!(),
+                        crate::ast::ASTKind::ExprAST(expr) => {
+                            expr_res_reg = self.gen_expr(&expr, ast_node.operation, reg, parent_ast_kind);
+                        },
+                        _ => ()
+                    }
+                    return self.gen_load_reg_into_id(expr_res_reg, asst.symtbl_pos);
+                }
+                _ => 0xFFFFFFFF // invalid AST kind with AST_LVIDENT operation
+            };
+        } else if ast_node.operation == ASTOperation::AST_RETURN {
+            let possible_ret_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
+            let return_expr: &AST = ast_node.left.as_ref().unwrap();
+            let result_reg: usize = self.gen_expr(&return_expr.kind.clone().unwrap_expr(), ast_node.operation, reg, parent_ast_kind);
+            return match possible_ret_stmt {
+                Stmt::Return(ret) => self.gen_return_stmt(result_reg, ret.func_id),
+                _ => 0xFFFFFFFF
+            };
         }
-        let mut leftreg: usize = 0xFFFFFFFF;
-        let mut rightreg: usize = 0xFFFFFFFF;
-        if let Some(ref left) = ast_node.left {
-            leftreg = self.gen_code_from_ast(left, 0xFFFFFFFF, ast_node.operation);
+        else if ast_node.operation == ASTOperation::AST_NONE {
+            return 0xFFFFFFFF
+        }  else {
+            let expr_ast: Expr = ast_node.kind.clone().unwrap_expr();
+            let reg_used_for_expr: usize = self.gen_expr(&expr_ast, ast_node.operation, reg, parent_ast_kind);
+            return reg_used_for_expr;
         }
-        if let Some(ref right) = ast_node.right {
-            rightreg = self.gen_code_from_ast(right, leftreg, ast_node.operation);
+    }
+
+    fn gen_expr(
+        &mut self, 
+        expr: &Expr, 
+        curr_ast_kind: ASTOperation, 
+        reg: usize, 
+        parent_ast_kind: ASTOperation
+    ) -> usize {
+        match expr {
+            Expr::Binary(bin) => self.gen_bin_expr(bin, curr_ast_kind, reg, parent_ast_kind),
+            Expr::LitVal(lit) => self.gen_lit_expr(lit),
+            Expr::Addr(add) => self.gen_id_address_into_another_id(add.symtbl_pos),
+            Expr::Deref(der) => self.gen_deref_pointer_id(der.symtbl_pos),
+            Expr::Ident(ident) => self.gen_load_id_into_reg(ident.symtbl_pos),
+            Expr::Widen(widen) => {
+                match widen.from.kind.clone() {
+                    crate::ast::ASTKind::StmtAST(_) => todo!(),
+                    crate::ast::ASTKind::ExprAST(wexpr) => {
+                        self.gen_expr(&wexpr, curr_ast_kind, reg, parent_ast_kind)
+                    },
+                    crate::ast::ASTKind::Empty => 0xFFFFFFFF
+                }
+            },
+            Expr::Subscript(subs) => {
+                let index_reg: usize = self.gen_expr(&subs.index, curr_ast_kind, reg, parent_ast_kind);
+                self.gen_array_access2(subs.symtbl_pos, index_reg)
+            },
+            _ => panic!("Error: Unknown Expr type '{:?}'", expr),
         }
-        match ast_node.operation {
+    }
+
+    /// Generates code for the given literal value expression.
+    ///
+    /// This method generates code to load the literal value into a register based on its type.
+    ///
+    /// # Arguments
+    ///
+    /// * `lit_expr` - The literal value expression for which to generate code.
+    ///
+    /// # Returns
+    ///
+    /// The register index if code generation is successful, otherwise 0xFFFFFFFF.
+    ///
+    fn gen_lit_expr(&mut self, lit_expr: &LitValExpr) -> usize {
+        match lit_expr.result_type {
+            LitTypeVariant::U8 |
+            LitTypeVariant::I16 |
+            LitTypeVariant::I64 |
+            LitTypeVariant::I32 => self.gen_load_intlit_into_reg(&lit_expr.value),
+            LitTypeVariant::U8Ptr => self.gen_load_global_strlit(&lit_expr.value),
+            _ => 0xFFFFFFFF
+        }
+    }
+
+    fn gen_bin_expr(&mut self, bin_expr: &BinExpr, curr_ast_kind: ASTOperation, reg: usize, parent_ast_kind: ASTOperation) -> usize {
+        let leftreg: usize = self.gen_expr(&bin_expr.left, curr_ast_kind, reg, parent_ast_kind);
+        let rightreg: usize = self.gen_expr(&bin_expr.right, curr_ast_kind, reg, parent_ast_kind);
+        match bin_expr.operation {
             ASTOperation::AST_ADD => self.gen_add(leftreg, rightreg),
             ASTOperation::AST_SUBTRACT => self.gen_sub(leftreg, rightreg),
-            ASTOperation::AST_INTLIT => {
-                let possible_litval_expr: Expr = ast_node.kind.clone().unwrap_expr();
-                match possible_litval_expr {
-                    Expr::LitVal(litval) => self.gen_load_intlit_into_reg(&litval.value),
-                    // invalid AST kind with AST_INTLIT operation
-                    _ => 0xFFFFFFFF
-                }
-            }
-            // Generates code to load the value of an identifier into a register.
-            // If the AST node represents an identifier expression, this function 
-            // extracts the symbol table position from the expression and generates 
-            // code to load the corresponding value into a register.
-            ASTOperation::AST_IDENT => {
-                let ident_expr: Expr = ast_node.kind.clone().unwrap_expr();
-                match ident_expr {
-                    Expr::Ident(ident) => self.gen_load_id_into_reg(ident.symtbl_pos),
-                    // invalid AST kind with AST_IDENT operation
-                    _ => 0xFFFFFFFF
-                }
-            },
-            ASTOperation::AST_LVIDENT => {
-                let possible_lv_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
-                match possible_lv_stmt {
-                    Stmt::LValue(sym_pos) => self.gen_load_reg_into_id(reg, sym_pos),
-                    // invalid AST kind with AST_LVIDENT operation
-                    _ => 0xFFFFFFFF
-                }
-            },
-            ASTOperation::AST_WIDEN => leftreg,
-            ASTOperation::AST_ASSIGN => rightreg,
             ASTOperation::AST_GTHAN
             | ASTOperation::AST_LTHAN
             | ASTOperation::AST_LTEQ
@@ -164,39 +220,14 @@ pub trait CodeGen {
             | ASTOperation::AST_NEQ
             | ASTOperation::AST_EQEQ => {
                 if (parent_ast_kind == ASTOperation::AST_IF)
-                    || (parent_ast_kind == ASTOperation::AST_WHILE)
+                || (parent_ast_kind == ASTOperation::AST_WHILE)
                 {
-                    self.gen_cmp_and_jmp(ast_node.operation, leftreg, rightreg, reg)
+                    self.gen_cmp_and_jmp(bin_expr.operation, leftreg, rightreg, reg)
                 } else {
-                    self.gen_cmp_and_set(ast_node.operation, leftreg, rightreg)
-                }
-            }
-            ASTOperation::AST_RETURN => self.gen_return_stmt(leftreg, reg),
-            ASTOperation::AST_ADDR => {
-                let possible_addr_expr: Expr = ast_node.kind.clone().unwrap_expr();
-                match possible_addr_expr {
-                    Expr::Addr(ident) => self.gen_id_address_into_another_id(ident.symtbl_pos),
-                    _ => 0xFFFFFFFF
-                }
-            }
-            ASTOperation::AST_DEREF => {
-                let possible_deref_expr: Expr = ast_node.kind.clone().unwrap_expr();
-                match possible_deref_expr {
-                    Expr::Deref(ident) => self.gen_deref_pointer_id(ident.symtbl_pos),
-                    _ => 0xFFFFFFFF
-                }
+                    self.gen_cmp_and_set(bin_expr.operation, leftreg, rightreg)
+                } 
             },
-            ASTOperation::AST_FUNC_CALL => {
-                0xFFFFFFFF
-            }
-            ASTOperation::AST_STRLIT => {
-                let possible_strlit_expr: Expr = ast_node.kind.clone().unwrap_expr();
-                match possible_strlit_expr {
-                    Expr::LitVal(litval) => self.gen_load_global_strlit(&litval.value),
-                    _ => 0xFFFFFFFF
-                }
-            }
-            _ => panic!("Error: Unknown AST operator '{:?}'", ast_node.operation),
+            _ => 0xFFFFFFFF
         }
     }
 
@@ -243,7 +274,7 @@ pub trait CodeGen {
     /// The register index where the value of the symbol is loaded.
     fn gen_load_id_into_reg(&mut self, id: usize) -> usize;
 
-    fn gen_load_reg_into_id(&mut self, reg: usize, id: usize) -> usize;
+    fn gen_load_reg_into_id(&mut self, reg: usize, symbol_id: usize) -> usize;
 
     fn gen_add(&mut self, r1: usize, r2: usize) -> usize;
 
@@ -251,13 +282,15 @@ pub trait CodeGen {
 
     fn gen_load_intlit_into_reg(&mut self, value: &LitType) -> usize;
 
-    fn gen_id_address_into_another_id(&mut self, id: usize) -> usize;
+    fn gen_id_address_into_another_id(&mut self, symbol_id: usize) -> usize;
 
-    fn gen_deref_pointer_id(&mut self, id: usize) -> usize;
+    fn gen_deref_pointer_id(&mut self, symbol_id: usize) -> usize;
 
-    fn gen_load_global_strlit(&mut self, id: &LitType) -> usize;
+    fn gen_load_global_strlit(&mut self, symbol_id: &LitType) -> usize;
 
-    fn gen_array_access(&mut self, id: usize, expr: &AST) -> usize;
+    fn gen_array_access(&mut self, symbol_id: usize, expr: &AST) -> usize;
+    
+    fn gen_array_access2(&mut self, symbol_id: usize, index: usize) -> usize;
 
     fn gen_return_stmt(&mut self, result_reg: usize, _func_id: usize) -> usize;
 

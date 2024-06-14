@@ -14,6 +14,11 @@ pub struct VarDeclStmt {
 }
 
 #[derive(Clone, Debug)]
+pub struct AssignStmt {
+    pub symtbl_pos: usize
+}
+
+#[derive(Clone, Debug)]
 pub enum Stmt {
     Glue,
     If,
@@ -21,7 +26,7 @@ pub enum Stmt {
     While,
     FuncDecl(FuncDeclStmt),
     Return(ReturnStmt),
-    Assignment,
+    Assignment(AssignStmt),
     VarDecl(VarDeclStmt),
     LValue(usize), // usize for symbol table position of this left value
 }

@@ -25,6 +25,7 @@ SOFTWARE.
 use core::panic;
 use crate::ast::ASTKind;
 use crate::ast::ASTOperation;
+use crate::ast::AssignStmt;
 use crate::ast::BinExpr;
 use crate::ast::Expr;
 use crate::ast::FuncCallExpr;
@@ -129,23 +130,27 @@ impl<'a> Parser<'a> {
         _ = self.token_match(TokenKind::T_LBRACE);
         let mut left: Option<AST> = None;
         loop {
-            let tree: ParseResult = self.parse_single_stmt();
-            if tree.is_ok() {
+            if self.current_token.kind == TokenKind::T_RBRACE {
+                _ = self.token_match(TokenKind::T_RBRACE); // match and ignore '}'
+                break;
+            }
+            let tree_result: ParseResult = self.parse_single_stmt();
+            if let Err(parse_error) = tree_result {
+                if parse_error != ParseError::None {
+                    return Err(parse_error);
+                }
+            } else if let Ok(parse_res) = tree_result {
                 if left.is_none() {
-                    left = tree.ok();
+                    left = Some(parse_res);
                 } else {
                     left = Some(AST::new(
                         ASTKind::StmtAST(Stmt::Glue),
                         ASTOperation::AST_GLUE,
                         left.clone(),
-                        tree.ok(),
+                        Some(parse_res),
                         LitTypeVariant::None,
                     ));
                 }
-            }
-            if self.current_token.kind == TokenKind::T_RBRACE {
-                _ = self.token_match(TokenKind::T_RBRACE); // match and ignore '}'
-                break;
             }
         }
         if let Some(node) = left {
@@ -170,30 +175,38 @@ impl<'a> Parser<'a> {
             );
         }
         self.skip_to_next_token(); // skip return type
+        // create a new function symbol with the storage class of global
         let function_id: Option<usize> = self.add_symbol_global(Symbol::new(
             id_token.lexeme.clone(),
             func_return_type,
             SymbolType::Function,
             StorageClass::GLOBAL
         ));
+        // in case the function symbol addition process fails
         if function_id.is_none() {
             panic!("Symbol already defined: '{:?}'", id_token.lexeme);
         }
         self.current_function_id = function_id.unwrap();
-        // function body
-        let function_body: ParseResult = self.parse_compound_stmt();
+        // create function body
+        let function_body: AST = self.parse_compound_stmt()?;
         let temp_func_id: usize = self.current_function_id;
-        self.current_function_id = 0xFFFFFFFF; // exiting out of function body
+        self.current_function_id = 0xFFFFFFFF; // function parsing done; exiting out of function body
         // function information collection
         let stack_offset: i32 = (self.local_offset + 15) & !15;
-        let func_info: FunctionInfo = FunctionInfo::new(id_token.lexeme.clone(), function_id.unwrap(), stack_offset, func_return_type);
+        let func_info: FunctionInfo = FunctionInfo::new(
+            id_token.lexeme.clone(), 
+            function_id.unwrap(), 
+            stack_offset, 
+            func_return_type
+        );
+        // create a new FunctionInfo
         self.func_info_table.add(func_info);
         // reset offset counter after parsing a function
         self.local_offset = 0; 
         Ok(AST::new(
             ASTKind::StmtAST(Stmt::FuncDecl(FuncDeclStmt{func_id: temp_func_id})),
             ASTOperation::AST_FUNCTION,
-            function_body.ok(),
+            Some(function_body),
             None,
             func_return_type,
         ))
@@ -208,7 +221,7 @@ impl<'a> Parser<'a> {
         if self.current_function_id == 0xFFFFFFFF {
             error::report_unexpected_token(
                 &self.current_token,
-                Some("'return' statement outside a function is not valid."),
+                Some("'return' statement outside a function body is not valid."),
             );
         } else {
             let sym: Option<Symbol> = Some(self.main_sym_table.get_symbol(self.current_function_id).unwrap().clone());
@@ -216,11 +229,12 @@ impl<'a> Parser<'a> {
                 panic!("Undefined function. ok");
             }
             func_symbol = sym;
+            // check if the function's return type is void
             void_ret_type = func_symbol.as_ref().unwrap().lit_type == LitTypeVariant::Void;
         }
         _ = self.token_match(TokenKind::KW_RETURN);
         if void_ret_type {
-            // if function has void as a return type, panic if any expression follows the keyword 'return'
+            // if function has void as the return type, panic if any expression follows the keyword 'return'
             if self.current_token.kind != TokenKind::T_SEMICOLON {
                 error::report_unexpected_token(
                     &self.current_token,
@@ -237,8 +251,8 @@ impl<'a> Parser<'a> {
                 LitTypeVariant::Void,
             ));
         }
-        let return_expr: ParseResult = self.parse_equality();
-        let return_expr_type: LitTypeVariant = return_expr.as_ref().unwrap().result_type;
+        let return_expr: AST = self.parse_equality()?;
+        let return_expr_type: LitTypeVariant = return_expr.result_type;
         if return_expr_type != func_symbol.as_ref().unwrap().lit_type {
             panic!("Return value's type does not match function's return type.");
         }
@@ -246,7 +260,7 @@ impl<'a> Parser<'a> {
         Ok(AST::new(
             ASTKind::StmtAST(Stmt::Return(ReturnStmt{func_id: self.current_function_id})),
             ASTOperation::AST_RETURN,
-            return_expr.ok(),
+            Some(return_expr),
             None,
             return_expr_type,
         ))
@@ -254,12 +268,12 @@ impl<'a> Parser<'a> {
 
     fn parse_while_stmt(&mut self) -> ParseResult {
         let cond_ast: ParseResult = self.parse_conditional_stmt(TokenKind::KW_WHILE);
-        let while_body: ParseResult = self.parse_single_stmt();
+        let while_body: AST = self.parse_single_stmt()?;
         Ok(AST::new(
             ASTKind::StmtAST(Stmt::While),
             ASTOperation::AST_WHILE,
             cond_ast.ok(),
-            while_body.ok(),
+            Some(while_body),
             LitTypeVariant::None,
         ))
     }
@@ -267,7 +281,7 @@ impl<'a> Parser<'a> {
     fn parse_for_stmt(&mut self) -> ParseResult {
         _ = self.token_match(TokenKind::KW_FOR); // match and ignore the keyword 'for'
         _ = self.token_match(TokenKind::T_LPAREN); // match and ignore '('
-        let pre_stmt: ParseResult = self.parse_single_stmt(); // initialization statement
+        let pre_stmt: AST = self.parse_single_stmt()?; // initialization statement
                                                               // _ = self.token_match(TokenKind::T_SEMICOLON);
         let cond_ast: ParseResult = self.parse_equality(); // conditional section of for loop
         if let Ok(_icast) = &cond_ast {
@@ -299,26 +313,26 @@ impl<'a> Parser<'a> {
         Ok(AST::new(
             ASTKind::StmtAST(Stmt::Glue),
             ASTOperation::AST_GLUE,
-            pre_stmt.ok(),
+            Some(pre_stmt),
             Some(tree),
             LitTypeVariant::None,
         ))
     }
 
     fn parse_if_stmt(&mut self) -> ParseResult {
-        let cond_ast: ParseResult = self.parse_conditional_stmt(TokenKind::KW_IF);
-        let if_true_ast: ParseResult = self.parse_single_stmt();
-        let mut if_false_ast: ParseResult = Err(ParseError::None);
+        let cond_ast: AST = self.parse_conditional_stmt(TokenKind::KW_IF)?;
+        let if_true_ast: AST = self.parse_single_stmt()?;
+        let mut if_false_ast: Option<AST> = None;
         if self.current_token.kind == TokenKind::KW_ELSE {
             self.skip_to_next_token(); // skip 'else'
-            if_false_ast = self.parse_single_stmt();
+            if_false_ast = Some(self.parse_single_stmt()?);
         }
         Ok(AST::with_mid(
             ASTKind::StmtAST(Stmt::If),
             ASTOperation::AST_IF,
-            cond_ast.ok(),
-            if_false_ast.ok(),
-            if_true_ast.ok(),
+            Some(cond_ast),
+            Some(if_true_ast),
+            if_false_ast,
             LitTypeVariant::None,
         ))
     }
@@ -377,7 +391,7 @@ impl<'a> Parser<'a> {
         if self.current_token.kind == TokenKind::T_LBRACKET {
             return self.parse_array_var_decl_stmt(sym);
         }
-        // checking whether variable is assigned at the time of it's declaration
+        // checking whether variable is assigned at the time of its declaration
         let mut assignment_parse_res: Option<ParseResult> = None;
         if self.current_token.kind == TokenKind::T_EQUAL { // if identifier name is followed by an equal sign
             _ = self.token_match(TokenKind::T_EQUAL); // match and ignore '=' sign
@@ -389,6 +403,7 @@ impl<'a> Parser<'a> {
         // test assignability
         let mut return_result: ParseResult = Err(ParseError::None); // this indicates variable is declared without assignment
         // ***** NOTE *****: I am assuming that the symbol is added without any problem!!!
+        // This has to fixed later.
         let symbol_add_pos: usize = if inside_func {
             self.add_symbol_local(sym.clone()).unwrap()
         } else {
@@ -408,10 +423,10 @@ impl<'a> Parser<'a> {
             );
             // calculate offset here
             return_result = Ok(AST::new(
-                ASTKind::StmtAST(Stmt::Assignment),
+                ASTKind::StmtAST(Stmt::Assignment(AssignStmt { symtbl_pos: symbol_add_pos })),
                 ASTOperation::AST_ASSIGN,
-                compat_node,
                 Some(lvalueid),
+                compat_node,
                 _result_type,
             ));
         }
@@ -481,16 +496,19 @@ impl<'a> Parser<'a> {
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
         let symbol_search_result: Option<(usize, StorageClass)> = self.find_symbol(&id_token.lexeme);
         if symbol_search_result.is_none() {
+            self.skip_past(TokenKind::T_SEMICOLON);
             return Err(ParseError::SymbolNotFound(id_token));
         }
         let id_index_symt: usize = symbol_search_result.unwrap().0;
         let symbol: Symbol = self.main_sym_table.get_symbol(id_index_symt).unwrap().clone();
         // we are in global scope but trying to assign to a local variable
         if self.is_scope_global() && symbol.class == StorageClass::LOCAL {
+            self.skip_past(TokenKind::T_SEMICOLON);
             return Err(ParseError::SymbolNotFound(id_token));
         }
         // Check if we are assigning to a type other than SymbolType::Variable. If yes, panic!
         if symbol.sym_type != SymbolType::Variable {
+            // self.skip_past(TokenKind::T_SEMICOLON);
             panic!("Assigning to type '{:?}' is not allowed!", symbol.sym_type);
         }
         _ = self.token_match(TokenKind::T_EQUAL);
@@ -505,10 +523,10 @@ impl<'a> Parser<'a> {
             symbol.lit_type,
         );
         Ok(AST::new(
-            ASTKind::StmtAST(Stmt::Assignment),
+            ASTKind::StmtAST(Stmt::Assignment(AssignStmt{symtbl_pos: id_index_symt})),
             ASTOperation::AST_ASSIGN,
-            compat_node,
             Some(lvalueid),
+            compat_node,
             _result_type,
         ))
     }
@@ -527,11 +545,6 @@ impl<'a> Parser<'a> {
 
     fn parse_equality(&mut self) -> ParseResult {
         let left: ParseResult = self.parse_comparision();
-        loop {
-            // repeatedly parse expression
-            let a: i32 = 23;
-            if a == 23 { break; }
-        }
         self.try_parsing_binary(left, vec![TokenKind::T_EQEQ, TokenKind::T_NEQ])
     }
 
@@ -563,29 +576,21 @@ impl<'a> Parser<'a> {
         left_side_tree: ParseResult, 
         tokens: Vec<TokenKind>
     ) -> ParseResult {
-        let left: AST = left_side_tree.clone()?;
+        let mut left: AST = left_side_tree.clone()?;
         let current_token_kind: TokenKind = self.current_token.kind;
         if !tokens.contains(&current_token_kind) {
             return left_side_tree;
         }
         self.skip_to_next_token(); // skip the operator
         let ast_op: ASTOperation = ASTOperation::from_token_kind(current_token_kind);
-        let right: AST = self.parse_mem_prefix()?;
+        let mut right: AST = self.parse_mem_prefix()?;
         let modif_left_node: Option<AST> = types::modify_ast_node_type(
-            &mut AST::create_leaf(
-                left.kind, 
-                ast_op, 
-                left.result_type
-            ), 
+            &mut left, 
             right.result_type,
             ast_op
         );
         let modif_right_node: Option<AST> = types::modify_ast_node_type(
-            &mut AST::create_leaf(
-                    right.kind, 
-                    ast_op, 
-                    right.result_type
-                ), 
+            &mut right, 
             left.result_type, 
             ast_op
         );
@@ -595,14 +600,20 @@ impl<'a> Parser<'a> {
                 left.result_type, right.result_type, ast_op
             );
         }
-        let result_type: LitTypeVariant = modif_left_node.as_ref().unwrap().result_type;
+        let result_type: LitTypeVariant = if modif_left_node.is_some() {
+            modif_left_node.as_ref().unwrap().result_type
+        } else {
+            left.result_type
+        };
+        let left_expr: Expr = modif_left_node.unwrap().kind.unwrap_expr();
+        let right_expr: Expr = modif_right_node.unwrap().kind.unwrap_expr();
         Ok(AST::create_leaf(
                 ASTKind::ExprAST(
                     Expr::Binary(
                         BinExpr { 
                             operation: ast_op, 
-                            left: Box::new(modif_left_node.unwrap().kind.unwrap_expr()), 
-                            right: Box::new(modif_right_node.unwrap().kind.unwrap_expr()), 
+                            left: Box::new(left_expr), 
+                            right: Box::new(right_expr), 
                             result_type
                         }
                     )
@@ -655,11 +666,23 @@ impl<'a> Parser<'a> {
             TokenKind::T_INT_NUM => Ok(Parser::create_expr_ast(LitType::I32(current_token.lexeme.parse::<i32>().unwrap()), ASTOperation::AST_INTLIT)),
             TokenKind::T_CHAR => Ok(Parser::create_expr_ast(LitType::U8(current_token.lexeme.parse::<u8>().unwrap()), ASTOperation::AST_INTLIT)),
             TokenKind::T_LONG_NUM => Ok(Parser::create_expr_ast(LitType::I64(current_token.lexeme.parse::<i64>().unwrap()), ASTOperation::AST_INTLIT)),
-            TokenKind::T_FLOAT_NUM | TokenKind::T_DOUBLE_NUM => Ok(Parser::create_expr_ast(LitType::F64(current_token.lexeme.parse::<f64>().unwrap()), ASTOperation::AST_INTLIT)),
+            TokenKind::T_FLOAT_NUM 
+            | TokenKind::T_DOUBLE_NUM => {
+                Ok(
+                    Parser::create_expr_ast(LitType::F64(current_token.lexeme.parse::<f64>().unwrap()), ASTOperation::AST_INTLIT)
+                )
+            },
             TokenKind::T_STRING => {
                 let str_label: usize = *self._label_id;
                 *self._label_id += 1;
-                let str_const_symbol: Symbol = Symbol::new(format!("_L{}---{}", str_label, current_token.lexeme.clone()), LitTypeVariant::U8Ptr, SymbolType::Constant, StorageClass::GLOBAL);
+                let str_const_symbol: Symbol = Symbol::new(
+                    format!("_L{}---{}", 
+                    str_label, 
+                    current_token.lexeme.clone()), 
+                    LitTypeVariant::U8Ptr, 
+                    SymbolType::Constant, 
+                    StorageClass::GLOBAL
+                );
                 self.add_symbol_global(str_const_symbol);
                 println!("_L{}: .ascii \"{}\"", str_label, current_token.lexeme);
                 Ok(AST::create_leaf(
@@ -841,6 +864,13 @@ impl<'a> Parser<'a> {
         }
         self.skip_to_next_token();
         &self.tokens[self.current - 1]
+    }
+
+    fn skip_past(&mut self, kind: TokenKind) {
+        while self.current_token.kind != kind {
+            self.skip_to_next_token();
+        }
+        self.skip_to_next_token();
     }
 
     fn skip_to_next_token(&mut self) {

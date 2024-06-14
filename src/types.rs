@@ -241,6 +241,42 @@ impl LitType {
     }
 }
 
+/// Represents possible errors that may occur during type conversion.
+pub enum TypeConversionError {
+    /// Indicates an error where a conversion from a larger size to a 
+    /// smaller size is attempted, which may not always be possible 
+    /// depending on the context.
+    BigSizeToSmallSize {
+        /// The source literal type variant from which the conversion was attempted.
+        from: LitTypeVariant, 
+        /// The target literal type variant to which the conversion was attempted.
+        to: LitTypeVariant
+    }
+}
+
+/// Alias for the result of a type conversion operation.
+type TypeConversionResult = Result<AST, TypeConversionError>;
+
+pub fn convert_ast(node: &AST, to: LitTypeVariant) -> TypeConversionResult {
+    let ltype: LitTypeVariant = node.result_type;
+    let lsize: usize = ltype.size();
+    let rsize: usize = to.size();
+    // if the AST's result type fits into 'to' type
+    if rsize > lsize {
+        return Ok(AST::create_leaf(
+            ASTKind::ExprAST(Expr::Widen(WidenExpr { 
+                from: Box::new(node.clone()), 
+                result_type: to
+            })),
+            ASTOperation::AST_WIDEN,
+            to
+        ));
+    }
+    Err(TypeConversionError::BigSizeToSmallSize{ 
+        from: ltype, to
+    })
+}
+
 /// Modify the given node's type into the 'to' type.
 pub fn modify_ast_node_type(node: &mut AST, to: LitTypeVariant, op: ASTOperation) -> Option<AST> {
     let ltype: LitTypeVariant = node.result_type;
@@ -250,19 +286,17 @@ pub fn modify_ast_node_type(node: &mut AST, to: LitTypeVariant, op: ASTOperation
         if ltype == to {
             return Some(node.clone());
         }
-        // tree's size is too big
         if lsize > rsize {
-            return None;
+            // the type we are trying to convert is too big for the target type
+            panic!("Can't convert type {:?} into {:?}. Size too large.", ltype, to);
         }
         if rsize > lsize {
-            return Some(AST::new(
+            return Some(AST::create_leaf(
                 ASTKind::ExprAST(Expr::Widen(WidenExpr{
                     from: Box::new(node.clone()),
                     result_type: to
                 })),
                 ASTOperation::AST_WIDEN,
-                Some(node.clone()),
-                None,
                 to,
             ));
         }
