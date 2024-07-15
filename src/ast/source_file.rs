@@ -22,15 +22,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use std::{fs::File, io::{Error, Read}, path::Path};
+use std::{cell::RefCell, fs::File, io::{Error, Read}, path::Path, rc::Rc};
 
-use crate::tokenizer::Token;
+use crate::tokenizer::{Token, Tokenizer};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ParsingFlag {
-    CollectTokens = 1 // whether to save parsed tokens
-}
-
+#[derive(Clone, Copy, PartialEq)]
 pub enum ParsingStageError {
     FileNotFound,
     TokenizationError,
@@ -39,23 +35,44 @@ pub enum ParsingStageError {
     None
 }
 
+#[derive(Clone, Copy, PartialEq)]
 pub enum ParsingStage {
-    Unprocessed, // nothing has been done till now
-    Loaded, // file is loaded into memory
-    Processed, // tokens has been generated
-    Error(ParsingStageError), // some kind of error has occured
+    /// Nothing has been done till now. Even the file hasn't 
+    /// been loaded into memory.
+    Unprocessed,
+
+    /// File has been loaded into memory.
+    Loaded,
+
+    /// Tokens has been generated for this file.
+    Tokenized,
+    
+    Parsed,
+
+    /// Some kind of error has occured during reading this file
+    /// or during token generation.
+    Error(ParsingStageError),
 }
 
+#[derive(Clone)]
 pub struct SourceFile {
+    /// Path of the source file.
     pub path: String,
-    pub parsing_options: u8,
-    pub tokens: Vec<Token>,
+
+    /// This contains the tokens after they have been 
+    /// generated
+    pub tokens: Option<Vec<Token>>,
+
+    /// Tracks different stages of this file. 
     pub stage: ParsingStage,
-    pub source: String
+
+    /// Contains the source file's content in string format after
+    /// the file has been read.
+    pub source: Rc<String>,
 }
 
 impl SourceFile {
-    pub fn new(path: String, parsing_opts: u8) -> Self {
+    pub fn new(path: String) -> Self {
         let file_path: &Path = Path::new(&path);
         let mut stage: ParsingStage = ParsingStage::Unprocessed;
         if !file_path.exists() {
@@ -67,10 +84,9 @@ impl SourceFile {
         }
         Self {
             path,
-            parsing_options: parsing_opts,
-            tokens: vec![],
+            tokens: None,
             stage,
-            source: String::from(""),
+            source: Rc::new("".to_string()),
         }
     }
 
@@ -78,24 +94,22 @@ impl SourceFile {
         let mut file_res: Result<File, std::io::Error> = File::open(Path::new(&self.path));
         let mut file_size: i32 = -1;
         if let Ok(ref mut file) = file_res {
-            let file_read_res: Result<usize, std::io::Error> = file.read_to_string(&mut self.source);
+            let mut input_holder: String = String::from("");
+            let file_read_res: Result<usize, std::io::Error> = file.read_to_string(&mut input_holder);
+            self.source = Rc::new(input_holder.clone());
             if let Ok(fs) = file_read_res {
+                self.stage = ParsingStage::Loaded;
                 file_size = fs as i32;
             } else {
                 self.stage = ParsingStage::Error(ParsingStageError::FileReadingError);
                 return Err(file_read_res.err().unwrap());
             }
         }
-        if self.is_collect_tokens() {
-            self.tokenize();
-        }
         Ok(file_size)
     }
 
-    pub fn is_collect_tokens(&self) -> bool {
-        (self.parsing_options & 0x1) == 0x1
-    }
-
-    fn tokenize(&mut self) {
+    pub fn tokenize(&mut self, tokener: Rc<RefCell<Tokenizer>>) {
+        let mut tokener_borrow = tokener.borrow_mut();
+        self.tokens = Some(tokener_borrow.tokenize(Rc::clone(&self.source)));
     }
 }

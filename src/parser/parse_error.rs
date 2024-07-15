@@ -31,7 +31,8 @@ pub enum ParseError {
     NotCallable(Token),     // if a token being called is not callable type
     GlobalInsideFunction(Token),
     UnsubscritableToken(Token),
-    None, // just a placeholder
+    /// Placeholder indicating a condition where no AST node is needed, e.g., variable declaration without assignment
+    None
 }
 
 impl std::fmt::Display for ParseError {

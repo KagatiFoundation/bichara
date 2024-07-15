@@ -118,13 +118,13 @@ pub trait CodeGen {
                 self.reg_manager().deallocate_all();
             }
             return 0xFFFFFFFF;
-        } else if ast_node.operation == ASTOperation::AST_ASSIGN {
-            let possible_lv_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
-            return match possible_lv_stmt {
-                Stmt::Assignment(asst) => {
+        } else if ast_node.operation == ASTOperation::AST_VAR_DECL {
+            let possible_var_decl_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
+            return match possible_var_decl_stmt {
+                Stmt::VarDecl(var_decl) => {
                     #[allow(unused_assignments)] // turn of this annoying warning
                     let mut expr_res_reg: usize = 0;
-                    let assign_right_kind: crate::ast::ASTKind = ast_node.right.as_ref().unwrap().kind.clone();
+                    let assign_right_kind: crate::ast::ASTKind = ast_node.left.as_ref().unwrap().kind.clone();
                     match assign_right_kind {
                         crate::ast::ASTKind::StmtAST(_) => todo!(),
                         crate::ast::ASTKind::ExprAST(expr) => {
@@ -132,11 +132,12 @@ pub trait CodeGen {
                         },
                         _ => ()
                     }
-                    return self.gen_load_reg_into_id(expr_res_reg, asst.symtbl_pos);
+                    return self.gen_load_reg_into_id(expr_res_reg, var_decl.symtbl_pos);
                 }
                 _ => 0xFFFFFFFF // invalid AST kind with AST_LVIDENT operation
             };
-        } else if ast_node.operation == ASTOperation::AST_RETURN {
+        } 
+        else if ast_node.operation == ASTOperation::AST_RETURN {
             let possible_ret_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
             let return_expr: &AST = ast_node.left.as_ref().unwrap();
             let result_reg: usize = self.gen_expr(&return_expr.kind.clone().unwrap_expr(), ast_node.operation, reg, parent_ast_kind);
@@ -147,7 +148,8 @@ pub trait CodeGen {
         }
         else if ast_node.operation == ASTOperation::AST_NONE {
             return 0xFFFFFFFF
-        }  else {
+        }  
+        else {
             let expr_ast: Expr = ast_node.kind.clone().unwrap_expr();
             let reg_used_for_expr: usize = self.gen_expr(&expr_ast, ast_node.operation, reg, parent_ast_kind);
             return reg_used_for_expr;

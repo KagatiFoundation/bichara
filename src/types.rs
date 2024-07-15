@@ -23,7 +23,9 @@ SOFTWARE.
 */
 
 use core::panic;
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
+
+use lazy_static::lazy_static;
 
 use crate::{ast::{ASTKind, ASTOperation, Expr, WidenExpr, AST}, tokenizer::TokenKind};
 
@@ -53,7 +55,7 @@ pub enum LitType {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum LitTypeVariant {
-    I32,
+    I32 = 1,
     I64,
     I16,
     U8,
@@ -275,6 +277,57 @@ pub fn convert_ast(node: &AST, to: LitTypeVariant) -> TypeConversionResult {
     Err(TypeConversionError::BigSizeToSmallSize{ 
         from: ltype, to
     })
+}
+
+
+lazy_static! {
+    static ref TYPE_PRECEDENCE: std::collections::HashMap<u8, u8> = {
+        let mut typ: std::collections::HashMap<u8, u8> = HashMap::new();
+        typ.insert(LitTypeVariant::I32 as u8, 1);
+        typ
+    };
+}
+
+pub fn infer_type_from_expr(expr: &Expr) -> LitTypeVariant {
+    match expr {
+        Expr::LitVal(lit) => lit.result_type,
+        Expr::Binary(bin) => {
+            let left_type: LitTypeVariant = infer_type_from_expr(&bin.left);
+            let right_type: LitTypeVariant = infer_type_from_expr(&bin.right);
+            if left_type == LitTypeVariant::U8Ptr || right_type == LitTypeVariant::U8Ptr {
+                if bin.operation == ASTOperation::AST_ADD {
+                    return LitTypeVariant::U8Ptr;
+                } else {
+                    panic!("Type mismatch: {:?} and {:?}", left_type, right_type);
+                }
+            }
+            if left_type != right_type {
+                let lprec: Option<&u8> = TYPE_PRECEDENCE.get(&(left_type as u8));
+                let rprec: Option<&u8> = TYPE_PRECEDENCE.get(&(right_type as u8));
+                let lp: u8 = if let Some(lp) = lprec {
+                    *lp
+                } else {
+                    panic!("Type precedence not defined");
+                };
+                let rp: u8 = if let Some(rp) = rprec {
+                    *rp
+                } else {
+                    panic!("Type precedence not defined");
+                };
+                if lp > rp {
+                    return left_type;
+                } else {
+                    return right_type;
+                }
+            }
+            left_type
+        },
+        Expr::Ident(ident) => ident.result_type,
+        _ => {
+            // I am gonna ignore these types for now (as they are not needed right now)
+            panic!("Cannot infer type of the expression.");
+        }
+    }
 }
 
 /// Modify the given node's type into the 'to' type.

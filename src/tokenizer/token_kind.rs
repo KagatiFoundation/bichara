@@ -111,8 +111,7 @@ pub enum TokenKind {
     KW_SWITCH,
     KW_EXTERN,
     KW_INLINE,
-    KW_GLOBAL,
-    KW_LOCAL,
+    KW_LET,
     KW_STR,
     KW_NULL,
     KW_DEF,   // for function declarations

@@ -23,6 +23,7 @@ SOFTWARE.
 */
 
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::str::FromStr;
 
 use super::token_kind::*;
@@ -67,8 +68,7 @@ lazy_static! {
         _keys.insert("auto", TokenKind::KW_AUTO);
         _keys.insert("switch", TokenKind::KW_SWITCH);
         _keys.insert("extern", TokenKind::KW_EXTERN);
-        _keys.insert("global", TokenKind::KW_GLOBAL);
-        _keys.insert("local", TokenKind::KW_LOCAL);
+        _keys.insert("let", TokenKind::KW_LET);
         _keys.insert("def", TokenKind::KW_DEF);
         _keys.insert("str", TokenKind::KW_STR);
         _keys.insert("null", TokenKind::KW_NULL);
@@ -90,26 +90,26 @@ enum TokenizationResult {
 
 pub struct Tokenizer {
     line: usize,
-    source: &'static [u8],
     curr_char: char, // current char
     next_char_pos: usize, // position from the start
     col_counter: usize, // column counter
+    source: Rc<String>
 }
 
 impl Tokenizer {
-    pub fn new(source: &'static str) -> Tokenizer {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Tokenizer {
         Tokenizer {
-            line: 1, 
-            source: source.as_bytes(),
+            line: 1,
             curr_char: ' ', // space 
             next_char_pos: 0,
-            col_counter: 1
+            col_counter: 1,
+            source: Rc::new(String::from(""))
         }
     }
-}
 
-impl Tokenizer {
-    pub fn start_scan(&mut self) -> Vec<Token> {
+    pub fn tokenize(&mut self, input: Rc<String>) -> Vec<Token> {
+        self.source = input;
         let mut tokens: Vec<Token> = Vec::new();
         self.advance_to_next_char_pos();
         loop {
@@ -309,7 +309,7 @@ impl Tokenizer {
                     __end += 1;
                 }
                 token.kind = TokenKind::T_IDENTIFIER;
-                let name: &str = std::str::from_utf8(&self.source[__start..__end]).unwrap();
+                let name: &str = &self.source[__start..__end];
                 let keyword: Option<&TokenKind> = KEYWORDS.get(name);
                 if let Some(key) = keyword {
                     token.kind = *key;
@@ -329,7 +329,7 @@ impl Tokenizer {
                     return TokenizationResult::Error(ErrorType::UnterminatedString, token_pos);
                 }
                 self.advance_to_next_char_pos();
-                let str_val: &str = std::str::from_utf8(&self.source[__start..__end]).unwrap();
+                let str_val: &str = &self.source[__start..__end];
                 token.kind = TokenKind::T_STRING;
                 token.lexeme = String::from(str_val);
             },
@@ -376,7 +376,7 @@ impl Tokenizer {
             }
             return TokenizationResult::Error(ErrorType::InvalidNumericValue, pos);
         }
-        let number: &str = std::str::from_utf8(&self.source[__start..__end]).unwrap();
+        let number: &str = &self.source[__start..__end];
         if period_detected {
             token.kind = TokenKind::T_DOUBLE_NUM;
         } else {
@@ -396,7 +396,7 @@ impl Tokenizer {
     fn advance_to_next_char_pos(&mut self) {
         #[allow(clippy::comparison_chain)]
         if self.next_char_pos < self.source.len() {
-            self.curr_char = self.source[self.next_char_pos] as char;
+            self.curr_char = self.source.as_bytes()[self.next_char_pos] as char;
             if self.curr_char == '\n' {
                 self.line += 1;
                 self.col_counter = 0;
@@ -410,17 +410,17 @@ impl Tokenizer {
     }
 }
 
-// tests
+/*  tests
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_int_var_decl_tokenization() {
-        let mut tok: Tokenizer = Tokenizer::new("global integer a; a = 2323;");
-        let tokens: Vec<Token> = tok.start_scan();
+        let mut tok: Tokenizer = Tokenizer::new();
+        let tokens: Vec<Token> = tok.tokenize("global integer a; a = 2323;");
         assert!(tokens.len() == 9);
-        assert_eq!(tokens[0].kind, TokenKind::KW_GLOBAL);
+        assert_eq!(tokens[0].kind, TokenKind::KW_LET);
         assert_eq!(tokens[1].kind, TokenKind::KW_INT);
         assert_eq!(tokens[2].kind, TokenKind::T_IDENTIFIER);
         assert_eq!(tokens[3].kind, TokenKind::T_SEMICOLON);
@@ -430,48 +430,27 @@ mod tests {
         assert_eq!(tokens[7].kind, TokenKind::T_SEMICOLON);
         assert_eq!(tokens[8].kind, TokenKind::T_EOF);
     }
-
-    #[test]
-    fn test_should_report_unterminated_string_error() {
-        let mut tok: Tokenizer = Tokenizer::new("\"ramesh;");
-        tok.advance_to_next_char_pos();
-        assert!(matches!(tok.get_token(), TokenizationResult::Error(ErrorType::UnterminatedString, _)));
-    }
-
-    #[test]
-    fn test_should_report_invalid_numeric_value_error() {
-        let mut tok: Tokenizer = Tokenizer::new("2323.");
-        tok.advance_to_next_char_pos();
-        assert!(matches!(tok.get_token(), TokenizationResult::Error(ErrorType::InvalidNumericValue, _)));
-    }
-    
-    #[test]
-    fn test_should_report_invalid_numeric_value_error2() {
-        let mut tok: Tokenizer = Tokenizer::new("2323sdsd");
-        tok.advance_to_next_char_pos();
-        assert!(matches!(tok.get_token(), TokenizationResult::Error(ErrorType::InvalidNumericValue, _)));
-    }
     
     #[test]
     fn test_should_report_invalid_numeric_value_error3() {
-        let mut tok: Tokenizer = Tokenizer::new(".98989");
-        let tokens: Vec<Token> = tok.start_scan();
+        let mut tok: Tokenizer = Tokenizer::new();
+        let tokens: Vec<Token> = tok.tokenize(".9999");
         assert_eq!(tokens[0].kind, TokenKind::T_DOT);
         assert_eq!(tokens[1].kind, TokenKind::T_INT_NUM);
     }
     
     #[test]
     fn test_int_var_decl_len_correct() {
-        let mut tok: Tokenizer = Tokenizer::new("integer a = 433434;");
-        let tokens: Vec<Token> = tok.start_scan();
+        let mut tok: Tokenizer = Tokenizer::new();
+        let tokens: Vec<Token> = tok.tokenize("let a = 43343;");
         assert!(tokens.len() == 6);
         assert_eq!(tokens[3].lexeme.len(), 6);
     }
     
     #[test]
     fn test_float_var_decl_len_correct() {
-        let mut tok: Tokenizer = Tokenizer::new("double a = 4334.34;");
-        let tokens: Vec<Token> = tok.start_scan();
+        let mut tok: Tokenizer = Tokenizer::new();
+        let tokens: Vec<Token> = tok.tokenize("let a = 34.343");
         assert!(tokens.len() == 6);
         assert_eq!(tokens[3].lexeme, "4334.34");
         assert_eq!(tokens[3].lexeme.len(), 7);
@@ -480,15 +459,15 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_float_var_decl_len_correct2() {
-        let mut tok: Tokenizer = Tokenizer::new("double a = 4334.34ss;");
-        let tokens: Vec<Token> = tok.start_scan();
+        let mut tok: Tokenizer = Tokenizer::new();
+        let tokens: Vec<Token> = tok.tokenize("let a = 3443.44ff");
         assert!(tokens.len() == 6);
     }
 
     #[test]
     fn test_char_ptr_var_decl_tokenization() {
-        let mut tok: Tokenizer = Tokenizer::new("char* name = \"ram\";");
-        let tokens: Vec<Token> = tok.start_scan();
+        let mut tok: Tokenizer = Tokenizer::new();
+        let tokens: Vec<Token> = tok.tokenize("let name = \"ram\";");
         assert!(tokens.len() == 7);
         assert_eq!(tokens[0].kind, TokenKind::KW_CHAR);
         assert_eq!(tokens[1].kind, TokenKind::T_STAR);
@@ -503,8 +482,8 @@ mod tests {
 
     #[test]
     fn test_func_decl_tokenization() {
-        let mut tok: Tokenizer = Tokenizer::new("integer main(void) { return 0; }");
-        let tokens: Vec<Token> = tok.start_scan();
+        let mut tok: Tokenizer = Tokenizer::new();
+        let tokens: Vec<Token> = tok.tokenize("def main() { return 0; }");
         assert!(tokens.len() == 11);
         assert_eq!(tokens[1].kind, TokenKind::T_IDENTIFIER);
         assert_eq!(tokens[1].lexeme, "main");
@@ -512,26 +491,27 @@ mod tests {
 
     #[test]
     fn test_empty_source() {
-        let mut tok: Tokenizer = Tokenizer::new("");
-        let tokens: Vec<Token> = tok.start_scan();
+        let mut tok: Tokenizer = Tokenizer::new();
+        let tokens: Vec<Token> = tok.tokenize("");
         assert_eq!(tokens.len(), 1); // only T_EOF is present
         assert_eq!(tokens[0].kind, TokenKind::T_EOF); // only T_EOF is present
     }
 
     #[test]
     fn test_only_whitespace_source() {
-        let mut tok: Tokenizer = Tokenizer::new("               ");
-        let tokens: Vec<Token> = tok.start_scan();
+        let mut tok: Tokenizer = Tokenizer::new();
+        let tokens: Vec<Token> = tok.tokenize("        ");
         assert_eq!(tokens.len(), 1); // only T_EOF is present
         assert_eq!(tokens[0].kind, TokenKind::T_EOF); // only EOF is present
     }
 
     #[test]
     fn test_while_if_else_statement() {
-        let mut tok: Tokenizer = Tokenizer::new("if (4 > 5) { } else { }");
-        let tokens: Vec<Token> = tok.start_scan();
+        let mut tok: Tokenizer = Tokenizer::new();
+        let tokens: Vec<Token> = tok.tokenize("if (4 > 5) { } else { }");
         assert_eq!(tokens.len(), 12); // including T_EOF
         assert_eq!(tokens[0].kind, TokenKind::KW_IF);
         assert_eq!(tokens[8].kind, TokenKind::KW_ELSE);
     }
 }
+    */

@@ -24,6 +24,7 @@ SOFTWARE.
 
 use std::cell::RefMut;
 use std::cell::RefCell;
+use std::rc::Rc;
 
 use crate::ast::Stmt;
 use crate::ast::{
@@ -32,12 +33,11 @@ use crate::ast::{
 };
 use crate::code_gen::CodeGen;
 use crate::code_gen::register::RegManager;
+use crate::context::CompilerCtx;
 use crate::symbol::{
     StorageClass, 
     Symbol, 
-    Symtable,
     FunctionInfo,
-    FunctionInfoTable
 };
 use crate::types::{
     LitType, 
@@ -49,29 +49,33 @@ lazy_static::lazy_static! {
     static ref CMP_CONDS_LIST: Vec<&'static str> = vec!["neq", "eq", "ge", "le", "lt", "gt"];
 }
 
-pub struct Aarch64CodeGen<'a> {
-    _label_id: &'static mut usize,
+pub struct Aarch64CodeGen<'aarch64> {
     reg_manager: RefCell<RegManager>,
-    func_info_table: &'a mut FunctionInfoTable,
-    sym_table: &'a mut Symtable,
+    ctx: Option<Rc<RefCell<CompilerCtx<'aarch64>>>>,
+    label_id: usize
 }
 
-impl<'a> CodeGen for Aarch64CodeGen<'a> {
+impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     fn gen_global_symbols(&self) {
-        for symbol in self.sym_table.iter() {
-            // symbol information is not generated if any of the following conditions matches
-            let not_process_cond: Vec<bool> = vec![symbol.sym_type == SymbolType::Function, symbol.lit_type == LitTypeVariant::None, symbol.class == StorageClass::LOCAL];
-            if not_process_cond.iter().any(|item| *item) {
-                continue;
-            }
-            println!(".data\n.global {}", symbol.name);
-            if symbol.sym_type == SymbolType::Variable {
-                Aarch64CodeGen::dump_global_with_alignment(symbol);
-            } else if symbol.sym_type == SymbolType::Array {
-                let array_data_size: usize = symbol.lit_type.size();
-                println!("{}:", symbol.name);
-                for _ in 0..symbol.size {
-                    Aarch64CodeGen::alloc_data_space(array_data_size);
+        if self.ctx.is_none() {
+            panic!("Error dumping global variables. Make sure the context is set for this CodeGen.");
+        }
+        if let Some(ctx_rc) = &self.ctx {
+            let ctx_borrow = ctx_rc.borrow();
+            for symbol in ctx_borrow.sym_table.iter() {
+                // symbol information is not generated if any of the following conditions matches
+                if symbol.lit_type == LitTypeVariant::None || symbol.sym_type == SymbolType::Function || symbol.class != StorageClass::GLOBAL {
+                    continue;
+                }
+                println!(".data\n.global {}", symbol.name);
+                if symbol.sym_type == SymbolType::Variable {
+                    Aarch64CodeGen::dump_global_with_alignment(symbol);
+                } else if symbol.sym_type == SymbolType::Array {
+                    let array_data_size: usize = symbol.lit_type.size();
+                    println!("{}:", symbol.name);
+                    for _ in 0..symbol.size {
+                        Aarch64CodeGen::alloc_data_space(array_data_size);
+                    }
                 }
             }
         }
@@ -130,8 +134,18 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
             Stmt::FuncDecl(func_decl) => func_decl.func_id,
             _ => panic!("Not a valid symbol table indexing method"),
         };
-        let func_name: String = self.sym_table.get_symbol(index).unwrap().name.clone();
-        let func_info: FunctionInfo = self.func_info_table.get(&func_name).unwrap().clone();
+        let func_name: String = if let Some(ctx_rc) = &mut self.ctx {
+            let ctx_borrow: std::cell::Ref<CompilerCtx<'aarch64>> = ctx_rc.borrow();
+            ctx_borrow.sym_table.get_symbol(index).unwrap().name.clone()
+        } else {
+            panic!("Please provide a context to work on!");
+        };
+        let func_info: FunctionInfo = if let Some(ctx_rc) = &mut self.ctx {
+            let ctx_borrow = ctx_rc.borrow();
+            ctx_borrow.func_table.get(&func_name).unwrap().clone()
+        } else {
+            panic!("Please provide a context to work on!");
+        };
         // function preamble
         println!(".global _{}\n_{}:", func_name, func_name);
         println!("sub sp, sp, {}", func_info.stack_size);
@@ -159,11 +173,12 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
     fn gen_load_id_into_reg(&mut self, id: usize) -> usize {
         let value_containing_reg: usize = self.reg_manager.borrow_mut().allocate();
         let value_reg_name: String = self.reg_manager.borrow().name(value_containing_reg);
-        let symbol: Option<&Symbol> = self.sym_table.get_symbol(id);
-        if symbol.is_none() {
-            return 0xFFFFFFFF;
-        }
-        let symbol: &Symbol = symbol.unwrap();
+        let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
+            let ctx_borrow = ctx_rc.borrow();
+            ctx_borrow.sym_table.get_symbol(id).unwrap().clone()
+        } else {
+            panic!("Please provide a context to work on!");
+        };
         if symbol.class == StorageClass::GLOBAL {
             let reg: usize = self.reg_manager.borrow_mut().allocate();
             let reg_name: String = self.reg_manager.borrow().name(reg);
@@ -178,7 +193,12 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
     // Refer to this page for explanation on '@PAGE' and '@PAGEOFF': https://stackoverflow.com/questions/65351533/apple-clang12-llvm-unknown-aarch64-fixup-kind
     fn gen_load_reg_into_id(&mut self, reg: usize, id: usize) -> usize {
         let reg_name: String = self.reg_manager.borrow().name(reg);
-        let symbol: &Symbol = self.sym_table.get_symbol(id).unwrap();
+        let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
+            let ctx_borrow = ctx_rc.borrow();
+            ctx_borrow.sym_table.get_symbol(id).unwrap().clone()
+        } else {
+            panic!("Please provide a context to work on!");
+        };
         if symbol.class == StorageClass::GLOBAL {
             let addr_reg: usize = self.reg_manager.borrow_mut().allocate();
             let addr_reg_name: String = self.reg_manager.borrow().name(addr_reg);
@@ -269,7 +289,12 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
         let expr_res_reg: usize = self.gen_code_from_ast(expr, 0xFFFFFFFF, ASTOperation::AST_ARRAY_ACCESS);
         let mut reg_mgr: RefMut<RegManager> = self.reg_manager.borrow_mut();
         let expr_res_reg_name: String = reg_mgr.name(expr_res_reg);
-        let symbol: &Symbol = self.sym_table.get_symbol(id).unwrap();
+        let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
+            let ctx_borrow = ctx_rc.borrow();
+            ctx_borrow.sym_table.get_symbol(id).unwrap().clone()
+        } else {
+            panic!("Please provide to retrieve symbol from!");
+        };
         let offset_shift: usize = match symbol.lit_type {
             LitTypeVariant::I32 | // as of now, this compiler does not know how to index 32-bit int array
             LitTypeVariant::I64 => 3, // so I am using offset of 8 bytes to calculate array indexes even though
@@ -279,9 +304,10 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
         // this will contain the address + offset of an array
         let addr_reg: usize = reg_mgr.allocate();
         let addr_reg_name: String = reg_mgr.name(addr_reg);
-        self.dump_gid_address_load_code_from_name(&addr_reg_name, id);
         let off_addr_reg: usize = reg_mgr.allocate();
         let off_addr_reg_name: String = reg_mgr.name(off_addr_reg);
+        std::mem::drop(reg_mgr);
+        self.dump_gid_address_load_code_from_name(&addr_reg_name, id);
         println!(
             "ldr {}, [{}, {}, lsl {}]",
             off_addr_reg_name, addr_reg_name, expr_res_reg_name, offset_shift
@@ -292,7 +318,12 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
     fn gen_array_access2(&mut self, symbol_id: usize, index: usize) -> usize {
         let mut reg_mgr: RefMut<RegManager> = self.reg_manager.borrow_mut();
         let expr_res_reg_name: String = reg_mgr.name(index);
-        let symbol: &Symbol = self.sym_table.get_symbol(symbol_id).unwrap();
+        let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
+            let ctx_borrow = ctx_rc.borrow();
+            ctx_borrow.sym_table.get_symbol(symbol_id).unwrap().clone()
+        } else {
+            panic!("Please provide to retrieve symbol from!");
+        };
         let offset_shift: usize = match symbol.lit_type {
             LitTypeVariant::I32 => 2,
             LitTypeVariant::I64 => 3,
@@ -301,9 +332,10 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
         // this will contain the address + offset of an array
         let addr_reg: usize = reg_mgr.allocate();
         let addr_reg_name: String = reg_mgr.name(addr_reg);
-        self.dump_gid_address_load_code_from_name(&addr_reg_name, symbol_id);
         let off_addr_reg: usize = reg_mgr.allocate();
         let off_addr_reg_name: String = reg_mgr.name(off_addr_reg);
+        drop(reg_mgr);
+        self.dump_gid_address_load_code_from_name(&addr_reg_name, symbol_id);
         println!(
             "ldr {}, [{}, {}, lsl {}]",
             off_addr_reg_name, addr_reg_name, expr_res_reg_name, offset_shift
@@ -324,25 +356,27 @@ impl<'a> CodeGen for Aarch64CodeGen<'a> {
     }
 }
 
-impl<'a> Aarch64CodeGen<'a> {
+impl<'aarch64> Aarch64CodeGen<'aarch64> {
     pub fn new(
         reg_manager: RefCell<RegManager>,
-        sym_table: &'a mut Symtable,
-        func_info_table: &'a mut FunctionInfoTable,
-        label_id: &'static mut usize
     ) -> Self {
         Self {
             reg_manager,
-            sym_table,
-            func_info_table,
-            _label_id: label_id,
+            ctx: None,
+            label_id: 0
         }
     }
 
+    pub fn gen_with_ctx(&mut self, ctx: Rc<RefCell<CompilerCtx<'aarch64>>>, nodes:Vec<AST>) {
+        self.label_id = ctx.borrow().label_id + 10;
+        self.ctx = Some(ctx);
+        self.start_gen(nodes);
+    }
+
     fn get_next_label(&mut self) -> usize {
-        let label: usize = *self._label_id;
-        (*self._label_id) += 1;
-        label
+        let lbl: usize = self.label_id;
+        self.label_id += 1;
+        lbl
     }
 
     fn dump_gid_address_load_code_from_label_id(&self, reg_name: &str, id: &LitType) {
@@ -354,12 +388,15 @@ impl<'a> Aarch64CodeGen<'a> {
         println!("add {}, {}, _L{}@PAGEOFF", reg_name, reg_name, symbol_label_id);
     }
 
-    fn dump_gid_address_load_code_from_name(&self, reg_name: &str, id: usize) {
-        let symbol: &Symbol = self.sym_table.get_symbol(id).unwrap();
-        if symbol.class == StorageClass::GLOBAL {
-            let sym_name: &str = &symbol.name;
-            println!("adrp {}, {}@PAGE", reg_name, sym_name);
-            println!("add {}, {}, {}@PAGEOFF", reg_name, reg_name, sym_name);
+    fn dump_gid_address_load_code_from_name(&mut self, reg_name: &str, id: usize) {
+        if let Some(ctx_rc) = &mut self.ctx {
+            let ctx_borrow = ctx_rc.borrow();
+            let symbol: Symbol = ctx_borrow.sym_table.get_symbol(id).unwrap().clone();
+            if symbol.class == StorageClass::GLOBAL {
+                let sym_name: &str = &symbol.name;
+                println!("adrp {}, {}@PAGE", reg_name, sym_name);
+                println!("add {}, {}, {}@PAGEOFF", reg_name, reg_name, sym_name);
+            }
         }
     }
 

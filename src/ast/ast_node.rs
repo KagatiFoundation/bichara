@@ -58,6 +58,7 @@ pub enum ASTOperation {
     AST_WIDEN,        // need to widen the tree
     AST_ARRAY_ACCESS, // access array element
     AST_STRLIT, // string literal node
+    AST_VAR_DECL
 }
 
 impl ASTOperation {

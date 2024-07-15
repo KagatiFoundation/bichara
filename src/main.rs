@@ -30,16 +30,15 @@ pub mod utils;
 pub mod ast;
 pub mod symbol;
 pub mod code_gen;
+pub mod context;
 
-use std::cell::RefCell;
+use std::{cell::RefCell, rc::Rc};
+
+use context::CompilerCtx;
 use parser::*;
 use symbol::*;
-use ast::AST;
-use code_gen::{
-    Aarch64CodeGen,
-    CodeGen,
-    RegManager
-};
+use ast::SourceFile;
+use code_gen::{Aarch64CodeGen, RegManager};
 use tokenizer::Tokenizer;
 
 /*
@@ -51,14 +50,13 @@ def main() -> char {
 */
 
 fn main() {
-    static mut LABEL_ID: usize = 0;
-    let mut tokener: Tokenizer = Tokenizer::new("def main() -> char { local integer num; num = 12; }");
+    let tokener = Rc::new(RefCell::new(Tokenizer::new()));
+    let parsr = Rc::new(RefCell::new(Parser::new()));
     let mut symt: Symtable = Symtable::new();
     let mut funct: FunctionInfoTable = FunctionInfoTable::new();
-    let mut pars: Parser = Parser::new(tokener.start_scan(), &mut symt, &mut funct, unsafe {
-        &mut LABEL_ID
-    });
-    let nodes: Vec<AST> = pars.parse();
+    let mut file1: SourceFile = SourceFile::new(String::from("/Users/rigelstar/Desktop/KagatiFoundation/bichara/examples/input.bish"));
+    let mut source_files: Vec<&mut SourceFile> = vec![&mut file1];
+    let ctx = Rc::new(RefCell::new(CompilerCtx::new(&mut symt, &mut funct)));
     let rm: RefCell<RegManager> = RefCell::new(RegManager::new({
         let mut regs: Vec<String> = vec![];
         for i in 0..8 {
@@ -66,8 +64,23 @@ fn main() {
         }
         regs
     }));
-    let mut cg: Aarch64CodeGen = Aarch64CodeGen::new(rm, &mut symt, &mut funct, unsafe {
-        &mut LABEL_ID
-    });
-    cg.start_gen(nodes);
+    let mut cg = Aarch64CodeGen::new(rm);
+    for sf in &mut source_files {
+        let read_res: Result<i32, std::io::Error> = sf.read();
+        if let Err(e) = read_res {
+            panic!("Error reading a source file: {:?}", e);
+        }
+    }
+    for sf in &mut source_files {
+        sf.tokenize(Rc::clone(&tokener));
+    }
+    {
+        let mut parser_borrow = parsr.borrow_mut();
+        for sf in &mut source_files {
+            let tokens = sf.tokens.clone().unwrap(); 
+            let parse_result = parser_borrow.parse_with_ctx(Rc::clone(&ctx), tokens);
+            cg.gen_with_ctx(Rc::clone(&ctx), parse_result);
+        }
+        std::mem::drop(parser_borrow);
+    }
 }

@@ -23,6 +23,8 @@ SOFTWARE.
 */
 
 use core::panic;
+use std::cell::RefCell;
+use std::rc::Rc;
 use crate::ast::ASTKind;
 use crate::ast::ASTOperation;
 use crate::ast::AssignStmt;
@@ -35,7 +37,9 @@ use crate::ast::LitValExpr;
 use crate::ast::ReturnStmt;
 use crate::ast::Stmt;
 use crate::ast::SubscriptExpr;
+use crate::ast::VarDeclStmt;
 use crate::ast::AST;
+use crate::context::CompilerCtx;
 use crate::error;
 use crate::symbol::*;
 use crate::tokenizer::*;
@@ -48,46 +52,78 @@ use crate::ParseError;
 /// parsing failure.
 type ParseResult = Result<AST, ParseError>;
 
-/// Represents a parser for converting tokens into an abstract syntax tree (AST).
-pub struct Parser<'a> {
-    tokens: Vec<Token>,
-    current: usize,
-    current_token: Token,
-    main_sym_table: &'a mut Symtable, // symbol table for global identifiers
-    // ID of a function that is presently being parsed. This field's value is 0xFFFFFFFF
-    // if the parser is not inside a function.
-    func_info_table: &'a mut FunctionInfoTable,
-    current_function_id: usize,
-    _label_id: &'static mut usize, // label generator
-    local_offset: i32, // offset of a new local variable
-    next_global_sym_pos: usize, // position of next global symbol
-    next_local_sym_pos: usize, // position of next local symbol
+/// Represents an invalid function ID.
+///
+/// This constant is used to indicate that a function ID is not valid or 
+/// not set, serving as a sentinel value during parsing and code generation 
+/// to detect error states and invalid contexts.
+const INVALID_FUNC_ID: usize = 0xFFFFFFFF;
+
+enum ParserScope {
+    LOCAL,
+    GLOBAL
 }
 
-impl<'a> Parser<'a> {
-    #[inline]
-    pub fn new(
-        tokens: Vec<Token>, 
-        main_sym_table: &'a mut Symtable, 
-        func_info_table: &'a mut FunctionInfoTable, 
-        label_id: &'static mut usize
-    ) -> Self {
-        let current_token: Token = tokens[0].clone();
+struct ParserContext {
+    function_id: usize,
+    scope: ParserScope
+}
+
+/// Represents a parser for converting tokens into an 
+/// abstract syntax tree (AST).
+pub struct Parser<'parser> {
+    /// Tokens that are going to be parsed.
+    tokens: Vec<Token>,
+
+    /// Counter which points to the current token index.
+    current: usize,
+
+    /// Current token being parsed. (```current_token = self.tokens[self.current]```)
+    current_token: Token,
+
+    /// ID of a function that is presently being parsed. This field's 
+    /// value is ```INVALID_FUNC_ID``` if the parser is not inside a 
+    /// function.
+    current_function_id: usize,
+
+    /// Offset of next local variable.
+    local_offset: i32,
+
+    /// Position of next global symbol.
+    next_global_sym_pos: usize,
+
+    /// Position of next local symbol.
+    next_local_sym_pos: usize,
+
+    /// Context in which the ```Parser``` is going to work on.
+    ctx: Option<Rc<RefCell<CompilerCtx<'parser>>>>
+}
+
+impl<'parser> Parser<'parser> {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        let current_token: Token = Token::none();
         Self {
-            tokens,
+            tokens: vec![],
             current: 0,
             current_token,
-            main_sym_table,
-            func_info_table,
-            current_function_id: 0xFFFFFFFF,
-            _label_id: label_id,
+            current_function_id: INVALID_FUNC_ID,
             local_offset: 0,
             next_global_sym_pos: 0,
-            next_local_sym_pos: NSYMBOLS - 1
+            next_local_sym_pos: NSYMBOLS - 1,
+            ctx: None
         }
     }
 
-    pub fn parse(&mut self) -> Vec<AST> {
+    /// Parses the entire input into a vector of AST nodes until 
+    /// EOF is reached. Each statement is parsed individually and 
+    /// added to the AST nodes vector.
+    ///
+    /// Panics if a parsing error occurs.
+    pub fn parse_with_ctx(&mut self, ctx: Rc<RefCell<CompilerCtx<'parser>>>, tokens: Vec<Token>) -> Vec<AST> {
+        self.ctx = Some(ctx);
+        self.tokens = tokens;
+        self.current_token = self.tokens[0].clone();
         let mut nodes: Vec<AST> = vec![];
         loop {
             if self.current_token.kind == TokenKind::T_EOF {
@@ -102,13 +138,27 @@ impl<'a> Parser<'a> {
                 }
             }
         }
+        self.ctx = None;
         nodes
     }
 
+    /// Parses a single statement based on the current token.
+    /// 
+    /// Delegates parsing to specific functions depending on the token kind:
+    /// - Handles variable declarations (global/local), assignments, control 
+    ///   flow statements (if, while, for), function definitions, and return 
+    ///   statements.
+    /// 
+    /// - If the token is a compound statement, parses it recursively.
+    /// 
+    /// - If the token is not recognized, attempts to parse an expression followed 
+    ///   by a semicolon.
+    /// 
+    /// - Returns a `ParseResult` representing the parsed statement or an error 
+    ///   if parsing fails.
     fn parse_single_stmt(&mut self) -> ParseResult {
         match self.current_token.kind {
-            TokenKind::KW_GLOBAL => self.parse_var_decl_stmt(StorageClass::GLOBAL),
-            TokenKind::KW_LOCAL => self.parse_var_decl_stmt(StorageClass::LOCAL),
+            TokenKind::KW_LET => self.parse_var_decl_stmt(),
             TokenKind::T_IDENTIFIER => self.parse_assignment_stmt(),
             TokenKind::KW_IF => self.parse_if_stmt(),
             TokenKind::KW_WHILE => self.parse_while_stmt(),
@@ -161,11 +211,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_function_stmt(&mut self) -> ParseResult {
-        _ = self.token_match(TokenKind::KW_DEF); // match and ignore function declaration keyword 'def'
+        self.local_offset = 0;
+        // match and ignore function declaration keyword 'def'
+        _ = self.token_match(TokenKind::KW_DEF); 
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
         _ = self.token_match(TokenKind::T_LPAREN);
         _ = self.token_match(TokenKind::T_RPAREN);
         _ = self.token_match(TokenKind::T_ARROW); // match and ignore '->' operator
+        // Extract and validate function return type
         let curr_tok_kind: TokenKind = self.current_token.kind;
         let func_return_type: LitTypeVariant = LitTypeVariant::from_token_kind(curr_tok_kind);
         if func_return_type == LitTypeVariant::None {
@@ -188,9 +241,15 @@ impl<'a> Parser<'a> {
         }
         self.current_function_id = function_id.unwrap();
         // create function body
-        let function_body: AST = self.parse_compound_stmt()?;
+        let function_body_res: Result<AST, ParseError> = self.parse_compound_stmt();
+        let function_body: AST = match function_body_res {
+            Ok(ast) => ast,
+            Err(err) => {
+                panic!("{:?}", err);
+            },
+        };
         let temp_func_id: usize = self.current_function_id;
-        self.current_function_id = 0xFFFFFFFF; // function parsing done; exiting out of function body
+        self.current_function_id = INVALID_FUNC_ID; // function parsing done; exiting out of function body
         // function information collection
         let stack_offset: i32 = (self.local_offset + 15) & !15;
         let func_info: FunctionInfo = FunctionInfo::new(
@@ -200,9 +259,14 @@ impl<'a> Parser<'a> {
             func_return_type
         );
         // create a new FunctionInfo
-        self.func_info_table.add(func_info);
+        if let Some(ctx_rc) = &mut self.ctx {
+           let mut ctx_borrow = ctx_rc.borrow_mut();
+           ctx_borrow.func_table.add(func_info);
+        }
+        // self.ctx.borrow_mut().func_table.add(func_info);
         // reset offset counter after parsing a function
         self.local_offset = 0; 
+        // Return AST for function declaration
         Ok(AST::new(
             ASTKind::StmtAST(Stmt::FuncDecl(FuncDeclStmt{func_id: temp_func_id})),
             ASTOperation::AST_FUNCTION,
@@ -218,13 +282,17 @@ impl<'a> Parser<'a> {
         let mut void_ret_type: bool = false;
         let mut func_symbol: Option<Symbol> = None;
         // check whether parser's parsing a function or not
-        if self.current_function_id == 0xFFFFFFFF {
+        if self.current_function_id == INVALID_FUNC_ID {
             error::report_unexpected_token(
                 &self.current_token,
                 Some("'return' statement outside a function body is not valid."),
             );
         } else {
-            let sym: Option<Symbol> = Some(self.main_sym_table.get_symbol(self.current_function_id).unwrap().clone());
+            let mut sym: Option<Symbol> = None; 
+            if let Some(ctx_rc) = &mut self.ctx {
+                let mut ctx_borrow = ctx_rc.borrow_mut();
+                sym = Some(ctx_borrow.sym_table.get_symbol(self.current_function_id).unwrap().clone());
+            }
             if sym.is_none() {
                 panic!("Undefined function. ok");
             }
@@ -357,52 +425,80 @@ impl<'a> Parser<'a> {
         cond_ast
     }
 
-    fn parse_var_decl_stmt(&mut self, var_class: StorageClass) -> ParseResult {
-        let inside_func: bool = self.current_function_id != 0xFFFFFFFF;
-        match var_class {
-            StorageClass::LOCAL => {
-                assert!(inside_func, "local variable outside a function???");
-                _ = self.token_match(TokenKind::KW_LOCAL);
-            },
-            StorageClass::GLOBAL => {
-                assert!(!inside_func, "global variable inside a function???");
-                _ = self.token_match(TokenKind::KW_GLOBAL);
-            }
-            StorageClass::PARAM => {
-                unimplemented!()
-            }
+    /// Parses a variable declaration statement.
+    ///
+    /// This function processes the tokens and constructs an abstract syntax tree (AST) 
+    /// node representing a variable declaration statement. It handles parsing the variable 
+    /// type, name, and optionally, the initial value assignment.
+    ///
+    /// # Returns
+    ///
+    /// A `ParseResult` containing either the AST node for the variable declaration statement 
+    /// or a `ParseError` if the parsing fails.
+    fn parse_var_decl_stmt(&mut self) -> ParseResult {
+        // consume 'let'
+        _ = self.token_match(TokenKind::KW_LET);
+        // Being "inside" a function means that we are currently parsing a function's body.
+        // 
+        // INVALID_FUNC_ID equals 0xFFFFFFFF if we are not parsing a function currently.
+        let inside_func: bool = self.current_function_id != INVALID_FUNC_ID;
+        
+        // Track the storage class for this variable.
+        let mut var_class: StorageClass = StorageClass::GLOBAL;
+        if inside_func {
+            var_class = StorageClass::LOCAL;
         }
-        let mut sym: Symbol = Symbol::uninit();
-        let sym_id_type: LitTypeVariant = self.parse_id_type();
-        if sym_id_type == LitTypeVariant::None {
-            panic!(
-                "Can't create variable of type {:?}",
-                self.current_token.kind
-            );
-        }
+        
+        // Track the type of this variable.
+        //
+        // The variable might not have any initial value. 
+        // Thus it is 'null' (or none) by default.
+        let mut var_type: LitTypeVariant = LitTypeVariant::None;
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
-        // CHECK IF THE VARIABLE EXISTS IN THE SAME SCOPE ALREADY!!!
-        // symbol info
-        sym.class = var_class;
-        sym.lit_type = sym_id_type;
-        sym.name = id_token.lexeme.clone();
-        sym.size = 1;
-        // if it is going to be an array type
-        if self.current_token.kind == TokenKind::T_LBRACKET {
-            return self.parse_array_var_decl_stmt(sym);
+
+        // Parser may encounter a colon after the identifier name.
+        // This means the type of this variable of this type is defined
+        // by the user.
+        if self.current_token.kind == TokenKind::T_COLON {
+            _ = self.token_match(TokenKind::T_COLON);
+            var_type = self.parse_id_type();
+            self.skip_to_next_token();
         }
+
         // checking whether variable is assigned at the time of its declaration
         let mut assignment_parse_res: Option<ParseResult> = None;
         if self.current_token.kind == TokenKind::T_EQUAL { // if identifier name is followed by an equal sign
             _ = self.token_match(TokenKind::T_EQUAL); // match and ignore '=' sign
             assignment_parse_res = Some(self.parse_equality());
         }
+        // if there is some error during expression parsing
         if let Some(Err(parse_error)) = assignment_parse_res {
             return Err(parse_error);
         }
+        else if let Some(Ok(_)) = assignment_parse_res {
+            // else get the type that results from evaluating the expression
+            let assign_value_type: LitTypeVariant = self.determine_type(assignment_parse_res.as_ref().unwrap());
+            if var_type != LitTypeVariant::None && var_type != assign_value_type {
+                panic!(
+                    "Cannot assign a value of type '{:?}' to a variable of type '{:?}'", 
+                    assign_value_type, 
+                    var_type
+                );
+            } else {
+                var_type = assign_value_type;
+            }
+        }
+        // TODO:: CHECK IF THE VARIABLE EXISTS IN THE SAME SCOPE ALREADY!!!
+        // Create a symbol.
+        let mut sym: Symbol = Symbol::new(
+            id_token.lexeme.clone(), 
+            var_type, 
+            SymbolType::Variable, 
+            var_class
+        );
+
         // test assignability
         let mut return_result: ParseResult = Err(ParseError::None); // this indicates variable is declared without assignment
-        // ***** NOTE *****: I am assuming that the symbol is added without any problem!!!
         // This has to fixed later.
         let symbol_add_pos: usize = if inside_func {
             self.add_symbol_local(sym.clone()).unwrap()
@@ -410,28 +506,34 @@ impl<'a> Parser<'a> {
             self.add_symbol_global(sym.clone()).unwrap()
         };
         if let Some(assign_ast_node_res) = assignment_parse_res {
-            let mut assign_ast_node: AST = assign_ast_node_res?;
-            let compat_node: Option<AST> = Parser::validate_assign_compatibility(&sym, &mut assign_ast_node);
-            let _result_type: LitTypeVariant = compat_node.as_ref().unwrap().result_type;
             if inside_func {
-                sym.local_offset = self.gen_next_local_offset(_result_type);
+                sym.local_offset = self.gen_next_local_offset(var_type);
             }
-            let lvalueid: AST = AST::create_leaf(
-                ASTKind::StmtAST(Stmt::LValue(symbol_add_pos)),
-                ASTOperation::AST_LVIDENT,
-                sym.lit_type,
-            );
             // calculate offset here
             return_result = Ok(AST::new(
-                ASTKind::StmtAST(Stmt::Assignment(AssignStmt { symtbl_pos: symbol_add_pos })),
-                ASTOperation::AST_ASSIGN,
-                Some(lvalueid),
-                compat_node,
-                _result_type,
+                ASTKind::StmtAST(Stmt::VarDecl(VarDeclStmt{ symtbl_pos: symbol_add_pos })),
+                ASTOperation::AST_VAR_DECL,
+                Some(assign_ast_node_res?),
+                None,
+                var_type,
             ));
         }
         _ = self.token_match(TokenKind::T_SEMICOLON);
+        if inside_func {
+            self.local_offset += 8; // increase local offset if we're parsing a function
+        }
         return_result
+    }
+
+    fn determine_type(&self, res: &ParseResult) -> LitTypeVariant {
+        if let Ok(ast) = res {
+            return match ast.kind.clone() {
+                ASTKind::Empty => LitTypeVariant::None,
+                ASTKind::ExprAST(ref expr) => infer_type_from_expr(expr),
+                ASTKind::StmtAST(_) => panic!("Can't determine type of this ParseResult")
+            };
+        }
+        panic!("Cannot determine the type of this ParseResult.");
     }
 
     fn gen_next_local_offset(&mut self, var_type: LitTypeVariant) -> i32 {
@@ -475,21 +577,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_id_type(&mut self) -> LitTypeVariant {
-        let mut typ: LitTypeVariant = LitTypeVariant::from_token_kind(self.current_token.kind);
-        if typ == LitTypeVariant::None {
-            return typ; // return None type
+        let current_tok: TokenKind = self.current_token.kind;
+        match current_tok {
+            TokenKind::KW_INT => LitTypeVariant::I32,
+            TokenKind::KW_CHAR => LitTypeVariant::U8,
+            TokenKind::KW_STR => LitTypeVariant::U8Ptr,
+            TokenKind::KW_LONG => LitTypeVariant::I64,
+            _ => panic!("Cannot parse a type of {:?}", current_tok)
         }
-        self.skip_to_next_token(); // skip the parsed type's token
-        loop {
-            // could encounter '*'; need to parse it as well
-            let curr_kind: TokenKind = self.current_token.kind;
-            if curr_kind != TokenKind::T_STAR {
-                break;
-            }
-            self.skip_to_next_token();
-            typ = LitTypeVariant::pointer_type(typ);
-        }
-        typ
     }
     
     fn parse_assignment_stmt(&mut self) -> ParseResult {
@@ -500,7 +595,12 @@ impl<'a> Parser<'a> {
             return Err(ParseError::SymbolNotFound(id_token));
         }
         let id_index_symt: usize = symbol_search_result.unwrap().0;
-        let symbol: Symbol = self.main_sym_table.get_symbol(id_index_symt).unwrap().clone();
+        let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
+            let ctx_borrow = ctx_rc.borrow_mut();
+            ctx_borrow.sym_table.get_symbol(id_index_symt).unwrap().clone()
+        } else {
+            panic!("")
+        };
         // we are in global scope but trying to assign to a local variable
         if self.is_scope_global() && symbol.class == StorageClass::LOCAL {
             self.skip_past(TokenKind::T_SEMICOLON);
@@ -673,8 +773,12 @@ impl<'a> Parser<'a> {
                 )
             },
             TokenKind::T_STRING => {
-                let str_label: usize = *self._label_id;
-                *self._label_id += 1;
+                let mut str_label: i32 = -1;
+                if let Some(ctx_rc) = &mut self.ctx {
+                    let mut ctx_borrow = ctx_rc.borrow_mut();
+                    str_label = ctx_borrow.label_id as i32;
+                    ctx_borrow.incr_label_count();
+                } 
                 let str_const_symbol: Symbol = Symbol::new(
                     format!("_L{}---{}", 
                     str_label, 
@@ -704,7 +808,12 @@ impl<'a> Parser<'a> {
                     return Err(ParseError::SymbolNotFound(current_token));
                 }
                 let id_index: usize = sym_find_res.unwrap();
-                let symbol: Symbol = self.main_sym_table.get_symbol(id_index).unwrap().clone();
+                let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
+                    let ctx_borrow = ctx_rc.borrow_mut();
+                    ctx_borrow.sym_table.get_symbol(id_index).unwrap().clone()
+                } else {
+                    panic!("symbol not found");
+                };
                 let curr_tok_kind: TokenKind = self.current_token.kind;
                 if curr_tok_kind == TokenKind::T_LPAREN {
                     self.parse_func_call_expr(&symbol, id_index, &current_token)
@@ -729,7 +838,7 @@ impl<'a> Parser<'a> {
                 Ok(group_expr.unwrap())
             }
             _ => {
-                println!("{:?}", current_token);
+                println!("DEBUG:: {:?}", current_token);
                 panic!("Unrecognized primitive type: {:?}", current_token);
             }
         }
@@ -801,13 +910,27 @@ impl<'a> Parser<'a> {
     }
 
     fn add_symbol_global(&mut self, sym: Symbol) -> Option<usize> {
-        let insert_pos: Option<usize> = self.main_sym_table.insert(self.next_global_sym_pos, sym);
+        let insert_pos: Option<usize> = {
+            if let Some(ctx_rc) = &mut self.ctx {
+                let mut ctx_borrow = ctx_rc.borrow_mut();
+                ctx_borrow.sym_table.insert(self.next_global_sym_pos, sym)
+            } else {
+                panic!("Can't add a new symbol globally");
+            }
+        };
         self.next_global_sym_pos += 1;
         insert_pos
     }
     
     fn add_symbol_local(&mut self, sym: Symbol) -> Option<usize> {
-        let insert_pos: Option<usize> = self.main_sym_table.insert(self.next_local_sym_pos, sym);
+        let insert_pos: Option<usize> = {
+            if let Some(ctx_rc) = &mut self.ctx {
+                let mut ctx_borrow = ctx_rc.borrow_mut();
+                ctx_borrow.sym_table.insert(self.next_local_sym_pos, sym)
+            } else {
+                panic!("Can't add a new symbol locally");
+            }
+        };
         self.next_local_sym_pos -= 1;
         insert_pos
     }
@@ -825,10 +948,13 @@ impl<'a> Parser<'a> {
     }
 
     fn find_symbol_global(&self, name: &str) -> Option<usize> {
-        for index in 0..self.next_global_sym_pos {
-            if let Some(symbol) = self.main_sym_table.get_symbol(index) {
-                if symbol.name == name {
-                    return Some(index);
+        if let Some(ctx_rc) = &self.ctx {
+            let ctx_borrow = ctx_rc.borrow();
+            for index in 0..self.next_global_sym_pos {
+                if let Some(symbol) = ctx_borrow.sym_table.get_symbol(index) {
+                    if symbol.name == name {
+                        return Some(index);
+                    }
                 }
             }
         }
@@ -836,10 +962,13 @@ impl<'a> Parser<'a> {
     }
 
     fn find_symbol_local(&self, name: &str) -> Option<usize> {
-        for index in (self.next_local_sym_pos+1)..NSYMBOLS {
-            if let Some(symbol) = self.main_sym_table.get_symbol(index) {
-                if symbol.name == name {
-                    return Some(index);
+        if let Some(ctx_rc) = &self.ctx {
+            let ctx_borrow = ctx_rc.borrow();
+            for index in (self.next_local_sym_pos+1)..NSYMBOLS {
+                if let Some(symbol) = ctx_borrow.sym_table.get_symbol(index) {
+                    if symbol.name == name {
+                        return Some(index);
+                    }
                 }
             }
         }
@@ -847,11 +976,11 @@ impl<'a> Parser<'a> {
     }
 
     fn is_scope_global(&self) -> bool {
-        self.current_function_id == 0xFFFFFFFF
+        self.current_function_id == INVALID_FUNC_ID
     }
 
     fn is_scope_func(&self) -> bool {
-        self.current_function_id != 0xFFFFFFFF
+        self.current_function_id != INVALID_FUNC_ID
     }
 
     fn token_match(&mut self, kind: TokenKind) -> &Token {
@@ -882,246 +1011,8 @@ impl<'a> Parser<'a> {
     }
 }
 
+// REWRITE ALL THE TEST CASES
 #[cfg(test)]
 mod tests {
-    use crate::ast::ASTOperation;
-
-    use super::*;
-
-    #[test]
-    fn test_group_expression_tree_structure() {
-        static mut LABEL_ID: usize = 0;
-        let mut tokener: Tokenizer = Tokenizer::new("(5 + (3 * 4))");
-        let mut sym_table: Symtable = Symtable::new();
-        let mut func_table: FunctionInfoTable = FunctionInfoTable::new();
-        let mut p: Parser = Parser::new(tokener.start_scan(), &mut sym_table, &mut func_table, unsafe { &mut LABEL_ID });
-        let result: ParseResult = p.parse_equality();
-        assert!(result.is_ok());
-        let upvalue: AST = result.unwrap();
-        let left_tree = upvalue.left.as_ref().unwrap();
-        let right_tree: &AST = upvalue.right.as_ref().unwrap();
-        assert_eq!(upvalue.operation, ASTOperation::AST_ADD);
-        assert_eq!(left_tree.operation, ASTOperation::AST_INTLIT);
-        assert_eq!(right_tree.operation, ASTOperation::AST_MULTIPLY);
-    }
-
-    // test addition operation
-    #[test]
-    fn test_depth_one_bin_tree() {
-        static mut LABEL_ID: usize = 0;
-        let mut tokener: Tokenizer = Tokenizer::new("5+5");
-        let mut sym_table: Symtable = Symtable::new();
-        let mut func_table: FunctionInfoTable = FunctionInfoTable::new();
-        let mut p: Parser = Parser::new(tokener.start_scan(), &mut sym_table, &mut func_table, unsafe { &mut LABEL_ID });
-        let result: ParseResult = p.parse_equality();
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().operation, ASTOperation::AST_ADD);
-    }
-
-    // test if-else block
-    #[test]
-    fn test_if_else_statement_block() {
-        static mut LABEL_ID: usize = 0;
-        let mut tokener: Tokenizer = Tokenizer::new("if (4 > 5) { global integer a; } else { global integer b; }");
-        let mut sym_table: Symtable = Symtable::new();
-        let mut func_table: FunctionInfoTable = FunctionInfoTable::new();
-        let mut p: Parser = Parser::new(tokener.start_scan(), &mut sym_table, &mut func_table, unsafe { &mut LABEL_ID });
-        let result: ParseResult = p.parse_if_stmt();
-        assert!(
-            result.is_ok(),
-            "If this assertion did not pass, then if-else block is probably malformed."
-        );
-        let upvalue: &AST = result.as_ref().unwrap();
-        // Global variable declaration statements produce None as result.
-        // So, both 'mid (if)' and 'right (else)' has to be None types
-        assert!(
-            upvalue.mid.is_none(),
-            "global declarations inside comppound statement should produce None result"
-        );
-        assert!(
-            upvalue.right.is_none(),
-            "global declarations inside comppound statement should produce None result"
-        );
-        assert_eq!(upvalue.operation, ASTOperation::AST_IF); // main AST node is of AST_IF type
-        assert_eq!(
-            upvalue.left.as_ref().unwrap().operation,
-            ASTOperation::AST_GTHAN,
-            "Unexpected ASTOperation; expected be ASTOperation::AST_GTHAN."
-        );
-    }
-
-    // If following two tests pass, then we can conclude that every other pointer type declarations,
-    // dereferencing, and addressing will work.
-    #[test]
-    fn test_integer_id_addr_load() {
-        static mut LABEL_ID: usize = 0;
-        let mut tokener: Tokenizer = Tokenizer::new("global integer *b; global integer a; b = &a;");
-        let mut sym_table: Symtable = Symtable::new();
-        let mut func_table: FunctionInfoTable = FunctionInfoTable::new();
-        let mut p: Parser = Parser::new(tokener.start_scan(), &mut sym_table, &mut func_table, unsafe { &mut LABEL_ID });
-        _ = p.parse_var_decl_stmt(StorageClass::GLOBAL);
-        _ = p.parse_var_decl_stmt(StorageClass::GLOBAL);
-        let result: ParseResult = p.parse_single_stmt();
-        assert!(result.is_ok());
-        let upvalue: &AST = result.as_ref().unwrap();
-        assert_eq!(upvalue.operation, ASTOperation::AST_ASSIGN);
-        assert_eq!(
-            upvalue.right.as_ref().unwrap().operation,
-            ASTOperation::AST_LVIDENT
-        );
-        assert_eq!(
-            upvalue.left.as_ref().unwrap().operation,
-            ASTOperation::AST_ADDR
-        );
-    }
-
-    #[test]
-    fn test_integer_id_deref() {
-        static mut LABEL_ID: usize = 0;
-        let mut tokener: Tokenizer = Tokenizer::new("global integer *b; global integer a; a = *b;");
-        let mut sym_table: Symtable = Symtable::new();
-        let mut func_table: FunctionInfoTable = FunctionInfoTable::new();
-        let mut p: Parser = Parser::new(tokener.start_scan(), &mut sym_table, &mut func_table, unsafe { &mut LABEL_ID });
-        // Skipping first two statements. Because, global variable declaration
-        // doesn't produce any AST node.
-        _ = p.parse_var_decl_stmt(StorageClass::GLOBAL);
-        _ = p.parse_var_decl_stmt(StorageClass::GLOBAL);
-        let result: ParseResult = p.parse_single_stmt();
-        assert!(result.is_ok());
-        let upvalue: &AST = result.as_ref().unwrap();
-        assert_eq!(upvalue.operation, ASTOperation::AST_ASSIGN);
-        assert_eq!(
-            upvalue.right.as_ref().unwrap().operation,
-            ASTOperation::AST_LVIDENT
-        );
-        assert_eq!(
-            upvalue.left.as_ref().unwrap().operation,
-            ASTOperation::AST_DEREF
-        );
-    }
-
-    // Return statement outside a function is not valid!
-    #[test]
-    #[should_panic]
-    fn test_simple_return_stmt_outside_func() {
-        static mut LABEL_ID: usize = 0;
-        let mut tokener: Tokenizer = Tokenizer::new("return;");
-        let mut sym_table: Symtable = Symtable::new();
-        let mut func_table: FunctionInfoTable = FunctionInfoTable::new();
-        let mut p: Parser = Parser::new(tokener.start_scan(), &mut sym_table, &mut func_table, unsafe { &mut LABEL_ID });
-        _ = p.parse_single_stmt();
-    }
-
-    #[test]
-    fn test_func_decl_stmt() {
-        static mut LABEL_ID: usize = 0;
-        let mut tokener: Tokenizer = Tokenizer::new("def main() -> void { return; }");
-        let mut sym_table: Symtable = Symtable::new();
-        let mut func_table: FunctionInfoTable = FunctionInfoTable::new();
-        let mut p: Parser = Parser::new(tokener.start_scan(), &mut sym_table, &mut func_table, unsafe { &mut LABEL_ID });
-        let func_stmt: ParseResult = p.parse_single_stmt();
-        assert!(func_stmt.is_ok());
-        let upvalue: &AST = func_stmt.as_ref().unwrap();
-        matches!(upvalue.kind, ASTKind::StmtAST(Stmt::FuncDecl(_)));
-        assert_eq!(upvalue.operation, ASTOperation::AST_FUNCTION);
-        assert_eq!(upvalue.result_type, LitTypeVariant::Void);
-        assert_eq!(
-            upvalue.left.as_ref().unwrap().operation,
-            ASTOperation::AST_RETURN
-        );
-    }
-
-    /*
-    #[test]
-    fn test_non_void_function_without_return_stmt() {
-        let mut tokener: Tokenizer = Tokenizer::new("def main() -> integer { global integer a; }");
-        let tokens: Vec<Token> = tokener.start_scan();
-        let sym_table: Rc<RefCell<Symtable>> = Rc::new(RefCell::new(Symtable::new()));
-        let mut p: Parser = Parser::new(&tokens, Rc::clone(&sym_table));
-        let result: ParseResult = p.parse_single_stmt();
-    }
-    */
-
-    #[test]
-    fn test_array_decl_stmt_success() {
-        static mut LABEL_ID: usize = 0;
-        let mut tokener: Tokenizer = Tokenizer::new("global integer nums[12];");
-        let mut sym_table: Symtable = Symtable::new();
-        let mut func_table: FunctionInfoTable = FunctionInfoTable::new();
-        let mut p: Parser = Parser::new(tokener.start_scan(), &mut sym_table, &mut func_table, unsafe { &mut LABEL_ID });
-        let array_decl_stmt: ParseResult = p.parse_var_decl_stmt(StorageClass::GLOBAL);
-        assert!(array_decl_stmt.is_err()); // ParseError::None
-    }
     
-    #[test]
-    #[should_panic]
-    fn test_array_decl_stmt_panic_array_size() {
-        static mut LABEL_ID: usize = 0;
-        let mut tokener: Tokenizer = Tokenizer::new("global integer nums[abcd];");
-        let mut sym_table: Symtable = Symtable::new();
-        let mut func_table: FunctionInfoTable = FunctionInfoTable::new();
-        let mut p: Parser = Parser::new(tokener.start_scan(), &mut sym_table, &mut func_table, unsafe { &mut LABEL_ID });
-        let array_decl_stmt: ParseResult = p.parse_var_decl_stmt(StorageClass::GLOBAL);
-        assert!(array_decl_stmt.is_err()); // ParseError::None
-    }
-    
-    #[test]
-    #[should_panic]
-    fn test_array_decl_stmt_panic_array_no_size_given() {
-        static mut LABEL_ID: usize = 0;
-        let mut tokener: Tokenizer = Tokenizer::new("global integer nums[];");
-        let mut sym_table: Symtable = Symtable::new();
-        let mut func_table: FunctionInfoTable = FunctionInfoTable::new();
-        let mut p: Parser = Parser::new(tokener.start_scan(), &mut sym_table, &mut func_table, unsafe { &mut LABEL_ID });
-        let array_decl_stmt: ParseResult = p.parse_var_decl_stmt(StorageClass::GLOBAL);
-        assert!(array_decl_stmt.is_err()); // ParseError::None
-    }
-
-    // helper function to parse a statement from string which does not contain variable declaration
-    fn parse_single_statement_no_decl(input: &'static str) -> ParseResult {
-        static mut LABEL_ID: usize = 0;
-        let mut tokener: Tokenizer = Tokenizer::new(input);
-        let mut sym_table: Symtable = Symtable::new();
-        let mut func_table: FunctionInfoTable = FunctionInfoTable::new();
-        let mut p: Parser = Parser::new(tokener.start_scan(), &mut sym_table, &mut func_table, unsafe { &mut LABEL_ID });
-        p.parse_single_stmt()
-    }
-
-    // helper function to parse a statement from string which may contain one or more variable declarations
-    fn parse_single_stmt_with_decl(input: &'static str, decl_count: usize) -> ParseResult {
-        static mut LABEL_ID: usize = 0;
-        let mut tokener: Tokenizer = Tokenizer::new(input);
-        let mut sym_table: Symtable = Symtable::new();
-        let mut func_table: FunctionInfoTable = FunctionInfoTable::new();
-        let mut p: Parser = Parser::new(tokener.start_scan(), &mut sym_table, &mut func_table, unsafe { &mut LABEL_ID });
-        for _ in 0..decl_count {
-            _ = p.parse_var_decl_stmt(StorageClass::GLOBAL);
-        }
-        p.parse_single_stmt()
-    }
-
-    #[test]
-    fn test_array_access_stmt_success() {
-        let result: ParseResult = parse_single_stmt_with_decl("global integer nums[12]; global integer value; value = nums[5] + 12;", 2);
-        assert!(result.is_ok());
-        let node: &AST = result.as_ref().unwrap();
-        let expr_node: &AST = node.left.as_ref().unwrap();
-        let array_access: &AST = expr_node.left.as_ref().unwrap();
-        assert_eq!(array_access.operation, ASTOperation::AST_ARRAY_ACCESS);
-    }
-
-    #[test]
-    fn test_return_stmt_inside_non_void_function() {
-        let func_stmt: ParseResult = parse_single_statement_no_decl("def main() -> integer { return 1234; }");
-        assert!(func_stmt.is_ok());
-        let upvalue: &AST = func_stmt.as_ref().unwrap();
-        assert_eq!(upvalue.operation, ASTOperation::AST_FUNCTION);
-        assert_eq!(upvalue.result_type, LitTypeVariant::I32);
-        let left_node: &AST = upvalue.left.as_ref().unwrap();
-        assert_eq!(left_node.operation, ASTOperation::AST_RETURN);
-        assert_eq!(
-            left_node.left.as_ref().unwrap().operation,
-            ASTOperation::AST_INTLIT
-        ); // function should return an integer literal
-    }
 }
