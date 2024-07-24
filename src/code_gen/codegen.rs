@@ -204,7 +204,7 @@ pub trait CodeGen {
             LitTypeVariant::I16 |
             LitTypeVariant::I64 |
             LitTypeVariant::I32 => self.gen_load_intlit_into_reg(&lit_expr.value),
-            LitTypeVariant::U8Ptr => self.gen_load_global_strlit(&lit_expr.value),
+            LitTypeVariant::Str => self.gen_load_global_strlit(&lit_expr.value),
             _ => 0xFFFFFFFF
         }
     }

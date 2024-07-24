@@ -23,7 +23,7 @@ SOFTWARE.
 */
 
 use core::panic;
-use std::{collections::HashMap, fmt::Display};
+use std::{cmp::max, collections::HashMap, fmt::Display};
 
 use lazy_static::lazy_static;
 
@@ -36,19 +36,10 @@ pub enum LitType {
     I32(i32), // 32-bit integer
     I16(i16), // 16-bit integer
     U8(u8),   // 8-bit integer. Also known as 'char' in C programming language.
-    F64(f64), // Double-precicion floating point number. 64-bit float type.
-    F32(f32), // Single-precicion floating point number. 32-bit float type.
+    F64(f64), // Double-precision floating point number. 64-bit float type.
+    F32(f32), // Single-precision floating point number. 32-bit float type.
     Void,     // Void return type
-    // pointer types
-    I64Ptr(u64),
-    I32Ptr(u64),
-    I16Ptr(u64),
-    U8Ptr(u64),
-    F64Ptr(u64),
-    F32Ptr(u64),
-    VoidPtr(u64),
-    Str(String), // This type(String) is not supported by this language.
-    // I am using this as a identifier name holder in parsing process.
+    Str(String),
     Null, // null type
     None, // placeholder
 }
@@ -62,18 +53,22 @@ pub enum LitTypeVariant {
     F64,
     F32,
     Void,
-    I64Ptr,
-    I32Ptr,
-    I16Ptr,
-    U8Ptr,
-    F64Ptr,
-    F32Ptr,
-    VoidPtr,
+    Str,
     Null,
     None, // placeholder
 }
 
 impl LitTypeVariant {
+    pub fn to_string(&self) -> String {
+        match self {
+            Self::I32 => "integer".to_string(),
+            Self::I64 => "long".to_string(),
+            Self::U8 => "byte".to_string(),
+            Self::Str => "str".to_string(),
+            _ => "".to_string(),
+        }
+    }
+
     pub fn from_token_kind(kind: TokenKind) -> Self {
         match kind {
             TokenKind::KW_VOID => Self::Void,
@@ -86,49 +81,10 @@ impl LitTypeVariant {
         }
     }
 
-    /// Given the primitive type, get a type which is a pointer to it
-    pub fn pointer_type(prim_type: LitTypeVariant) -> Self {
-        match prim_type {
-            Self::I32 => Self::I32Ptr,
-            Self::I64 => Self::I64Ptr,
-            Self::U8 => Self::U8Ptr,
-            Self::Void => Self::VoidPtr,
-            Self::F32 => Self::F32Ptr,
-            Self::F64 => Self::F64Ptr,
-            _ => panic!("Can't take address of this type: '{:?}'", prim_type),
-        }
-    }
-
-    pub fn value_type(prim_type: LitTypeVariant) -> Self {
-        match prim_type {
-            Self::I32Ptr => Self::I32,
-            Self::I64Ptr => Self::I64,
-            Self::U8Ptr => Self::U8,
-            Self::VoidPtr => Self::Void,
-            Self::F32Ptr => Self::F32,
-            Self::F64Ptr => Self::F64,
-            _ => panic!("Not supported value type: '{:?}'", prim_type),
-        }
-    }
-
-    pub fn is_ptr_type(&self) -> bool {
-        matches!(
-            self,
-            Self::I32Ptr | Self::I64Ptr | Self::U8Ptr | Self::VoidPtr | Self::F32Ptr | Self::F64Ptr
-        )
-    }
-
     pub fn size(&self) -> usize {
         match self {
-            Self::U8Ptr
-            | Self::I64
-            | Self::F64
-            | Self::F32Ptr
-            | Self::F64Ptr
-            | Self::I16Ptr
-            | Self::I32Ptr
-            | Self::I64Ptr
-            | Self::VoidPtr => 8,
+            Self::I64
+            | Self::F64 => 8,
             Self::F32 | Self::I32 => 4,
             Self::U8 => 1,
             Self::I16 => 2,
@@ -193,28 +149,12 @@ impl LitType {
             Self::F64(_) => LitTypeVariant::F64,
             Self::F32(_) => LitTypeVariant::F32,
             Self::Void => LitTypeVariant::Void,
-            Self::I64Ptr(_) => LitTypeVariant::I64Ptr,
-            Self::I32Ptr(_) => LitTypeVariant::I32Ptr,
-            Self::I16Ptr(_) => LitTypeVariant::I16Ptr,
-            Self::U8Ptr(_) => LitTypeVariant::U8Ptr,
-            Self::F64Ptr(_) => LitTypeVariant::F64Ptr,
-            Self::F32Ptr(_) => LitTypeVariant::F32Ptr,
-            Self::VoidPtr(_) => LitTypeVariant::VoidPtr,
             _ => panic!("not a valid type to calculate variant of!"),
         }
     }
 
     pub fn size(&self) -> usize {
         match self {
-            LitType::I64(_)
-            | LitType::F64(_)
-            | LitType::I64Ptr(_)
-            | LitType::I32Ptr(_)
-            | LitType::I16Ptr(_)
-            | LitType::U8Ptr(_)
-            | LitType::F64Ptr(_)
-            | LitType::F32Ptr(_)
-            | LitType::VoidPtr(_) => 64,
             LitType::I32(_) | LitType::F32(_) => 32,
             LitType::I16(_) => 16,
             LitType::U8(_) => 8,
@@ -222,24 +162,37 @@ impl LitType {
         }
     }
 
-    pub fn compatible(&self, other: &Self) -> (bool, u8, u8) {
-        let self_size: usize = self.size();
-        let other_size: usize = other.size();
-        // Same types, they are compatible
-        if self.variant() == other.variant() {
-            return (true, 0, 0);
+    pub fn coerce_to(&self, target_type: LitType) -> Result<LitType, String> {
+        match target_type {
+            LitType::I16(_) => self.coerce_to_i16(),
+            LitType::I32(_) => self.coerce_to_i32(),
+            LitType::I64(_) => self.coerce_to_i64(),
+            _ => panic!("Error")
         }
-        // Types with zero size are not compatible with anything
-        if self_size == 0 || other_size == 0 {
-            return (false, 0, 0);
+    }
+
+    fn coerce_to_i16(&self) -> Result<LitType, String> {
+        match self {
+            LitType::U8(val) => Ok(LitType::I16(*val as i16)),
+            _ => panic!("Error")
         }
-        if self_size < other_size {
-            return (true, 1, 0);
+    }
+
+    fn coerce_to_i32(&self) -> Result<LitType, String> {
+        match self {
+            LitType::U8(val) => Ok(LitType::I32(*val as i32)),
+            LitType::I16(val) => Ok(LitType::I32(*val as i32)),
+            _ => panic!("Error")
         }
-        if other_size < self_size {
-            return (true, 0, 1);
+    }
+
+    fn coerce_to_i64(&self) -> Result<LitType, String> {
+        match self {
+            LitType::U8(val) => Ok(LitType::I64(*val as i64)),
+            LitType::I16(val) => Ok(LitType::I64(*val as i64)),
+            LitType::I32(val) => Ok(LitType::I64(*val as i64)),
+            _ => panic!("Error")
         }
-        (true, 0, 0)
     }
 }
 
@@ -279,11 +232,11 @@ pub fn convert_ast(node: &AST, to: LitTypeVariant) -> TypeConversionResult {
     })
 }
 
-
 lazy_static! {
     static ref TYPE_PRECEDENCE: std::collections::HashMap<u8, u8> = {
         let mut typ: std::collections::HashMap<u8, u8> = HashMap::new();
-        typ.insert(LitTypeVariant::I32 as u8, 1);
+        typ.insert(LitTypeVariant::I32 as u8, 2);
+        typ.insert(LitTypeVariant::U8 as u8, 0);
         typ
     };
 }
@@ -294,9 +247,9 @@ pub fn infer_type_from_expr(expr: &Expr) -> LitTypeVariant {
         Expr::Binary(bin) => {
             let left_type: LitTypeVariant = infer_type_from_expr(&bin.left);
             let right_type: LitTypeVariant = infer_type_from_expr(&bin.right);
-            if left_type == LitTypeVariant::U8Ptr || right_type == LitTypeVariant::U8Ptr {
+            if left_type == LitTypeVariant::Str || right_type == LitTypeVariant::Str {
                 if bin.operation == ASTOperation::AST_ADD {
-                    return LitTypeVariant::U8Ptr;
+                    return LitTypeVariant::Str;
                 } else {
                     panic!("Type mismatch: {:?} and {:?}", left_type, right_type);
                 }
@@ -307,12 +260,12 @@ pub fn infer_type_from_expr(expr: &Expr) -> LitTypeVariant {
                 let lp: u8 = if let Some(lp) = lprec {
                     *lp
                 } else {
-                    panic!("Type precedence not defined");
+                    panic!("Type precedence not defined for operation {:?}", left_type);
                 };
                 let rp: u8 = if let Some(rp) = rprec {
                     *rp
                 } else {
-                    panic!("Type precedence not defined");
+                    panic!("Type precedence not defined for operation {:?}", right_type);
                 };
                 if lp > rp {
                     return left_type;
@@ -330,32 +283,56 @@ pub fn infer_type_from_expr(expr: &Expr) -> LitTypeVariant {
     }
 }
 
+pub fn are_compatible_for_operation(left: &AST, right: &AST, op: ASTOperation) -> (bool, LitTypeVariant) {
+    let ltype = left.result_type;
+    let rtype = right.result_type;
+    if ltype == rtype {
+        return (true, ltype);
+    }
+    let mut larger_type = ltype;
+    let lsize = ltype.size();
+    let rsize = rtype.size();
+    if rsize > lsize {
+        larger_type = rtype;
+    }
+    match (ltype, rtype) {
+        (LitTypeVariant::I32, LitTypeVariant::U8) |
+        (LitTypeVariant::U8, LitTypeVariant::I32) | 
+        (LitTypeVariant::I64, LitTypeVariant::I32) |
+        (LitTypeVariant::I64, LitTypeVariant::U8) | 
+        (LitTypeVariant::I32, LitTypeVariant::I64) | 
+        (LitTypeVariant::U8, LitTypeVariant::I64) => {
+            if matches!(op, ASTOperation::AST_ADD | ASTOperation::AST_SUBTRACT | ASTOperation::AST_MULTIPLY | ASTOperation::AST_DIVIDE) {
+                (true, larger_type)
+            } else {
+                (false, larger_type)
+            }
+        },
+        _ => (false, larger_type)
+    }
+}
+
 /// Modify the given node's type into the 'to' type.
-pub fn modify_ast_node_type(node: &mut AST, to: LitTypeVariant, op: ASTOperation) -> Option<AST> {
+pub fn modify_ast_node_type(node: &mut AST, to: LitTypeVariant) -> Option<AST> {
     let ltype: LitTypeVariant = node.result_type;
     let lsize: usize = node.result_type.size();
     let rsize: usize = to.size();
-    if !ltype.is_ptr_type() && !to.is_ptr_type() {
-        if ltype == to {
-            return Some(node.clone());
-        }
-        if lsize > rsize {
-            // the type we are trying to convert is too big for the target type
-            panic!("Can't convert type {:?} into {:?}. Size too large.", ltype, to);
-        }
-        if rsize > lsize {
-            return Some(AST::create_leaf(
-                ASTKind::ExprAST(Expr::Widen(WidenExpr{
-                    from: Box::new(node.clone()),
-                    result_type: to
-                })),
-                ASTOperation::AST_WIDEN,
-                to,
-            ));
-        }
-    }
-    if ltype.is_ptr_type() && ltype == to && (op == ASTOperation::AST_NONE) {
+    if ltype == to {
         return Some(node.clone());
+    }
+    if lsize > rsize {
+        // the type we are trying to convert is too big for the target type
+        panic!("Can't convert type {:?} into {:?}. Size too large.", ltype, to);
+    }
+    if rsize > lsize {
+        return Some(AST::create_leaf(
+            ASTKind::ExprAST(Expr::Widen(WidenExpr{
+                from: Box::new(node.clone()),
+                result_type: to
+            })),
+            ASTOperation::AST_WIDEN,
+            to,
+        ));
     }
     // if we reach here, then types are incompatible
     None

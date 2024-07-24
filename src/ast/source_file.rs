@@ -22,7 +22,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use std::{cell::RefCell, fs::File, io::{Error, Read}, path::Path, rc::Rc};
+use std::{
+    cell::RefCell,
+    fs::File,
+    io::{Error, Read},
+    path::Path,
+    rc::Rc,
+    str::FromStr,
+};
 
 use crate::tokenizer::{Token, Tokenizer};
 
@@ -32,12 +39,12 @@ pub enum ParsingStageError {
     TokenizationError,
     ParsingError,
     FileReadingError,
-    None
+    None,
 }
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum ParsingStage {
-    /// Nothing has been done till now. Even the file hasn't 
+    /// Nothing has been done till now. Even the file hasn't
     /// been loaded into memory.
     Unprocessed,
 
@@ -46,7 +53,7 @@ pub enum ParsingStage {
 
     /// Tokens has been generated for this file.
     Tokenized,
-    
+
     Parsed,
 
     /// Some kind of error has occured during reading this file
@@ -59,11 +66,14 @@ pub struct SourceFile {
     /// Path of the source file.
     pub path: String,
 
-    /// This contains the tokens after they have been 
+    /// Name of the source file.
+    pub name: String,
+
+    /// This contains the tokens after they have been
     /// generated
     pub tokens: Option<Vec<Token>>,
 
-    /// Tracks different stages of this file. 
+    /// Tracks different stages of this file.
     pub stage: ParsingStage,
 
     /// Contains the source file's content in string format after
@@ -72,7 +82,7 @@ pub struct SourceFile {
 }
 
 impl SourceFile {
-    pub fn new(path: String) -> Self {
+    pub fn new(path: &str) -> Self {
         let file_path: &Path = Path::new(&path);
         let mut stage: ParsingStage = ParsingStage::Unprocessed;
         if !file_path.exists() {
@@ -83,19 +93,27 @@ impl SourceFile {
             println!("{} is not a file!", path);
         }
         Self {
-            path,
+            path: String::from_str(path).ok().unwrap(),
+            name: file_path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or(String::from("")),
             tokens: None,
             stage,
             source: Rc::new("".to_string()),
         }
     }
 
+    /// Read file into the internal ```source``` field.
+    ///
+    /// Returns ```Result<i32, Error>```.
     pub fn read(&mut self) -> Result<i32, Error> {
         let mut file_res: Result<File, std::io::Error> = File::open(Path::new(&self.path));
         let mut file_size: i32 = -1;
         if let Ok(ref mut file) = file_res {
             let mut input_holder: String = String::from("");
-            let file_read_res: Result<usize, std::io::Error> = file.read_to_string(&mut input_holder);
+            let file_read_res: Result<usize, std::io::Error> =
+                file.read_to_string(&mut input_holder);
             self.source = Rc::new(input_holder.clone());
             if let Ok(fs) = file_read_res {
                 self.stage = ParsingStage::Loaded;
@@ -108,6 +126,8 @@ impl SourceFile {
         Ok(file_size)
     }
 
+    /// Converts the source content of the ```SourceFile``` into a stream
+    /// of tokens.
     pub fn tokenize(&mut self, tokener: Rc<RefCell<Tokenizer>>) {
         let mut tokener_borrow = tokener.borrow_mut();
         self.tokens = Some(tokener_borrow.tokenize(Rc::clone(&self.source)));

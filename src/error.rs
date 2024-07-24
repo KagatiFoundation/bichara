@@ -1,4 +1,4 @@
-/* 
+/*
 MIT License
 
 Copyright (c) 2023 Kagati Foundation
@@ -24,6 +24,132 @@ SOFTWARE.
 
 use crate::tokenizer::{Token, TokenPos};
 
+/// Trait representing a basic error in the compiler. Any struct 
+/// implementing this trait should provide a mechanism to report 
+/// the error.
+pub trait BError {
+    /// Reports the error by printing it to the console.
+    fn report(&self);
+}
+
+/// Struct containing common information about an error in the 
+/// compiler. This includes the token that caused the error, a 
+/// static message describing the error, and a reference to the 
+/// source file where the error occurred.
+#[derive(Clone, Debug)]
+pub struct BErrorInfo {
+    /// The token that caused the error.
+    pub token: Token,
+
+    /// A static message describing the error.
+    pub message: String,
+
+    /// Name of the source file where error has occured.
+    pub source_file: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum BTypeErr {
+    TypesMismatch { expected: String, found: String },
+    AssignmentTypeMismatch { var_type: String, assigned_type: String },
+    ReturnTypeMismatch { expected: String, found: String },
+    IncompatibleTypes { first_type: String, second_type: String, operator: String }
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub enum BErrType {
+    UndefinedSymbol,
+    UnexpectedToken,
+    NonSubscriptable,
+    NonCallable,
+    SymbolAlreadyDefined,
+    TypeError(BTypeErr),
+    None
+}
+
+#[derive(Clone, Debug)]
+pub struct BErr {
+    err_type: BErrType,
+    info: Option<BErrorInfo>,
+}
+
+impl BErr {
+    pub fn new(err_type: BErrType, source_file: String, err_token: Token) -> Self {
+        if err_type == BErrType::None {
+            return BErr {
+                err_type: BErrType::None,
+                info: None
+            };
+        }
+        let message: String = match err_type {
+            BErrType::UndefinedSymbol => "Undefined symbol".to_string(),
+            BErrType::UnexpectedToken => "Unexpected token".to_string(),
+            BErrType::NonSubscriptable => "Identifier is not subscriptable".to_string(),
+            BErrType::NonCallable => "Identifier is not callable".to_string(),
+            BErrType::SymbolAlreadyDefined => "Symbol already defined".to_string(),
+            BErrType::TypeError(ref type_error) => match type_error {
+                BTypeErr::TypesMismatch { expected, found } => format!("Type mismatch: expected {}, found {}", expected, found),
+                BTypeErr::AssignmentTypeMismatch { var_type, assigned_type } => format!("Cannot assign a value of type '{}' to a variable of type '{}'", assigned_type, var_type),
+                BTypeErr::ReturnTypeMismatch { expected, found } => format!("Return type mismatch: expected {}, found {}", expected, found),
+                BTypeErr::IncompatibleTypes { first_type, second_type, operator } => format!("Incompatible types '{}' and '{}' for operator '{}'", first_type, second_type, operator)
+            },
+            _ => "".to_string()
+        };
+        BErr {
+            err_type,
+            info: Some(BErrorInfo {
+                message,
+                source_file,
+                token: err_token,
+            }),
+        }
+    }
+
+    pub fn none() -> Self {
+        BErr {
+            err_type: BErrType::None,
+            info: None
+        }
+    }
+
+    pub fn undefined_symbol(source_file: String, err_token: Token) -> BErr {
+        BErr::new(BErrType::UndefinedSymbol, source_file, err_token)
+    }
+
+    pub fn unexpected_token(source_file: String, err_token: Token) -> BErr {
+        BErr::new(BErrType::UnexpectedToken, source_file, err_token)
+    }
+
+    pub fn nonsubsriptable_ident(source_file: String, err_token: Token) -> BErr {
+        BErr::new(BErrType::UnexpectedToken, source_file, err_token)
+    }
+
+    pub fn noncallable_ident(source_file: String, err_token: Token) -> BErr {
+        BErr::new(BErrType::UnexpectedToken, source_file, err_token)
+    }
+    
+    pub fn symbol_already_defined(source_file: String, err_token: Token) -> BErr {
+        BErr::new(BErrType::SymbolAlreadyDefined, source_file, err_token)
+    }
+
+    pub fn is_ignorable(&self) -> bool {
+        matches!(self.err_type, BErrType::None)
+    }
+
+    pub fn report(&self) {
+        if let Some(info) = &self.info {
+            println!(
+                "{}:{}:{}: error: {} '{}'",
+                info.source_file,
+                info.token.pos.line,
+                info.token.pos.column,
+                info.message,
+                info.token.lexeme
+            );
+        }
+    }
+}
+
 pub fn error(pos: TokenPos, msg: &str) {
     panic!("Error: {}:{} {}", pos.line, pos.column, msg);
 }
@@ -42,5 +168,11 @@ pub fn warning(pos: TokenPos, msg: &str) {
 }
 
 pub fn report_unexpected_token(token: &Token, hint: Option<&str>) {
-    panic!("Error: unexpected token '{}' at {}:{}. {}", token.lexeme, token.pos.line, token.pos.column, if let Some(h) = hint { h } else { "" });
+    panic!(
+        "Error: unexpected token '{}' at {}:{}. {}",
+        token.lexeme,
+        token.pos.line,
+        token.pos.column,
+        hint.unwrap_or_default()
+    );
 }

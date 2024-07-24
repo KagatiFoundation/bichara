@@ -22,39 +22,32 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+pub mod ast;
+pub mod code_gen;
+pub mod context;
 pub mod error;
 pub mod parser;
+pub mod symbol;
 pub mod tokenizer;
 pub mod types;
 pub mod utils;
-pub mod ast;
-pub mod symbol;
-pub mod code_gen;
-pub mod context;
 
 use std::{cell::RefCell, rc::Rc};
 
+use ast::SourceFile;
+use code_gen::{Aarch64CodeGen, RegManager};
 use context::CompilerCtx;
 use parser::*;
 use symbol::*;
-use ast::SourceFile;
-use code_gen::{Aarch64CodeGen, RegManager};
 use tokenizer::Tokenizer;
-
-/*
-global char n;
-def main() -> char {
-    n = 4;
-    return n;
-}
-*/
 
 fn main() {
     let tokener = Rc::new(RefCell::new(Tokenizer::new()));
     let parsr = Rc::new(RefCell::new(Parser::new()));
     let mut symt: Symtable = Symtable::new();
     let mut funct: FunctionInfoTable = FunctionInfoTable::new();
-    let mut file1: SourceFile = SourceFile::new(String::from("/Users/rigelstar/Desktop/KagatiFoundation/bichara/examples/input.bish"));
+    let mut file1: SourceFile =
+        SourceFile::new("/Users/rigelstar/Desktop/KagatiFoundation/bichara/examples/input1.bic");
     let mut source_files: Vec<&mut SourceFile> = vec![&mut file1];
     let ctx = Rc::new(RefCell::new(CompilerCtx::new(&mut symt, &mut funct)));
     let rm: RefCell<RegManager> = RefCell::new(RegManager::new({
@@ -77,9 +70,12 @@ fn main() {
     {
         let mut parser_borrow = parsr.borrow_mut();
         for sf in &mut source_files {
-            let tokens = sf.tokens.clone().unwrap(); 
-            let parse_result = parser_borrow.parse_with_ctx(Rc::clone(&ctx), tokens);
-            cg.gen_with_ctx(Rc::clone(&ctx), parse_result);
+            let tokens: Vec<tokenizer::Token> = sf.tokens.clone().unwrap();
+            ctx.borrow_mut().current_file = Some(sf);
+            let parse_result: Vec<ast::AST> = parser_borrow.parse_with_ctx(Rc::clone(&ctx), tokens);
+            if !parser_borrow.has_parsing_errors() {
+                cg.gen_with_ctx(Rc::clone(&ctx), parse_result);
+            }
         }
         std::mem::drop(parser_borrow);
     }

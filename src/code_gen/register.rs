@@ -79,14 +79,12 @@ impl RegManager {
     }
 
     pub fn name(&self, index: usize) -> String {
-        let mut dealloc_name: String = String::from("");
         for (dindex, (reg_name, _)) in self.registers.iter().enumerate() {
             if dindex == index {
-                dealloc_name = reg_name.clone();
-                break;
+                return reg_name.clone();
             }
         }
-        dealloc_name 
+        String::from("")
     }
 }
 

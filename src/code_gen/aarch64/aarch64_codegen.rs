@@ -43,6 +43,8 @@ use crate::types::{
     LitType, 
     LitTypeVariant
 };
+use crate::utils::integer::split_i64_hex_half_each;
+use crate::utils::integer::to_hex;
 use crate::SymbolType;
 
 lazy_static::lazy_static! {
@@ -211,17 +213,29 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         }
     }
 
-    // Load a integer literal into a register
+    // Load an integer literal into a register
     fn gen_load_intlit_into_reg(&mut self, value: &LitType) -> usize {
         let reg: usize = self.reg_manager.borrow_mut().allocate();
         let reg_name: String = self.reg_manager.borrow().name(reg);
-        let int_value: i64 = match value {
-            LitType::I64(int_val) => *int_val,
-            LitType::I32(int_val) => *int_val as i64,
-            LitType::U8(u8_val) => *u8_val as i64,
+        match value {
+            LitType::I64(int_val) => {
+                let splitted_i64 = split_i64_hex_half_each(to_hex(*int_val));
+                println!("movz {}, 0x{}", reg_name, splitted_i64[0]);
+                println!("movk {}, 0x{}", reg_name, splitted_i64[1]);
+            },
+            LitType::I32(int_val) => {
+                let splitted_i64 = split_i64_hex_half_each(to_hex(*int_val));
+                println!("movk {}, 0x{}, lsl #16", reg_name, splitted_i64[0]);
+                println!("movk {}, 0x{}", reg_name, splitted_i64[1]);
+            }
+            LitType::I16(int_val) => {
+                println!("mov {}, {}", reg_name, int_val);
+            }
+            LitType::U8(u8_val) => {
+                println!("mov {}, {}", reg_name, *u8_val);
+            }
             _ => panic!("Not a recognized type of integer: {:?}", value),
         };
-        println!("mov {}, {}", reg_name, int_value);
         reg
     }
 
@@ -411,13 +425,6 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
 
     fn dump_global_with_alignment(symbol: &Symbol) {
         match symbol.lit_type {
-            LitTypeVariant::F32Ptr
-            | LitTypeVariant::F64Ptr
-            | LitTypeVariant::I16Ptr
-            | LitTypeVariant::I32Ptr
-            | LitTypeVariant::I64Ptr
-            | LitTypeVariant::U8Ptr
-            | LitTypeVariant::VoidPtr => println!("{}: .align 8\n\t.quad 0", symbol.name),
             LitTypeVariant::I32 => println!("{}: .align 4\n\t.word 0", symbol.name),
             LitTypeVariant::U8 => println!("{}:\t.byte 0", symbol.name),
             _ => panic!("Symbol's size is not supported right now: '{:?}'", symbol),
