@@ -1,7 +1,5 @@
-def print_me() -> void {
-   let a = 222; 
-}
+def extern calculate_sin_5() -> void;
 
 def main() -> void {
-    print_me();
+    calculate_sin_5();
 }

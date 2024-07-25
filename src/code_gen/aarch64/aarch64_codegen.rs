@@ -157,6 +157,10 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             panic!("Please provide a context to work on!");
         };
         // function preamble
+        if func_info.storage_class == StorageClass::EXTERN {
+            println!(".extern _{}", func_name);
+            return 0xFFFFFFFF;
+        }
         println!(".global _{}\n_{}:", func_name, func_name);
         println!("sub sp, sp, {}", func_info.stack_size);
         if let Some(ref body) = ast.left {
@@ -381,7 +385,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         if let Some(ctx_rc) = &self.ctx {
             let ctx_borrow = ctx_rc.borrow_mut();
             if let Some(symbol) = ctx_borrow.sym_table.get_symbol(symbol_id) {
-                println!("call {}", symbol.name);
+                println!("bl _{}", symbol.name);
             }
         }
     }

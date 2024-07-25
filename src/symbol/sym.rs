@@ -35,9 +35,17 @@ pub enum SymbolType {
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum StorageClass {
-    GLOBAL, // globally visible symbol
-    LOCAL, // locally visible symbol
-    PARAM, // locally visible function parameter
+    /// Globally visible symbol.
+    GLOBAL, 
+
+    /// Locally visible symbol.
+    LOCAL, 
+
+    /// Locally visible function parameter.
+    PARAM, 
+
+    /// Externally defined symbol.
+    EXTERN
 }
 
 #[derive(Clone, PartialEq, Debug)]

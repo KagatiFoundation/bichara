@@ -245,6 +245,18 @@ impl<'parser> Parser<'parser> {
         self.local_offset = 0;
         // match and ignore function declaration keyword 'def'
         _ = self.token_match(TokenKind::KW_DEF);
+
+        // Storage class of the function that is being parsed.
+        // By default, it is set to 'GLOBAL'.
+        let mut func_storage_class: StorageClass = StorageClass::GLOBAL;
+
+        // 'def' keyword could be followed by the 'extern' keyword, 
+        // symbolizing the external definition of the function's body.
+        if self.current_token.kind == TokenKind::KW_EXTERN {
+            _ = self.token_match(TokenKind::KW_EXTERN);
+            func_storage_class = StorageClass::EXTERN;
+        }
+
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
         _ = self.token_match(TokenKind::T_LPAREN);
         _ = self.token_match(TokenKind::T_RPAREN);
@@ -264,7 +276,7 @@ impl<'parser> Parser<'parser> {
             id_token.lexeme.clone(),
             func_return_type,
             SymbolType::Function,
-            StorageClass::GLOBAL,
+            func_storage_class,
         ));
         // in case the function symbol addition process fails
         if function_id.is_none() {
@@ -274,12 +286,18 @@ impl<'parser> Parser<'parser> {
             )));
         }
         self.current_function_id = function_id.unwrap();
+        let mut function_body: Option<AST> = None;
         // create function body
-        let function_body_res: ParseResult2 = self.parse_compound_stmt();
-        let function_body: AST = match function_body_res {
-            Ok(ast) => ast,
-            Err(err) => return Err(err)
-        };
+        if func_storage_class != StorageClass::EXTERN {
+            let function_body_res: ParseResult2 = self.parse_compound_stmt();
+            let __body: AST = match function_body_res {
+                Ok(ast) => ast,
+                Err(err) => return Err(err)
+            };
+            function_body = Some(__body);
+        } else {
+            _ = self.token_match(TokenKind::T_SEMICOLON);
+        }
         let temp_func_id: usize = self.current_function_id;
         self.current_function_id = INVALID_FUNC_ID; // function parsing done; exiting out of function body
                                                     // function information collection
@@ -289,6 +307,7 @@ impl<'parser> Parser<'parser> {
             function_id.unwrap(),
             stack_offset,
             func_return_type,
+            func_storage_class
         );
         // create a new FunctionInfo
         if let Some(ctx_rc) = &mut self.ctx {
@@ -304,7 +323,7 @@ impl<'parser> Parser<'parser> {
                 func_id: temp_func_id,
             })),
             ASTOperation::AST_FUNCTION,
-            Some(function_body),
+            function_body,
             None,
             func_return_type,
         ))
