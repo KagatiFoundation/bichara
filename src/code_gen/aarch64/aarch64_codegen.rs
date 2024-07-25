@@ -376,6 +376,15 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     fn reg_manager(&self) -> RefMut<RegManager> {
         self.reg_manager.borrow_mut()
     }
+    
+    fn gen_func_call_stmt(&mut self, symbol_id: usize) {
+        if let Some(ctx_rc) = &self.ctx {
+            let ctx_borrow = ctx_rc.borrow_mut();
+            if let Some(symbol) = ctx_borrow.sym_table.get_symbol(symbol_id) {
+                println!("call {}", symbol.name);
+            }
+        }
+    }
 }
 
 impl<'aarch64> Aarch64CodeGen<'aarch64> {

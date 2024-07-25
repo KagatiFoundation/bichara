@@ -24,6 +24,8 @@ SOFTWARE.
 
 use std::cell::RefMut;
 
+use crate::ast;
+use crate::ast::ASTKind;
 use crate::ast::BinExpr;
 use crate::ast::Expr;
 use crate::ast::LitValExpr;
@@ -119,7 +121,20 @@ pub trait CodeGen {
             }
             return 0xFFFFFFFF;
         }
-       else if ast_node.operation == ASTOperation::AST_RETURN {
+        else if ast_node.operation == ASTOperation::AST_FUNC_CALL {
+            if ast_node.result_type == LitTypeVariant::Void {
+                if let ASTKind::StmtAST(func_call_stmt) = &ast_node.kind {
+                    match func_call_stmt {
+                        Stmt::FuncCall(func_call) => {
+                            self.gen_func_call_stmt(func_call.symtbl_pos);
+                        },
+                        _ => return 0xFFFFFFFF
+                    }
+                }
+            }
+            0xFFFFFFFF
+        }
+        else if ast_node.operation == ASTOperation::AST_RETURN {
             let possible_ret_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
             let return_expr: &AST = ast_node.left.as_ref().unwrap();
             let result_reg: usize = self.gen_expr(&return_expr.kind.clone().unwrap_expr(), ast_node.operation, reg, parent_ast_kind);
@@ -184,7 +199,7 @@ pub trait CodeGen {
             Expr::Subscript(subs) => {
                 let index_reg: usize = self.gen_expr(&subs.index, curr_ast_kind, reg, parent_ast_kind);
                 self.gen_array_access2(subs.symtbl_pos, index_reg)
-            },
+            }
             _ => panic!("Error: Unknown Expr type '{:?}'", expr),
         }
     }
@@ -298,6 +313,8 @@ pub trait CodeGen {
     fn gen_array_access2(&mut self, symbol_id: usize, index: usize) -> usize;
 
     fn gen_return_stmt(&mut self, result_reg: usize, _func_id: usize) -> usize;
+
+    fn gen_func_call_stmt(&mut self, symbol_id: usize);
 
     fn reg_manager(&self) -> RefMut<RegManager>;
 }

@@ -74,10 +74,10 @@ impl Expr {
         match self {
             Expr::LitVal(lit_val) => Ok(lit_val.value.clone()),
             Expr::Binary(bin) => {
-                let left_evaled = bin.left.eval();
-                let right_evaled = bin.right.eval();
+                let left_evaled: Result<LitType, BTypeErr> = bin.left.eval();
+                let right_evaled: Result<LitType, BTypeErr> = bin.right.eval();
                 if let (Ok(left_type), Ok(right_type)) = (left_evaled, right_evaled) {
-                    let compat_res = are_compatible_for_operation::<LitType>(&left_type, &right_type, bin.operation);
+                    let compat_res: (bool, LitTypeVariant) = are_compatible_for_operation::<LitType>(&left_type, &right_type, bin.operation);
                     if !compat_res.0 {
                         return Err(BTypeErr::IncompatibleTypes { 
                             first_type: left_type.to_string(), 
@@ -105,6 +105,9 @@ impl Expr {
                 else {
                     panic!()
                 }
+            }
+            Expr::Ident(_) => {
+                panic!("Identifiers in an expression is not supported at compile-time expression evaluation.");
             }
             _ => panic!()
         }

@@ -28,6 +28,7 @@ use crate::ast::AssignStmt;
 use crate::ast::BinExpr;
 use crate::ast::Expr;
 use crate::ast::FuncCallExpr;
+use crate::ast::FuncCallStmt;
 use crate::ast::FuncDeclStmt;
 use crate::ast::IdentExpr;
 use crate::ast::LitValExpr;
@@ -183,7 +184,7 @@ impl<'parser> Parser<'parser> {
     fn parse_single_stmt(&mut self) -> ParseResult2 {
         match self.current_token.kind {
             TokenKind::KW_LET => self.parse_var_decl_stmt(),
-            TokenKind::T_IDENTIFIER => self.parse_assignment_stmt(),
+            TokenKind::T_IDENTIFIER => self.assign_stmt_or_func_call(),
             TokenKind::KW_IF => self.parse_if_stmt(),
             TokenKind::KW_WHILE => self.parse_while_stmt(),
             TokenKind::KW_FOR => self.parse_for_stmt(),
@@ -277,9 +278,7 @@ impl<'parser> Parser<'parser> {
         let function_body_res: ParseResult2 = self.parse_compound_stmt();
         let function_body: AST = match function_body_res {
             Ok(ast) => ast,
-            Err(err) => {
-                panic!("{:?}", err);
-            }
+            Err(err) => return Err(err)
         };
         let temp_func_id: usize = self.current_function_id;
         self.current_function_id = INVALID_FUNC_ID; // function parsing done; exiting out of function body
@@ -670,8 +669,30 @@ impl<'parser> Parser<'parser> {
         }
     }
 
-    fn parse_assignment_stmt(&mut self) -> ParseResult2 {
+    fn assign_stmt_or_func_call(&mut self) -> ParseResult2 {
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
+        let tok_kind_after_id_tok: TokenKind = self.current_token.kind;
+        if tok_kind_after_id_tok != TokenKind::T_LPAREN {
+            self.parse_assignment_stmt(id_token)
+        } else {
+            let mut symbol_pos: usize = 0;
+            let symbol: Option<Symbol> = if let Some(ctx_rc) = &mut self.ctx {
+                let ctx_borrow = ctx_rc.borrow_mut();
+                let sym_pos = ctx_borrow.sym_table.find_symbol(&id_token.lexeme);
+                if let Some(sp) = sym_pos {
+                    symbol_pos = sp;
+                    ctx_borrow.sym_table.get_symbol(sp).cloned()
+                } else { None }
+            } else { None };
+            if let Some(sym) = symbol {
+                self.parse_func_call_expr(&sym, symbol_pos, &id_token)
+            } else {
+                Err(Box::new(BErr::undefined_symbol(self.get_current_file_name(), id_token)))
+            }
+        }
+    }
+
+    fn parse_assignment_stmt(&mut self, id_token: Token) -> ParseResult2 {
         let symbol_search_result: Option<(usize, StorageClass)> =
             self.find_symbol(&id_token.lexeme);
         if symbol_search_result.is_none() {
@@ -707,7 +728,7 @@ impl<'parser> Parser<'parser> {
         // Check if we are assigning to a type other than SymbolType::Variable. If yes, panic!
         if symbol.sym_type != SymbolType::Variable {
             // self.skip_past(TokenKind::T_SEMICOLON);
-            panic!("Assigning to type '{:?}' is not allowed!", symbol.sym_type);
+            panic!("Assigning to type '{:?}' is not allowed! '{:?}'", symbol.sym_type, symbol);
         }
         _ = self.token_match(TokenKind::T_EQUAL);
         let mut bin_expr_ast_node: AST = self.parse_equality()?;
@@ -972,7 +993,7 @@ impl<'parser> Parser<'parser> {
         sym_index: usize,
         sym_token: &Token,
     ) -> ParseResult2 {
-        let current_file = self.get_current_file_name();
+        let current_file: String = self.get_current_file_name();
         _ = self.token_match(TokenKind::T_LPAREN);
         if called_symbol.sym_type != SymbolType::Function {
             return Err(Box::new(BErr::noncallable_ident(
@@ -981,17 +1002,34 @@ impl<'parser> Parser<'parser> {
             )));
         }
         _ = self.token_match(TokenKind::T_RPAREN);
+
         // Allocating extra 16 bytes to store x29(Frame Pointer), and x30(Link Register).
         // Storing and then loading them is collectively called a Frame Record.
         self.local_offset += 16;
-        Ok(AST::create_leaf(
-            ASTKind::ExprAST(Expr::FuncCall(FuncCallExpr {
-                symtbl_pos: sym_index,
-                result_type: called_symbol.lit_type,
-            })),
-            ASTOperation::AST_FUNC_CALL,
-            called_symbol.lit_type,
-        ))
+
+        if called_symbol.lit_type == LitTypeVariant::Void {
+            _ = self.token_match(TokenKind::T_SEMICOLON);
+            Ok(AST::create_leaf(
+                ASTKind::StmtAST(
+                    Stmt::FuncCall(
+                        FuncCallStmt {
+                            symtbl_pos: sym_index
+                        }
+                    )),
+                    ASTOperation::AST_FUNC_CALL,
+                    LitTypeVariant::Void
+                )
+            )
+        } else  {
+            Ok(AST::create_leaf(
+                ASTKind::ExprAST(Expr::FuncCall(FuncCallExpr {
+                    symtbl_pos: sym_index,
+                    result_type: called_symbol.lit_type,
+                })),
+                ASTOperation::AST_FUNC_CALL,
+                called_symbol.lit_type,
+            ))
+        }
     }
 
     fn add_symbol_global(&mut self, sym: Symbol) -> Option<usize> {

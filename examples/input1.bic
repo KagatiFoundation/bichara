@@ -1,1 +1,7 @@
-let b = 34;
+def print_me() -> void {
+   let a = 222; 
+}
+
+def main() -> void {
+    print_me();
+}
