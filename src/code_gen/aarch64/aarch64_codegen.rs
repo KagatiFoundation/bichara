@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+use core::panic;
 use std::cell::RefMut;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -67,6 +68,13 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             for symbol in ctx_borrow.sym_table.iter() {
                 // symbol information is not generated if any of the following conditions matches
                 if symbol.lit_type == LitTypeVariant::None || symbol.sym_type == SymbolType::Function || symbol.class != StorageClass::GLOBAL {
+                    continue;
+                }
+                if symbol.lit_type == LitTypeVariant::Str && symbol.sym_type == SymbolType::Constant {
+                    let str_const_name_and_val: Vec<&str> = symbol.name.split("---").collect::<Vec<&str>>();
+                    let str_const_name: String = String::from(str_const_name_and_val[0]);
+                    println!(".data\n.global {str_const_name}");
+                    println!("{str_const_name}:\n\t.asciz \"{}\"", str_const_name_and_val[1]);
                     continue;
                 }
                 println!(".data\n.global {}", symbol.name);
@@ -427,6 +435,17 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
         match symbol.lit_type {
             LitTypeVariant::I32 => println!("{}: .align 4\n\t.word 0", symbol.name),
             LitTypeVariant::U8 => println!("{}:\t.byte 0", symbol.name),
+            LitTypeVariant::Str => {
+                let label_id = if let Some(lit_val) = &symbol.default_value {
+                    match lit_val {
+                        LitType::I32(__id) => *__id,
+                        _ => panic!("Not a valid label id for string literal '{}'", symbol.default_value.as_ref().unwrap())
+                    }
+                } else {
+                    panic!("No label id provided for string literal");
+                };
+                println!("{}:\t.quad ._L{:?}", symbol.name, label_id);
+            }
             _ => panic!("Symbol's size is not supported right now: '{:?}'", symbol),
         }
     }

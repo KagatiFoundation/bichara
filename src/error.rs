@@ -53,7 +53,8 @@ pub enum BTypeErr {
     TypesMismatch { expected: String, found: String },
     AssignmentTypeMismatch { var_type: String, assigned_type: String },
     ReturnTypeMismatch { expected: String, found: String },
-    IncompatibleTypes { first_type: String, second_type: String, operator: String }
+    IncompatibleTypes { first_type: String, second_type: String, operator: String },
+    InitializerNotAConstant { lexeme: String }
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -91,7 +92,8 @@ impl BErr {
                 BTypeErr::TypesMismatch { expected, found } => format!("Type mismatch: expected {}, found {}", expected, found),
                 BTypeErr::AssignmentTypeMismatch { var_type, assigned_type } => format!("Cannot assign a value of type '{}' to a variable of type '{}'", assigned_type, var_type),
                 BTypeErr::ReturnTypeMismatch { expected, found } => format!("Return type mismatch: expected {}, found {}", expected, found),
-                BTypeErr::IncompatibleTypes { first_type, second_type, operator } => format!("Incompatible types '{}' and '{}' for operator '{}'", first_type, second_type, operator)
+                BTypeErr::IncompatibleTypes { first_type, second_type, operator } => format!("Incompatible types '{}' and '{}' for operator '{}'", first_type, second_type, operator),
+                BTypeErr::InitializerNotAConstant { lexeme } => format!("Initializer is not a constant '{}'", lexeme)
             },
             _ => "".to_string()
         };

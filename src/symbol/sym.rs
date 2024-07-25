@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use crate::types::LitTypeVariant;
+use crate::types::{LitType, LitTypeVariant};
 
 // The types of symbol names inside the symbol table
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -48,6 +48,10 @@ pub struct Symbol {
     pub size: usize,              // number of elements in the symbol
     pub class: StorageClass,
     pub local_offset: i32, // for locals, offset from the stack base pointer
+
+    /// Default value this symbol has. This is only set when 
+    /// the identifier is a global one.
+    pub default_value: Option<LitType>
 }
 
 impl Symbol {
@@ -59,6 +63,7 @@ impl Symbol {
             size: 1,
             class,
             local_offset: 0,
+            default_value: None
         }
     }
 
@@ -71,6 +76,7 @@ impl Symbol {
             size: 0,                        // oooooh, scary
             class: StorageClass::GLOBAL,
             local_offset: 0,
+            default_value: None
         }
     }
 }

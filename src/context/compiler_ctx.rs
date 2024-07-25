@@ -36,7 +36,7 @@ pub struct CompilerCtx<'ctx> {
     pub label_id: usize,
 
     /// Source file that is currently being processed.
-    pub current_file: Option<&'ctx SourceFile>
+    pub current_file: Option<&'ctx SourceFile>,
 }
 
 impl<'ctx> CompilerCtx<'ctx> {
@@ -45,7 +45,7 @@ impl<'ctx> CompilerCtx<'ctx> {
             sym_table: symt,
             func_table,
             label_id: 0,
-            current_file: None
+            current_file: None,
         }
     }
 

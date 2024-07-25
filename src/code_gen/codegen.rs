@@ -118,7 +118,26 @@ pub trait CodeGen {
                 self.reg_manager().deallocate_all();
             }
             return 0xFFFFFFFF;
-        } else if ast_node.operation == ASTOperation::AST_VAR_DECL {
+        }
+       else if ast_node.operation == ASTOperation::AST_RETURN {
+            let possible_ret_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
+            let return_expr: &AST = ast_node.left.as_ref().unwrap();
+            let result_reg: usize = self.gen_expr(&return_expr.kind.clone().unwrap_expr(), ast_node.operation, reg, parent_ast_kind);
+            return match possible_ret_stmt {
+                Stmt::Return(ret) => self.gen_return_stmt(result_reg, ret.func_id),
+                _ => 0xFFFFFFFF
+            };
+        }
+        else if ast_node.operation == ASTOperation::AST_NONE || ast_node.operation == ASTOperation::AST_VAR_DECL {
+            return 0xFFFFFFFF
+        }  
+        else {
+            let expr_ast: Expr = ast_node.kind.clone().unwrap_expr();
+            let reg_used_for_expr: usize = self.gen_expr(&expr_ast, ast_node.operation, reg, parent_ast_kind);
+            return reg_used_for_expr;
+        }
+        /*
+        else if ast_node.operation == ASTOperation::AST_VAR_DECL {
             let possible_var_decl_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
             return match possible_var_decl_stmt {
                 Stmt::VarDecl(var_decl) => {
@@ -137,23 +156,7 @@ pub trait CodeGen {
                 _ => 0xFFFFFFFF // invalid AST kind with AST_LVIDENT operation
             };
         } 
-        else if ast_node.operation == ASTOperation::AST_RETURN {
-            let possible_ret_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
-            let return_expr: &AST = ast_node.left.as_ref().unwrap();
-            let result_reg: usize = self.gen_expr(&return_expr.kind.clone().unwrap_expr(), ast_node.operation, reg, parent_ast_kind);
-            return match possible_ret_stmt {
-                Stmt::Return(ret) => self.gen_return_stmt(result_reg, ret.func_id),
-                _ => 0xFFFFFFFF
-            };
-        }
-        else if ast_node.operation == ASTOperation::AST_NONE {
-            return 0xFFFFFFFF
-        }  
-        else {
-            let expr_ast: Expr = ast_node.kind.clone().unwrap_expr();
-            let reg_used_for_expr: usize = self.gen_expr(&expr_ast, ast_node.operation, reg, parent_ast_kind);
-            return reg_used_for_expr;
-        }
+        */
     }
 
     fn gen_expr(
