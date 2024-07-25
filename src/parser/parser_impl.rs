@@ -526,11 +526,26 @@ impl<'parser> Parser<'parser> {
             _ = self.token_match(TokenKind::T_EQUAL); // match and ignore '=' sign
             assignment_parse_res = Some(self.parse_equality());
         }
+
+        // Default value contains compile-time evaluated 
+        // expression's result.
         let mut default_value: Option<LitType> = None;
+
         // if there is some error during expression parsing
         if let Some(Err(parse_error)) = assignment_parse_res {
             return Err(parse_error);
-        } else if let Some(Ok(_)) = assignment_parse_res {
+        } else if let Some(Ok(ref res)) = assignment_parse_res {
+            // if the variable being declared is a global variable and 
+            // has some value assigned to it, then that assigned value 
+            // can be evaluated at compile time as global expressions 
+            // cannot contain any non-constant values
+            if self.is_scope_global() {
+                if let ASTKind::ExprAST(expr) = &res.kind {
+                    if let Ok(evaluation_result) = expr.eval() {
+                        default_value = Some(evaluation_result);
+                    }
+                }
+            }
             // else get the type that results from evaluating the expression
             let assign_value_type: LitTypeVariant =
                 self.determine_type(assignment_parse_res.as_ref().unwrap());
@@ -851,6 +866,7 @@ impl<'parser> Parser<'parser> {
                 ))
             }
             TokenKind::T_IDENTIFIER => {
+                // Identifiers in a global variable declaration expression is not allowed.
                 if !self.is_scope_global() {
                     return Err(Box::new(BErr::new(BErrType::TypeError(BTypeErr::InitializerNotAConstant { 
                         lexeme: current_token.lexeme.clone() 

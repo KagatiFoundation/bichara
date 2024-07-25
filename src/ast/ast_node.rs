@@ -24,7 +24,7 @@ SOFTWARE.
 
 #![allow(non_camel_case_types)]
 
-use crate::{tokenizer::TokenKind, types::LitTypeVariant};
+use crate::{tokenizer::TokenKind, types::{BTypeComparable, LitTypeVariant, TypeSized}};
 
 use super::ASTKind;
 
@@ -185,5 +185,21 @@ impl AST {
             right: right.map(Box::new),
             result_type
         }
+    }
+}
+
+impl BTypeComparable for AST {
+    fn cmp(&self, other: &AST) -> bool {
+        self.result_type == other.result_type
+    }
+    
+    fn variant(&self) -> LitTypeVariant {
+        self.result_type
+    }
+}
+
+impl TypeSized for AST {
+    fn type_size(&self) -> usize {
+        self.result_type.size()
     }
 }

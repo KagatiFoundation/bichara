@@ -432,11 +432,14 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
     }
 
     fn dump_global_with_alignment(symbol: &Symbol) {
+        let def_val: String = if let Some(dv) = &symbol.default_value {
+            dv.to_string()
+        } else { "0".to_string() };
         match symbol.lit_type {
-            LitTypeVariant::I32 => println!("{}: .align 4\n\t.word 0", symbol.name),
-            LitTypeVariant::U8 => println!("{}:\t.byte 0", symbol.name),
+            LitTypeVariant::I32 => println!("{}: .align 4\n\t.word {}", symbol.name, def_val),
+            LitTypeVariant::U8 => println!("{}:\t.byte {}", symbol.name, def_val),
             LitTypeVariant::Str => {
-                let label_id = if let Some(lit_val) = &symbol.default_value {
+                let label_id: i32 = if let Some(lit_val) = &symbol.default_value {
                     match lit_val {
                         LitType::I32(__id) => *__id,
                         _ => panic!("Not a valid label id for string literal '{}'", symbol.default_value.as_ref().unwrap())

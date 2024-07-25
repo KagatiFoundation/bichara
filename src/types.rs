@@ -23,11 +23,21 @@ SOFTWARE.
 */
 
 use core::panic;
-use std::{cmp::max, collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::{Display, Pointer}};
 
 use lazy_static::lazy_static;
 
 use crate::{ast::{ASTKind, ASTOperation, Expr, WidenExpr, AST}, tokenizer::TokenKind};
+
+pub trait BTypeComparable {
+    fn cmp(&self, other: &Self) -> bool;
+
+    fn variant(&self) -> LitTypeVariant;
+}
+
+pub trait TypeSized {
+    fn type_size(&self) -> usize;
+}
 
 // Literal value types
 #[derive(Debug, Clone)]
@@ -104,12 +114,6 @@ impl PartialEq for LitType {
             (Self::U8(l0), Self::U8(r0)) => *l0 == *r0,
             _ => false,
         }
-    }
-}
-
-impl Display for LitType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "LitType")
     }
 }
 
@@ -193,6 +197,35 @@ impl LitType {
             LitType::I32(val) => Ok(LitType::I64(*val as i64)),
             _ => panic!("Error")
         }
+    }
+}
+
+impl Display for LitType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let result = match self {
+            LitType::I32(value) => format!("{}", *value),
+            LitType::U8(value) => format!("{}", *value),
+            LitType::Str(value) => value.clone(),
+            _ => panic!()
+        };
+        _ = writeln!(f, "{}", result);
+        Ok(())
+    }
+}
+
+impl BTypeComparable for LitType {
+    fn cmp(&self, other: &LitType) -> bool {
+        self.variant() == other.variant()
+    }
+    
+    fn variant(&self) -> LitTypeVariant {
+        self.variant()
+    }
+}
+
+impl TypeSized for LitType {
+    fn type_size(&self) -> usize {
+        self.size()
     }
 }
 
@@ -283,15 +316,15 @@ pub fn infer_type_from_expr(expr: &Expr) -> LitTypeVariant {
     }
 }
 
-pub fn are_compatible_for_operation(left: &AST, right: &AST, op: ASTOperation) -> (bool, LitTypeVariant) {
-    let ltype = left.result_type;
-    let rtype = right.result_type;
+pub fn are_compatible_for_operation<T: BTypeComparable + TypeSized>(left: &T, right: &T, op: ASTOperation) -> (bool, LitTypeVariant) {
+    let ltype = left.variant();
+    let rtype = right.variant();
     if ltype == rtype {
         return (true, ltype);
     }
     let mut larger_type = ltype;
-    let lsize = ltype.size();
-    let rsize = rtype.size();
+    let lsize = left.type_size();
+    let rsize = right.type_size();
     if rsize > lsize {
         larger_type = rtype;
     }
