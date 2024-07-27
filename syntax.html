@@ -1,244 +1,55 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
-<!-- saved from url=(0103)https://cs.wmich.edu/~gupta/teaching/cs4850/sumII06/The%20syntax%20of%20C%20in%20Backus-Naur%20form.htm -->
-<html><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252"><title>The syntax of C in Backus-Naur form</title>
+<html>
+    <head>
+        <style>
+            body {
+                font-size: 1.5em;
+            }
 
-<script language="javascript" src="./syntax_files/js"></script>
-
-<meta content="MSHTML 6.00.2900.2668" name="GENERATOR"></head>
-<body>
-<h1>The syntax of C in Backus-Naur Form</h1><pre>&lt;translation-unit&gt; ::= {&lt;external-declaration&gt;}*
-
-&lt;external-declaration&gt; ::= &lt;function-definition&gt;
-                         | &lt;declaration&gt;
-
-&lt;function-definition&gt; ::= {&lt;declaration-specifier&gt;}* &lt;declarator&gt; {&lt;declaration&gt;}* &lt;compound-statement&gt;
-
-&lt;declaration-specifier&gt; ::= &lt;storage-class-specifier&gt;
-                          | &lt;type-specifier&gt;
-                          | &lt;type-qualifier&gt;
-
-&lt;storage-class-specifier&gt; ::= auto
-                            | register
-                            | static
-                            | extern
-                            | typedef
-
-&lt;type-specifier&gt; ::= void
-                   | char
-                   | short
-                   | int
-                   | long
-                   | float
-                   | double
-                   | signed
-                   | unsigned
-                   | &lt;struct-or-union-specifier&gt;
-                   | &lt;enum-specifier&gt;
-                   | &lt;typedef-name&gt;
-
-&lt;struct-or-union-specifier&gt; ::= &lt;struct-or-union&gt; &lt;identifier&gt; { {&lt;struct-declaration&gt;}+ }
-                              | &lt;struct-or-union&gt; { {&lt;struct-declaration&gt;}+ }
-                              | &lt;struct-or-union&gt; &lt;identifier&gt;
-
-&lt;struct-or-union&gt; ::= struct
-                    | union
-
-&lt;struct-declaration&gt; ::= {&lt;specifier-qualifier&gt;}* &lt;struct-declarator-list&gt;
-
-&lt;specifier-qualifier&gt; ::= &lt;type-specifier&gt;
-                        | &lt;type-qualifier&gt;
-
-&lt;struct-declarator-list&gt; ::= &lt;struct-declarator&gt;
-                           | &lt;struct-declarator-list&gt; , &lt;struct-declarator&gt;
-
-&lt;struct-declarator&gt; ::= &lt;declarator&gt;
-                      | &lt;declarator&gt; : &lt;constant-expression&gt;
-                      | : &lt;constant-expression&gt;
-
-&lt;declaration&gt; ::=  {&lt;declaration-specifier&gt;}+ {&lt;init-declarator&gt;}* ;
-
-&lt;init-declarator&gt; ::= &lt;declarator&gt;
-                    | &lt;declarator&gt; = &lt;initializer&gt;
-
-&lt;declarator&gt; ::= {&lt;pointer&gt;}? &lt;direct-declarator&gt;
-
-&lt;pointer&gt; ::= * {&lt;type-qualifier&gt;}* {&lt;pointer&gt;}?
-
-&lt;type-qualifier&gt; ::= const
-                   | volatile
-
-&lt;direct-declarator&gt; ::= &lt;identifier&gt;
-                      | ( &lt;declarator&gt; )
-                      | &lt;direct-declarator&gt; [ {&lt;constant-expression&gt;}? ]
-                      | &lt;direct-declarator&gt; ( &lt;parameter-type-list&gt; )
-                      | &lt;direct-declarator&gt; ( {&lt;identifier&gt;}* )
-
-&lt;constant-expression&gt; ::= &lt;conditional-expression&gt;
-
-&lt;conditional-expression&gt; ::= &lt;logical-or-expression&gt;
-                           | &lt;logical-or-expression&gt; ? &lt;expression&gt; : &lt;conditional-expression&gt;
-
-&lt;logical-or-expression&gt; ::= &lt;logical-and-expression&gt;
-                          | &lt;logical-or-expression&gt; || &lt;logical-and-expression&gt;
-
-&lt;logical-and-expression&gt; ::= &lt;inclusive-or-expression&gt;
-                           | &lt;logical-and-expression&gt; &amp;&amp; &lt;inclusive-or-expression&gt;
-
-&lt;inclusive-or-expression&gt; ::= &lt;exclusive-or-expression&gt;
-                            | &lt;inclusive-or-expression&gt; | &lt;exclusive-or-expression&gt;
-
-&lt;exclusive-or-expression&gt; ::= &lt;and-expression&gt;
-                            | &lt;exclusive-or-expression&gt; ^ &lt;and-expression&gt;
-
-&lt;and-expression&gt; ::= &lt;equality-expression&gt;
-                   | &lt;and-expression&gt; &amp; &lt;equality-expression&gt;
-
-&lt;equality-expression&gt; ::= &lt;relational-expression&gt;
-                        | &lt;equality-expression&gt; == &lt;relational-expression&gt;
-                        | &lt;equality-expression&gt; != &lt;relational-expression&gt;
-
-&lt;relational-expression&gt; ::= &lt;shift-expression&gt;
-                          | &lt;relational-expression&gt; &lt; &lt;shift-expression&gt;
-                          | &lt;relational-expression&gt; &gt; &lt;shift-expression&gt;
-                          | &lt;relational-expression&gt; &lt;= &lt;shift-expression&gt;
-                          | &lt;relational-expression&gt; &gt;= &lt;shift-expression&gt;
-
-&lt;shift-expression&gt; ::= &lt;additive-expression&gt;
-                     | &lt;shift-expression&gt; &lt;&lt; &lt;additive-expression&gt;
-                     | &lt;shift-expression&gt; &gt;&gt; &lt;additive-expression&gt;
-
-&lt;additive-expression&gt; ::= &lt;multiplicative-expression&gt;
-                        | &lt;additive-expression&gt; + &lt;multiplicative-expression&gt;
-                        | &lt;additive-expression&gt; - &lt;multiplicative-expression&gt;
-
-&lt;multiplicative-expression&gt; ::= &lt;cast-expression&gt;
-                              | &lt;multiplicative-expression&gt; * &lt;cast-expression&gt;
-                              | &lt;multiplicative-expression&gt; / &lt;cast-expression&gt;
-                              | &lt;multiplicative-expression&gt; % &lt;cast-expression&gt;
-
-&lt;cast-expression&gt; ::= &lt;unary-expression&gt;
-                    | ( &lt;type-name&gt; ) &lt;cast-expression&gt;
-
-&lt;unary-expression&gt; ::= &lt;postfix-expression&gt;
-                     | ++ &lt;unary-expression&gt;
-                     | -- &lt;unary-expression&gt;
-                     | &lt;unary-operator&gt; &lt;cast-expression&gt;
-                     | sizeof &lt;unary-expression&gt;
-                     | sizeof &lt;type-name&gt;
-
-&lt;postfix-expression&gt; ::= &lt;primary-expression&gt;
-                       | &lt;postfix-expression&gt; [ &lt;expression&gt; ]
-                       | &lt;postfix-expression&gt; ( {&lt;assignment-expression&gt;}* )
-                       | &lt;postfix-expression&gt; . &lt;identifier&gt;
-                       | &lt;postfix-expression&gt; -&gt; &lt;identifier&gt;
-                       | &lt;postfix-expression&gt; ++
-                       | &lt;postfix-expression&gt; --
-
-&lt;primary-expression&gt; ::= &lt;identifier&gt;
-                       | &lt;constant&gt;
-                       | &lt;string&gt;
-                       | ( &lt;expression&gt; )
-
-&lt;constant&gt; ::= &lt;integer-constant&gt;
-             | &lt;character-constant&gt;
-             | &lt;floating-constant&gt;
-             | &lt;enumeration-constant&gt;
-
-&lt;expression&gt; ::= &lt;assignment-expression&gt;
-               | &lt;expression&gt; , &lt;assignment-expression&gt;
-
-&lt;assignment-expression&gt; ::= &lt;conditional-expression&gt;
-                          | &lt;unary-expression&gt; &lt;assignment-operator&gt; &lt;assignment-expression&gt;
-
-&lt;assignment-operator&gt; ::= =
-                        | *=
-                        | /=
-                        | %=
-                        | +=
-                        | -=
-                        | &lt;&lt;=
-                        | &gt;&gt;=
-                        | &amp;=
-                        | ^=
-                        | |=
-
-&lt;unary-operator&gt; ::= &amp;
-                   | *
-                   | +
-                   | -
-                   | ~
-                   | !
-
-&lt;type-name&gt; ::= {&lt;specifier-qualifier&gt;}+ {&lt;abstract-declarator&gt;}?
-
-&lt;parameter-type-list&gt; ::= &lt;parameter-list&gt;
-                        | &lt;parameter-list&gt; , ...
-
-&lt;parameter-list&gt; ::= &lt;parameter-declaration&gt;
-                   | &lt;parameter-list&gt; , &lt;parameter-declaration&gt;
-
-&lt;parameter-declaration&gt; ::= {&lt;declaration-specifier&gt;}+ &lt;declarator&gt;
-                          | {&lt;declaration-specifier&gt;}+ &lt;abstract-declarator&gt;
-                          | {&lt;declaration-specifier&gt;}+
-
-&lt;abstract-declarator&gt; ::= &lt;pointer&gt;
-                        | &lt;pointer&gt; &lt;direct-abstract-declarator&gt;
-                        | &lt;direct-abstract-declarator&gt;
-
-&lt;direct-abstract-declarator&gt; ::=  ( &lt;abstract-declarator&gt; )
-                               | {&lt;direct-abstract-declarator&gt;}? [ {&lt;constant-expression&gt;}? ]
-                               | {&lt;direct-abstract-declarator&gt;}? ( {&lt;parameter-type-list&gt;}? )
-
-&lt;enum-specifier&gt; ::= enum &lt;identifier&gt; { &lt;enumerator-list&gt; }
-                   | enum { &lt;enumerator-list&gt; }
-                   | enum &lt;identifier&gt;
-
-&lt;enumerator-list&gt; ::= &lt;enumerator&gt;
-                    | &lt;enumerator-list&gt; , &lt;enumerator&gt;
-
-&lt;enumerator&gt; ::= &lt;identifier&gt;
-               | &lt;identifier&gt; = &lt;constant-expression&gt;
-
-&lt;typedef-name&gt; ::= &lt;identifier&gt;
-
-&lt;initializer&gt; ::= &lt;assignment-expression&gt;
-                | { &lt;initializer-list&gt; }
-                | { &lt;initializer-list&gt; , }
-
-&lt;initializer-list&gt; ::= &lt;initializer&gt;
-                     | &lt;initializer-list&gt; , &lt;initializer&gt;
-
-&lt;compound-statement&gt; ::= { {&lt;declaration&gt;}* {&lt;statement&gt;}* }
-
-&lt;statement&gt; ::= &lt;labeled-statement&gt;
-              | &lt;expression-statement&gt;
-              | &lt;compound-statement&gt;
-              | &lt;selection-statement&gt;
-              | &lt;iteration-statement&gt;
-              | &lt;jump-statement&gt;
-
-&lt;labeled-statement&gt; ::= &lt;identifier&gt; : &lt;statement&gt;
-                      | case &lt;constant-expression&gt; : &lt;statement&gt;
-                      | default : &lt;statement&gt;
-
-&lt;expression-statement&gt; ::= {&lt;expression&gt;}? ;
-
-&lt;selection-statement&gt; ::= if ( &lt;expression&gt; ) &lt;statement&gt;
-                        | if ( &lt;expression&gt; ) &lt;statement&gt; else &lt;statement&gt;
-                        | switch ( &lt;expression&gt; ) &lt;statement&gt;
-
-&lt;iteration-statement&gt; ::= while ( &lt;expression&gt; ) &lt;statement&gt;
-                        | do &lt;statement&gt; while ( &lt;expression&gt; ) ;
-                        | for ( {&lt;expression&gt;}? ; {&lt;expression&gt;}? ; {&lt;expression&gt;}? ) &lt;statement&gt;
-
-&lt;jump-statement&gt; ::= goto &lt;identifier&gt; ;
-                   | continue ;
-                   | break ;
-                   | return {&lt;expression&gt;}? ;
-</pre>
-<p>This grammar was adapted from Section A13 of <i>The C programming 
-language</i>, 2nd edition, by Brian W. Kernighan and Dennis M. Ritchie,Prentice 
-Hall, 1988. </p>
-<script language="javascript">postamble();</script>
-
-</body></html>
+            .keyword {
+                font-weight: bold;
+                color: rgb(5, 152, 178);
+            }
+        </style>
+    </head>
+    <body>
+        <div class="prod-rule">
+            <b>&lt;digit&gt;</b> &colon;&equals; 0 &vert; 1 &vert; 2 &vert; 3 &vert; 4 &vert; 5 &vert; 6 &vert; 7 &vert; 8 &vert; 9
+        </div>
+        <div class="prod-rule">
+            <b>&lt;integer&gt;</b> &colon;&equals; &lt;digit&gt; &vert; &lt;digit&gt;&lt;integer&gt;
+        </div>
+        <div class="prod-rule">
+            <b>&lt;letter&gt;</b> &colon;&equals; &apos;A&apos; &vert; &apos;B&apos; &vert; &apos;C&apos; &period;&period;&period; &vert; &apos;Z&apos; &vert; &apos;a&apos; &vert; &apos;b&apos; &vert; &apos;c&apos; &period;&period;&period; &vert; &apos;z&apos;
+        </div>
+        <div class="prod-rule">
+            <b>&lt;name&gt;</b> &colon;&equals; &lpar;&lt;letter&gt; &vert; &apos;_&apos;&rpar; &lbrace;&lpar;&lt;letter&gt; &vert; &apos;_&apos; &vert; &lt;digit&gt;&rbrace;
+        </div>
+        <div class="prod-rule">
+            <b>&lt;type-name&gt;</b> &colon;&equals; &lt;name&gt;
+        </div>
+        <div class="prod-rule">
+            <b>&lt;var-name&gt;</b> &colon;&equals; &lt;name&gt;
+        </div>
+        <div class="prod-rule">
+            <b>&lt;var-decl&gt;</b> &colon;&equals; <span class="keyword">let</span> &lt;name&gt; &lbrack;&apos;&colon;&apos; &lt;type-name&gt;&rbrack; &equals; &lt;expression&gt; &apos;&semi;&apos;
+        </div>
+        <div class="prod-rule">
+            <b>&lt;parameter&gt;</b> &colon;&equals; &lt;name&gt;&apos;&colon;&apos; &lt;type-name&gt;
+        </div>
+        <div class="prod-rule">
+            <b>&lt;parameter-list&gt;</b> &colon;&equals; &lt;parameter&gt; &vert; &lt;parameter-list&gt;&lt;parameter&gt;
+        </div>
+        <div class="prod-rule">
+            <b>&lt;statement&gt;</b> &colon;&equals; &lt;func-decl&gt; &vert; &lt;var-decl&gt;
+        </div>
+        <div class="prod-rule">
+            <b>&lt;statement-list&gt;</b> &colon;&equals; &lt;statement&gt; &vert; &lt;statement-list&gt;&lt;statement&gt;
+        </div>
+        <div class="prod-rule">
+            <b>&lt;compound-statement&gt;</b> &colon;&equals; &apos;&lbrace;&apos; &lt;statement-list&gt; &apos;&rbrace;&apos;
+        </div>
+        <div class="prod-rule">
+            <b>&lt;func-decl&gt;</b> &colon;&equals; <span class="keyword">def</span> &lpar;&lt;<span class="keyword">extern</span>&gt; &lt;name&gt;&lpar;&lt;parameter-list&gt;&rpar;&apos;&semi;&apos;&rpar; &vert; &lpar;&lt;name&gt;&lpar;&lt;parameter-list&gt;&rpar; &lt;compound-statement&gt;&rpar;
+        </div>
+    </body>
+</html>
