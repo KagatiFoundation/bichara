@@ -1,4 +1,4 @@
-def extern calculate_sin_5() -> void;
+def extern calculate_sin_5(x: integer) -> void;
 
 def main() -> void {
     calculate_sin_5();

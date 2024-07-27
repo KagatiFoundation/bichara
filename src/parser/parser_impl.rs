@@ -182,25 +182,35 @@ impl<'parser> Parser<'parser> {
     /// - Returns a `ParseResult` representing the parsed statement or an error
     ///   if parsing fails.
     fn parse_single_stmt(&mut self) -> ParseResult2 {
-        match self.current_token.kind {
-            TokenKind::KW_LET => self.parse_var_decl_stmt(),
-            TokenKind::T_IDENTIFIER => self.assign_stmt_or_func_call(),
-            TokenKind::KW_IF => self.parse_if_stmt(),
-            TokenKind::KW_WHILE => self.parse_while_stmt(),
-            TokenKind::KW_FOR => self.parse_for_stmt(),
-            TokenKind::T_LBRACE => self.parse_compound_stmt(),
-            TokenKind::KW_DEF => self.parse_function_stmt(),
-            TokenKind::KW_RETURN => self.parse_return_stmt(),
-            TokenKind::T_EOF => Err(Box::new(BErr::unexpected_token(
-                self.get_current_file_name(),
-                self.current_token.clone(),
-            ))),
-            _ => {
-                let result: ParseResult2 = self.parse_equality();
-                self.token_match(TokenKind::T_SEMICOLON);
-                result
+        let is_global_scope: bool = self.is_scope_global();
+        let curr_tok_kind: TokenKind = self.current_token.kind;
+        if is_global_scope {
+            if curr_tok_kind == TokenKind::KW_DEF {
+                return self.parse_function_stmt();
+            } 
+            else if curr_tok_kind == TokenKind::KW_LET {
+                return self.parse_var_decl_stmt();
             }
         }
+        else {
+            return match self.current_token.kind {
+                TokenKind::KW_LET => self.parse_var_decl_stmt(),
+                TokenKind::T_IDENTIFIER => self.assign_stmt_or_func_call(),
+                TokenKind::KW_IF => self.parse_if_stmt(),
+                TokenKind::KW_WHILE => self.parse_while_stmt(),
+                TokenKind::KW_FOR => self.parse_for_stmt(),
+                TokenKind::T_LBRACE => self.parse_compound_stmt(),
+                TokenKind::KW_RETURN => self.parse_return_stmt(),
+                _ => Err(Box::new(BErr::unexpected_token(
+                    self.get_current_file_name(),
+                    self.current_token.clone(),
+                )))
+            }
+        }
+        Err(Box::new(BErr::unexpected_token(
+            self.get_current_file_name(),
+            self.current_token.clone(),
+        )))
     }
 
     // parse compound statement(statement starting with '{' and ending with '}')
