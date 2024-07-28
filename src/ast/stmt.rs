@@ -34,5 +34,5 @@ pub enum Stmt {
     Assignment(AssignStmt),
     VarDecl(VarDeclStmt),
     LValue(usize), // usize for symbol table position of this left value
-    FuncCall(FuncCallStmt)
+    FuncCall(FuncCallStmt),
 }

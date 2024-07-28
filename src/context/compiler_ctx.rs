@@ -22,12 +22,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use crate::{ast::SourceFile, FunctionInfoTable, Symtable};
+use crate::{ast::SourceFile, FunctionInfoTable, Symbol, Symtable};
 
 pub struct CompilerCtx<'ctx> {
     /// Symbol table that is passed around each compilation unit
     /// during the whole compilation process.
-    pub sym_table: &'ctx mut Symtable,
+    pub sym_table: &'ctx mut Symtable<Symbol>,
 
     /// Functions information table.
     pub func_table: &'ctx mut FunctionInfoTable,
@@ -40,7 +40,7 @@ pub struct CompilerCtx<'ctx> {
 }
 
 impl<'ctx> CompilerCtx<'ctx> {
-    pub fn new(symt: &'ctx mut Symtable, func_table: &'ctx mut FunctionInfoTable) -> Self {
+    pub fn new(symt: &'ctx mut Symtable<Symbol>, func_table: &'ctx mut FunctionInfoTable) -> Self {
         Self {
             sym_table: symt,
             func_table,

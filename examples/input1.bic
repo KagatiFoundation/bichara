@@ -1,5 +1,5 @@
-def extern calculate_sin_5(x: integer) -> void;
+def extern puts(x: str) -> void;
 
 def main() -> void {
-    calculate_sin_5();
+    puts("Hello world");
 }

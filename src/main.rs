@@ -44,7 +44,7 @@ use tokenizer::Tokenizer;
 fn main() {
     let tokener = Rc::new(RefCell::new(Tokenizer::new()));
     let parsr = Rc::new(RefCell::new(Parser::new()));
-    let mut symt: Symtable = Symtable::new();
+    let mut symt: Symtable<Symbol> = Symtable::new();
     let mut funct: FunctionInfoTable = FunctionInfoTable::new();
     let mut file1: SourceFile =
         SourceFile::new("/Users/rigelstar/Desktop/KagatiFoundation/bichara/examples/input1.bic");

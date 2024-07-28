@@ -269,6 +269,12 @@ impl<'parser> Parser<'parser> {
 
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
         _ = self.token_match(TokenKind::T_LPAREN);
+
+        let mut func_params: Symtable<FuncParam> = Symtable::<FuncParam>::new();
+        if let Ok(param) = self.parse_parameter() {
+            func_params.add_symbol(param);
+        } 
+
         _ = self.token_match(TokenKind::T_RPAREN);
         _ = self.token_match(TokenKind::T_ARROW); // match and ignore '->' operator
                                                   // Extract and validate function return type
@@ -317,7 +323,8 @@ impl<'parser> Parser<'parser> {
             function_id.unwrap(),
             stack_offset,
             func_return_type,
-            func_storage_class
+            func_storage_class,
+            func_params
         );
         // create a new FunctionInfo
         if let Some(ctx_rc) = &mut self.ctx {
@@ -338,6 +345,26 @@ impl<'parser> Parser<'parser> {
             func_return_type,
         ))
     }
+
+    fn parse_parameter(&mut self) -> Result<FuncParam, Box<BErr>> {
+        let param_name: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
+        let _ = self.token_match(TokenKind::T_COLON);
+        let param_type: LitTypeVariant = self.parse_id_type();
+        self.skip_to_next_token();
+        Ok(FuncParam {
+            lit_type: param_type,
+            name: param_name.lexeme
+        })
+    }
+
+    // fn parse_parameter_list(&mut self) -> ParseResult2 {
+        // let curr_tok_kind: TokenKind = self.current_token.kind;
+        // while curr_tok_kind != TokenKind::T_RPAREN {
+            // if let Ok(param_ast) = self.parse_parameter() {
+                
+            // }
+        // }
+    // }
 
     #[allow(unused_mut)]
     #[allow(unused_assignments)]

@@ -23,34 +23,28 @@ SOFTWARE.
 */
 
 use std::slice::Iter;
-use super::Symbol;
-
-#[derive(Clone, Debug)]
-pub struct Symtable {
-    syms: Vec<Symbol>, //
-    counter: usize,    // next free slot in the table
-}
-
-impl Symtable {
-    pub fn iter(&self) -> Iter<'_, Symbol> {
-        self.syms.iter()
-    }
-}
+use super::SymbolTrait;
 
 // Maximum number of symbols in program
 pub const NSYMBOLS: usize = 1024;
 
-impl Symtable {
+#[derive(Clone, Debug)]
+pub struct Symtable<T: SymbolTrait + Clone> {
+    syms: Vec<T>, //
+    counter: usize,    // next free slot in the table
+}
+
+impl<T: SymbolTrait + Clone> Symtable<T> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
-            syms: vec![Symbol::uninit(); NSYMBOLS],
+            syms: vec![T::uninit(); NSYMBOLS],
             counter: 0,
         }
     }
 
     pub fn find_symbol(&self, name: &str) -> Option<usize> {
-        self.syms.iter().position(|sym| sym.name == name)
+        self.syms.iter().position(|sym| sym.name() == name)
     }
 
     fn next(&mut self) -> usize {
@@ -59,16 +53,16 @@ impl Symtable {
         self.counter
     }
 
-    pub fn add_symbol(&mut self, sym: Symbol) -> Option<usize> {
+    pub fn add_symbol(&mut self, sym: T) -> Option<usize> {
         let act_pos: usize = self.next();
-        if self.find_symbol(&sym.name).is_some() { 
+        if self.find_symbol(&sym.name()).is_some() { 
             return None;
         }
         self.syms.push(sym);
         Some(act_pos - 1)
     }
 
-    pub fn insert(&mut self, pos: usize, sym: Symbol) -> Option<usize> {
+    pub fn insert(&mut self, pos: usize, sym: T) -> Option<usize> {
         assert!(
             pos < NSYMBOLS,
             "value '{}' out of bounds for range '{}'",
@@ -80,7 +74,7 @@ impl Symtable {
     }
 
     // TODO: Convert return type to Option<&Symbol>
-    pub fn get_symbol(&self, idx: usize) -> Option<&Symbol> {
+    pub fn get_symbol(&self, idx: usize) -> Option<&T> {
         assert!(
             idx < NSYMBOLS,
             "value '{}' out of bounds for range '{}'",
@@ -90,9 +84,13 @@ impl Symtable {
         self.syms.get(idx)
     }
 
-    pub fn remove_symbol(&mut self, index: usize) -> Symbol {
+    pub fn remove_symbol(&mut self, index: usize) -> T {
         assert!(self.counter < NSYMBOLS);
         self.syms.remove(index)
+    }
+
+    pub fn iter(&self) -> Iter<'_, T> {
+        self.syms.iter()
     }
 }
 
@@ -102,7 +100,7 @@ mod tests {
 
     #[test]
     fn test_symbol_addition() {
-        let mut table: Symtable = Symtable::new();
+        let mut table: Symtable<Symbol> = Symtable::new();
         matches!(
             table.insert(0, Symbol::new(
                 String::from("number"),
@@ -134,7 +132,7 @@ mod tests {
 
     #[test]
     fn test_find_symbol_index_from_its_name() {
-        let mut table: Symtable = Symtable::new();
+        let mut table: Symtable<Symbol> = Symtable::new();
         table.insert(0, Symbol::new(
             String::from("number2"),
             LitTypeVariant::I32,
@@ -160,7 +158,7 @@ mod tests {
 
     #[test]
     fn test_symbol_removal() {
-        let mut table: Symtable = Symtable::new();
+        let mut table: Symtable<Symbol> = Symtable::new();
         table.insert(0, Symbol::new(
             String::from("number2"),
             LitTypeVariant::I32,

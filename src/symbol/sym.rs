@@ -48,18 +48,61 @@ pub enum StorageClass {
     EXTERN
 }
 
+/// A trait to signify that a struct can be stored in a symbol table.
+pub trait SymbolTrait { 
+    fn uninit() -> Self;
+
+    fn name(&self) -> String;
+}
+
+/// Represents a symbol in Bichara, which can be a variable, 
+/// function, or other identifier.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Symbol {
+    /// The name of the symbol.
     pub name: String,
-    pub lit_type: LitTypeVariant, // What kind of value this symbol is
-    pub sym_type: SymbolType,     // What type of symbol this is. i.e. Variable or Function
-    pub size: usize,              // number of elements in the symbol
-    pub class: StorageClass,
-    pub local_offset: i32, // for locals, offset from the stack base pointer
 
-    /// Default value this symbol has. This is only set when 
-    /// the identifier is a global one.
+    /// The literal type of the symbol, indicating the kind of 
+    /// value it holds (e.g., integer, float).
+    pub lit_type: LitTypeVariant,
+
+    /// The type of the symbol, which can indicate whether it's a 
+    /// variable, function, etc.
+    pub sym_type: SymbolType,
+
+    /// The number of elements in the symbol, which is particularly 
+    /// relevant for arrays.
+    pub size: usize,
+
+    /// The storage class of the symbol, indicating its storage duration 
+    /// and linkage (e.g., local, global).
+    pub class: StorageClass,
+
+    /// The offset from the stack base pointer for local symbols. This 
+    /// is used to locate the symbol in the stack frame.
+    pub local_offset: i32,
+
+    /// The default value of the symbol, applicable only for global 
+    /// symbols.
     pub default_value: Option<LitType>
+}
+
+impl SymbolTrait for Symbol {
+    fn uninit() -> Self {
+        Symbol {
+            class: StorageClass::GLOBAL,
+            default_value: None,
+            lit_type: LitTypeVariant::None,
+            local_offset: 0,
+            name: "".to_string(),
+            size: 0,
+            sym_type: SymbolType::Variable
+        }
+    }
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
 }
 
 impl Symbol {
