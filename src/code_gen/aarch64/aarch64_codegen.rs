@@ -404,6 +404,35 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let reg_name: String = self.reg_manager.borrow().name(expr_reg);
         println!("str {}, [sp, #{}]", reg_name, symbol.local_offset);
     }
+    
+    fn gen_func_call_expr(&mut self, func_call_expr: &crate::ast::FuncCallExpr) -> usize {
+        let func_info: FunctionInfo = if let Some(ctx_rc) = &self.ctx {
+            let ctx_borrow = ctx_rc.borrow_mut();
+            if let Some(symbol) = ctx_borrow.sym_table.get_symbol(func_call_expr.symtbl_pos) {
+                if let Some(func_info) = ctx_borrow.func_table.get(&symbol.name) {
+                    func_info.clone()
+                } else {
+                    panic!("function info not found");
+                }
+            } else {
+                panic!("undefined symbol");
+            }
+        } else {
+            panic!("No context provided for code generation");
+        };
+        let args: &Vec<crate::ast::Expr> = &func_call_expr.args;
+        for expr in args {
+            let reg: usize = self.gen_expr(expr, ASTOperation::AST_FUNC_CALL, 0xFFFFFFFF, ASTOperation::AST_NONE);
+            let reg_name: String = self.reg_manager.borrow().name(reg);
+            println!("mov x0, {}", reg_name);
+        }
+        let mut reg_mgr = self.reg_manager.borrow_mut();
+        let alloced_reg: usize = reg_mgr.allocate();
+        let alloced_reg_name: String = reg_mgr.name(alloced_reg);
+        println!("bl _{}", func_info.name);
+        println!("mov {}, x0", alloced_reg_name);
+        alloced_reg
+    }
 }
 
 impl<'aarch64> Aarch64CodeGen<'aarch64> {

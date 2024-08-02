@@ -27,6 +27,7 @@ use std::cell::RefMut;
 use crate::ast::ASTKind;
 use crate::ast::BinExpr;
 use crate::ast::Expr;
+use crate::ast::FuncCallExpr;
 use crate::ast::FuncCallStmt;
 use crate::ast::LitValExpr;
 use crate::ast::Stmt;
@@ -197,8 +198,8 @@ pub trait CodeGen {
             Expr::Subscript(subs) => {
                 let index_reg: usize = self.gen_expr(&subs.index, curr_ast_kind, reg, parent_ast_kind);
                 self.gen_array_access2(subs.symtbl_pos, index_reg)
-            }
-            _ => panic!("Error: Unknown Expr type '{:?}'", expr),
+            },
+            Expr::FuncCall(func_call) => self.gen_func_call_expr(func_call),
         }
     }
 
@@ -309,6 +310,8 @@ pub trait CodeGen {
     fn gen_return_stmt(&mut self, result_reg: usize, _func_id: usize) -> usize;
 
     fn gen_func_call_stmt(&mut self, func_call_stmt: &FuncCallStmt);
+
+    fn gen_func_call_expr(&mut self, func_call_expr: &FuncCallExpr) -> usize;
 
     fn gen_local_var_decl_stmt(&mut self, var_decl_stmt: &VarDeclStmt, expr_ast: &Expr);
 

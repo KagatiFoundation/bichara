@@ -313,6 +313,7 @@ pub fn infer_type_from_expr(expr: &Expr) -> LitTypeVariant {
             left_type
         },
         Expr::Ident(ident) => ident.result_type,
+        Expr::FuncCall(func_call_expr) => func_call_expr.result_type,
         _ => {
             // I am gonna ignore these types for now (as they are not needed right now)
             panic!("Cannot infer type of the expression.");

@@ -1,9 +1,8 @@
+def extern calc_sum_till(x: integer) -> integer;
 def extern print_int(x: integer) -> void;
 
-let c = 500;
-
 def main() -> void {
-    let a: integer = 500;
-    let b: integer = a + c;
+    let a: integer = 300;
+    let b: integer = calc_sum_till(a);
     print_int(b);
 }

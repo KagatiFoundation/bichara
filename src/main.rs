@@ -42,22 +42,22 @@ use symbol::*;
 use tokenizer::Tokenizer;
 
 fn main() {
-    let tokener = Rc::new(RefCell::new(Tokenizer::new()));
-    let parsr = Rc::new(RefCell::new(Parser::new()));
+    let tokener: Rc<RefCell<Tokenizer>> = Rc::new(RefCell::new(Tokenizer::new()));
+    let parsr: Rc<RefCell<Parser>> = Rc::new(RefCell::new(Parser::new()));
     let mut symt: Symtable<Symbol> = Symtable::new();
     let mut funct: FunctionInfoTable = FunctionInfoTable::new();
     let mut file1: SourceFile =
         SourceFile::new("/Users/rigelstar/Desktop/KagatiFoundation/bichara/examples/input1.bic");
     let mut source_files: Vec<&mut SourceFile> = vec![&mut file1];
-    let ctx = Rc::new(RefCell::new(CompilerCtx::new(&mut symt, &mut funct)));
+    let ctx: Rc<RefCell<CompilerCtx>> = Rc::new(RefCell::new(CompilerCtx::new(&mut symt, &mut funct)));
     let rm: RefCell<RegManager> = RefCell::new(RegManager::new({
         let mut regs: Vec<String> = vec![];
-        for i in 0..8 {
+        for i in 0..20 {
             regs.push(format!("x{}", i));
         }
         regs
     }));
-    let mut cg = Aarch64CodeGen::new(rm);
+    let mut cg: Aarch64CodeGen = Aarch64CodeGen::new(rm);
     for sf in &mut source_files {
         let read_res: Result<i32, std::io::Error> = sf.read();
         if let Err(e) = read_res {

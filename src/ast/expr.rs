@@ -40,8 +40,9 @@ pub struct SubscriptExpr {
 #[derive(Clone, Debug)]
 pub struct FuncCallExpr {
     pub symtbl_pos: usize, // position of the function being called in the symbol table,
-    // args
     pub result_type: LitTypeVariant, // function return type
+    // args
+    pub args: Vec<Expr>
 }
 
 #[derive(Clone, Debug)]

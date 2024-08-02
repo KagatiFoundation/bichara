@@ -953,7 +953,7 @@ impl<'parser> Parser<'parser> {
                 ))
             }
             TokenKind::T_IDENTIFIER => {
-                // Identifiers in a global variable declaration expression is not allowed.
+                // Identifiers in a global variable declaration expression are not allowed.
                 if self.is_scope_global() {
                     return Err(Box::new(BErr::new(BErrType::TypeError(BTypeErr::InitializerNotAConstant { 
                         lexeme: current_token.lexeme.clone() 
@@ -1097,10 +1097,15 @@ impl<'parser> Parser<'parser> {
             )
         } else  {
             Ok(AST::create_leaf(
-                ASTKind::ExprAST(Expr::FuncCall(FuncCallExpr {
-                    symtbl_pos: sym_index,
-                    result_type: called_symbol.lit_type,
-                })),
+                ASTKind::ExprAST(
+                        Expr::FuncCall(
+                            FuncCallExpr {
+                                symtbl_pos: sym_index,
+                                result_type: called_symbol.lit_type,
+                                args: func_args
+                            }
+                        )
+                    ),
                 ASTOperation::AST_FUNC_CALL,
                 called_symbol.lit_type,
             ))
