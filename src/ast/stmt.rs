@@ -1,3 +1,7 @@
+use crate::{types::LitType, StorageClass};
+
+use super::Expr;
+
 #[derive(Clone, Debug)]
 pub struct FuncDeclStmt {
     pub func_id: usize, // id of this 'function'
@@ -11,6 +15,7 @@ pub struct ReturnStmt {
 #[derive(Clone, Debug)]
 pub struct VarDeclStmt {
     pub symtbl_pos: usize, // position of this symbol in the symbol table
+    pub class: StorageClass
 }
 
 #[derive(Clone, Debug)]
@@ -20,7 +25,8 @@ pub struct AssignStmt {
 
 #[derive(Clone, Debug)]
 pub struct FuncCallStmt {
-    pub symtbl_pos: usize
+    pub symtbl_pos: usize,
+    pub args: Vec<Expr>
 }
 
 #[derive(Clone, Debug)]

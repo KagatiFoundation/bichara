@@ -1,5 +1,9 @@
-def extern puts(x: str) -> void;
+def extern print_int(x: integer) -> void;
+
+let c = 500;
 
 def main() -> void {
-    puts("Hello world");
+    let a: integer = 500;
+    let b: integer = a + c;
+    print_int(b);
 }

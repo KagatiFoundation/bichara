@@ -24,16 +24,18 @@ SOFTWARE.
 
 use std::cell::RefMut;
 
-use crate::ast;
 use crate::ast::ASTKind;
 use crate::ast::BinExpr;
 use crate::ast::Expr;
+use crate::ast::FuncCallStmt;
 use crate::ast::LitValExpr;
 use crate::ast::Stmt;
+use crate::ast::VarDeclStmt;
 use crate::ast::AST;
 use crate::ast::ASTOperation;
 use crate::types::LitType;
 use crate::types::LitTypeVariant;
+use crate::StorageClass;
 
 use super::register::RegManager;
 
@@ -126,7 +128,7 @@ pub trait CodeGen {
                 if let ASTKind::StmtAST(func_call_stmt) = &ast_node.kind {
                     match func_call_stmt {
                         Stmt::FuncCall(func_call) => {
-                            self.gen_func_call_stmt(func_call.symtbl_pos);
+                            self.gen_func_call_stmt(func_call);
                         },
                         _ => return 0xFFFFFFFF
                     }
@@ -143,6 +145,25 @@ pub trait CodeGen {
                 _ => 0xFFFFFFFF
             };
         }
+        else if ast_node.operation == ASTOperation::AST_VAR_DECL {
+            if let ASTKind::StmtAST(var_decl) = &ast_node.kind {
+                return match var_decl {
+                    Stmt::VarDecl(var_decl_stmt) => {
+                        if var_decl_stmt.class != StorageClass::LOCAL {
+                            0xFFFFFFFF
+                        } else {
+                            let assign_expr: &ASTKind = &ast_node.left.as_ref().unwrap().kind;
+                            if let ASTKind::ExprAST(__expr) = assign_expr {
+                                self.gen_local_var_decl_stmt(var_decl_stmt, __expr);
+                            }
+                            0xFFFFFFFF
+                        }
+                    },
+                    _ => 0xFFFFFFFF
+                };
+            }
+            0xFFFFFFFF 
+        } 
         else if ast_node.operation == ASTOperation::AST_NONE || ast_node.operation == ASTOperation::AST_VAR_DECL {
             return 0xFFFFFFFF
         }  
@@ -151,27 +172,6 @@ pub trait CodeGen {
             let reg_used_for_expr: usize = self.gen_expr(&expr_ast, ast_node.operation, reg, parent_ast_kind);
             return reg_used_for_expr;
         }
-        /*
-        else if ast_node.operation == ASTOperation::AST_VAR_DECL {
-            let possible_var_decl_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
-            return match possible_var_decl_stmt {
-                Stmt::VarDecl(var_decl) => {
-                    #[allow(unused_assignments)] // turn of this annoying warning
-                    let mut expr_res_reg: usize = 0;
-                    let assign_right_kind: crate::ast::ASTKind = ast_node.left.as_ref().unwrap().kind.clone();
-                    match assign_right_kind {
-                        crate::ast::ASTKind::StmtAST(_) => todo!(),
-                        crate::ast::ASTKind::ExprAST(expr) => {
-                            expr_res_reg = self.gen_expr(&expr, ast_node.operation, reg, parent_ast_kind);
-                        },
-                        _ => ()
-                    }
-                    return self.gen_load_reg_into_id(expr_res_reg, var_decl.symtbl_pos);
-                }
-                _ => 0xFFFFFFFF // invalid AST kind with AST_LVIDENT operation
-            };
-        } 
-        */
     }
 
     fn gen_expr(
@@ -184,8 +184,6 @@ pub trait CodeGen {
         match expr {
             Expr::Binary(bin) => self.gen_bin_expr(bin, curr_ast_kind, reg, parent_ast_kind),
             Expr::LitVal(lit) => self.gen_lit_expr(lit),
-            Expr::Addr(add) => self.gen_id_address_into_another_id(add.symtbl_pos),
-            Expr::Deref(der) => self.gen_deref_pointer_id(der.symtbl_pos),
             Expr::Ident(ident) => self.gen_load_id_into_reg(ident.symtbl_pos),
             Expr::Widen(widen) => {
                 match widen.from.kind.clone() {
@@ -294,17 +292,13 @@ pub trait CodeGen {
     /// The register index where the value of the symbol is loaded.
     fn gen_load_id_into_reg(&mut self, id: usize) -> usize;
 
-    fn gen_load_reg_into_id(&mut self, reg: usize, symbol_id: usize) -> usize;
+    fn gen_store_reg_value_into_id(&mut self, reg: usize, id: usize) -> usize;
 
     fn gen_add(&mut self, r1: usize, r2: usize) -> usize;
 
     fn gen_sub(&mut self, r1: usize, r2: usize) -> usize;
 
     fn gen_load_intlit_into_reg(&mut self, value: &LitType) -> usize;
-
-    fn gen_id_address_into_another_id(&mut self, symbol_id: usize) -> usize;
-
-    fn gen_deref_pointer_id(&mut self, symbol_id: usize) -> usize;
 
     fn gen_load_global_strlit(&mut self, symbol_id: &LitType) -> usize;
 
@@ -314,7 +308,9 @@ pub trait CodeGen {
 
     fn gen_return_stmt(&mut self, result_reg: usize, _func_id: usize) -> usize;
 
-    fn gen_func_call_stmt(&mut self, symbol_id: usize);
+    fn gen_func_call_stmt(&mut self, func_call_stmt: &FuncCallStmt);
+
+    fn gen_local_var_decl_stmt(&mut self, var_decl_stmt: &VarDeclStmt, expr_ast: &Expr);
 
     fn reg_manager(&self) -> RefMut<RegManager>;
 }

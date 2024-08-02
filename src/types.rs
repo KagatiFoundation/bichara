@@ -49,7 +49,10 @@ pub enum LitType {
     F64(f64), // Double-precision floating point number. 64-bit float type.
     F32(f32), // Single-precision floating point number. 32-bit float type.
     Void,     // Void return type
-    Str(String),
+    
+    /// Value and the label id
+    Str(String, usize),
+
     Null, // null type
     None, // placeholder
 }
@@ -93,8 +96,7 @@ impl LitTypeVariant {
 
     pub fn size(&self) -> usize {
         match self {
-            Self::I64
-            | Self::F64 => 8,
+            Self::I64 | Self::F64 => 8,
             Self::F32 | Self::I32 => 4,
             Self::U8 => 1,
             Self::I16 => 2,
@@ -124,6 +126,7 @@ impl LitType {
             TokenKind::T_CHAR => Some(LitType::U8(0)),
             TokenKind::T_DOUBLE_NUM => Some(LitType::F64(0.0)),
             TokenKind::T_LONG_NUM => Some(LitType::I64(0)),
+            TokenKind::T_STRING => Some(LitType::Str("".to_string(), 0)),
             TokenKind::KW_VOID => Some(LitType::Void),
             _ => None,
         }
@@ -152,6 +155,7 @@ impl LitType {
             Self::U8(_) => LitTypeVariant::U8,
             Self::F64(_) => LitTypeVariant::F64,
             Self::F32(_) => LitTypeVariant::F32,
+            Self::Str(_, _) => LitTypeVariant::Str,
             Self::Void => LitTypeVariant::Void,
             _ => panic!("not a valid type to calculate variant of!"),
         }
@@ -205,7 +209,7 @@ impl Display for LitType {
         let result = match self {
             LitType::I32(value) => format!("{}", *value),
             LitType::U8(value) => format!("{}", *value),
-            LitType::Str(value) => value.clone(),
+            LitType::Str(value, _) => value.clone(),
             _ => panic!()
         };
         _ = writeln!(f, "{}", result);

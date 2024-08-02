@@ -271,9 +271,11 @@ impl<'parser> Parser<'parser> {
         _ = self.token_match(TokenKind::T_LPAREN);
 
         let mut func_params: Symtable<FuncParam> = Symtable::<FuncParam>::new();
-        if let Ok(param) = self.parse_parameter() {
-            func_params.add_symbol(param);
-        } 
+        if self.current_token.kind != TokenKind::T_RPAREN {
+            if let Ok(param) = self.parse_parameter() {
+                func_params.add_symbol(param);
+            } 
+        }
 
         _ = self.token_match(TokenKind::T_RPAREN);
         _ = self.token_match(TokenKind::T_ARROW); // match and ignore '->' operator
@@ -630,34 +632,40 @@ impl<'parser> Parser<'parser> {
             var_class,
         );
         sym.default_value = default_value;
+        // calculate offset here
+        if inside_func {
+            sym.local_offset = self.gen_next_local_offset(var_type);
+        }
 
-        // test assignability
-        let mut return_result: ParseResult2 = Err(Box::new(BErr::none())); // this indicates variable is declared without assignment
-                                                                           // This has to fixed later.
         let symbol_add_pos: usize = if inside_func {
             self.add_symbol_local(sym.clone()).unwrap()
         } else {
             self.add_symbol_global(sym.clone()).unwrap()
         };
-        if let Some(assign_ast_node_res) = assignment_parse_res {
-            if inside_func {
-                sym.local_offset = self.gen_next_local_offset(var_type);
-            }
-            // calculate offset here
-            return_result = Ok(AST::new(
+        let return_result: Result<AST, Box<BErr>> = if let Some(assign_ast_node_res) = assignment_parse_res {
+            Ok(AST::new(
                 ASTKind::StmtAST(Stmt::VarDecl(VarDeclStmt {
                     symtbl_pos: symbol_add_pos,
+                    class: var_class
                 })),
                 ASTOperation::AST_VAR_DECL,
                 Some(assign_ast_node_res?),
                 None,
                 var_type,
-            ));
-        }
+            ))
+        } else {
+            Ok(AST::new(
+                ASTKind::StmtAST(Stmt::VarDecl(VarDeclStmt {
+                    symtbl_pos: symbol_add_pos,
+                    class: var_class
+                })),
+                ASTOperation::AST_VAR_DECL,
+                None,
+                None,
+                var_type,
+            ))
+        };
         _ = self.token_match(TokenKind::T_SEMICOLON);
-        if inside_func {
-            self.local_offset += 8; // increase local offset if we're parsing a function
-        }
         return_result
     }
 
@@ -920,11 +928,13 @@ impl<'parser> Parser<'parser> {
                 ASTOperation::AST_INTLIT,
             )),
             TokenKind::T_STRING => {
-                let mut str_label: i32 = -1;
+                let mut str_label: i32;
                 if let Some(ctx_rc) = &mut self.ctx {
                     let mut ctx_borrow = ctx_rc.borrow_mut();
                     str_label = ctx_borrow.label_id as i32;
                     ctx_borrow.incr_label_count();
+                } else {
+                    panic!("No context provided for parser!");
                 }
                 let str_const_symbol: Symbol = Symbol::new(
                     format!("_L{}---{}", str_label, current_token.lexeme.clone()),
@@ -935,7 +945,7 @@ impl<'parser> Parser<'parser> {
                 self.add_symbol_global(str_const_symbol);
                 Ok(AST::create_leaf(
                     ASTKind::ExprAST(Expr::LitVal(LitValExpr {
-                        value: LitType::Str(current_token.lexeme.clone()),
+                        value: LitType::Str(current_token.lexeme.clone(), str_label as usize),
                         result_type: LitTypeVariant::Str,
                     })),
                     ASTOperation::AST_STRLIT,
@@ -944,7 +954,7 @@ impl<'parser> Parser<'parser> {
             }
             TokenKind::T_IDENTIFIER => {
                 // Identifiers in a global variable declaration expression is not allowed.
-                if !self.is_scope_global() {
+                if self.is_scope_global() {
                     return Err(Box::new(BErr::new(BErrType::TypeError(BTypeErr::InitializerNotAConstant { 
                         lexeme: current_token.lexeme.clone() 
                     }), current_file.clone(), current_token.clone())));
@@ -1057,6 +1067,14 @@ impl<'parser> Parser<'parser> {
                 sym_token.clone(),
             )));
         }
+
+        let curr_token_kind = self.current_token.kind;
+        let mut func_args: Vec<Expr> = vec![];
+        if curr_token_kind != TokenKind::T_RPAREN {
+            let argu: AST = self.parse_equality()?;
+            func_args.push(argu.kind.unwrap_expr());
+        }
+
         _ = self.token_match(TokenKind::T_RPAREN);
 
         // Allocating extra 16 bytes to store x29(Frame Pointer), and x30(Link Register).
@@ -1069,7 +1087,8 @@ impl<'parser> Parser<'parser> {
                 ASTKind::StmtAST(
                     Stmt::FuncCall(
                         FuncCallStmt {
-                            symtbl_pos: sym_index
+                            symtbl_pos: sym_index,
+                            args: func_args
                         }
                     )),
                     ASTOperation::AST_FUNC_CALL,
