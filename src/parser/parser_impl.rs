@@ -729,7 +729,7 @@ impl<'parser> Parser<'parser> {
             TokenKind::KW_CHAR => LitTypeVariant::U8,
             TokenKind::KW_STR => LitTypeVariant::Str,
             TokenKind::KW_LONG => LitTypeVariant::I64,
-            _ => panic!("Cannot parse a type of {:?}", current_tok),
+            _ => panic!("{:?} is not a valid datatype.", current_tok),
         }
     }
 

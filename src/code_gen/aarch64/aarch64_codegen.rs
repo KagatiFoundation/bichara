@@ -390,7 +390,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     }
     
     fn gen_local_var_decl_stmt(&mut self, var_decl_stmt: &crate::ast::VarDeclStmt, expr_ast: &Expr) {
-        let symbol = if let Some(ctx_rc) = &self.ctx {
+        let symbol: Symbol = if let Some(ctx_rc) = &self.ctx {
             let ctx_borrow = ctx_rc.borrow_mut();
             if let Some(symbol) = ctx_borrow.sym_table.get_symbol(var_decl_stmt.symtbl_pos) {
                 symbol.clone()
