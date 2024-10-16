@@ -1,3 +1,5 @@
+def __socket__() -> integer;
+
 def main() -> void {
-    let a: integer = 2323;
+    let a: integer = __socket__();
 }

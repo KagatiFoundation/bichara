@@ -217,6 +217,7 @@ impl<'parser> Parser<'parser> {
     fn parse_compound_stmt(&mut self) -> ParseResult2 {
         _ = self.token_match(TokenKind::T_LBRACE);
         let mut left: Option<AST> = None;
+        let mut stmt_count: i32 = 0;
         loop {
             if self.current_token.kind == TokenKind::T_RBRACE {
                 _ = self.token_match(TokenKind::T_RBRACE); // match and ignore '}'
@@ -240,8 +241,12 @@ impl<'parser> Parser<'parser> {
                     ));
                 }
             }
+            // increment the statement count only when we succesffully parse a statement
+            stmt_count += 1;
         }
-        if let Some(node) = left {
+        if stmt_count == 0 {
+            Ok(AST::empty())
+        } else if let Some(node) = left {
             Ok(node)
         } else {
             Err(Box::new(BErr::unexpected_token(
@@ -270,10 +275,26 @@ impl<'parser> Parser<'parser> {
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
         _ = self.token_match(TokenKind::T_LPAREN);
 
+        let current_file = self.get_current_file_name();
+
         let mut func_params: Symtable<FuncParam> = Symtable::<FuncParam>::new();
         if self.current_token.kind != TokenKind::T_RPAREN {
-            if let Ok(param) = self.parse_parameter() {
-                func_params.add_symbol(param);
+            loop {
+                if let Ok(param) = self.parse_parameter() {
+                    func_params.add_symbol(param);
+                } 
+                let is_tok_comma: bool = self.current_token.kind == TokenKind::T_COMMA;
+                let is_tok_rparen: bool = self.current_token.kind == TokenKind::T_RPAREN;
+                if !is_tok_comma && !is_tok_rparen {
+                    return Err(Box::new(BErr::unexpected_token(
+                        current_file.clone(), 
+                        self.current_token.clone()
+                    )));
+                } else if is_tok_rparen {
+                    break;
+                } else {
+                    self.token_match(TokenKind::T_COMMA);
+                }
             } 
         }
 
@@ -549,6 +570,7 @@ impl<'parser> Parser<'parser> {
     fn parse_var_decl_stmt(&mut self) -> ParseResult2 {
         // consume 'let'
         _ = self.token_match(TokenKind::KW_LET);
+
         // Being "inside" a function means that we are currently parsing a function's body.
         //
         // INVALID_FUNC_ID equals 0xFFFFFFFF if we are not parsing a function currently.
@@ -565,10 +587,12 @@ impl<'parser> Parser<'parser> {
         // The variable might not have any initial value.
         // Thus it is 'null' (or none) by default.
         let mut var_type: LitTypeVariant = LitTypeVariant::None;
+
+        // Name of the variable.
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
 
         // Parser may encounter a colon after the identifier name.
-        // This means the type of this variable of this type is defined
+        // This means the type of this variable has been defined
         // by the user.
         if self.current_token.kind == TokenKind::T_COLON {
             _ = self.token_match(TokenKind::T_COLON);
@@ -576,10 +600,12 @@ impl<'parser> Parser<'parser> {
             self.skip_to_next_token();
         }
 
-        // checking whether variable is assigned at the time of its declaration
+        // Stores the RHS value of this variable (if defined)
         let mut assignment_parse_res: Option<ParseResult2> = None;
 
-        // if identifier name is followed by an equal sign
+        // Checking whether variable is assigned at the time of its declaration.
+        // If identifier name is followed by an equal sign, then it is assigned 
+        // at the time of declaration.
         if self.current_token.kind == TokenKind::T_EQUAL {
             _ = self.token_match(TokenKind::T_EQUAL); // match and ignore '=' sign
             assignment_parse_res = Some(self.parse_equality());
@@ -1074,8 +1100,22 @@ impl<'parser> Parser<'parser> {
         let curr_token_kind = self.current_token.kind;
         let mut func_args: Vec<Expr> = vec![];
         if curr_token_kind != TokenKind::T_RPAREN {
-            let argu: AST = self.parse_equality()?;
-            func_args.push(argu.kind.unwrap_expr());
+            loop {
+                let argu: AST = self.parse_equality()?;
+                func_args.push(argu.kind.unwrap_expr());
+                let is_tok_comma: bool = self.current_token.kind == TokenKind::T_COMMA;
+                let is_tok_rparen: bool = self.current_token.kind == TokenKind::T_RPAREN;
+                if !is_tok_comma && !is_tok_rparen {
+                    return Err(Box::new(BErr::unexpected_token(
+                        current_file.clone(), 
+                        self.current_token.clone()
+                    )));
+                } else if is_tok_rparen {
+                    break;
+                } else {
+                    self.token_match(TokenKind::T_COMMA);
+                }
+            }
         }
 
         _ = self.token_match(TokenKind::T_RPAREN);

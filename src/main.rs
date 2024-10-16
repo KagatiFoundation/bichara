@@ -50,13 +50,24 @@ fn main() {
         SourceFile::new("/Users/rigelstar/Desktop/KagatiFoundation/bichara/examples/input1.bic");
     let mut source_files: Vec<&mut SourceFile> = vec![&mut file1];
     let ctx: Rc<RefCell<CompilerCtx>> = Rc::new(RefCell::new(CompilerCtx::new(&mut symt, &mut funct)));
-    let rm: RefCell<RegManager> = RefCell::new(RegManager::new({
-        let mut regs: Vec<String> = vec![];
-        for i in 0..20 {
-            regs.push(format!("x{}", i));
-        }
-        regs
-    }));
+    let rm: RefCell<RegManager> = RefCell::new(
+        RegManager::new(
+            {
+                let mut regs: Vec<String> = vec![];
+                for i in 0..=28 {
+                    regs.push(format!("x{}", i));
+                }
+                regs
+            },
+            {
+                let mut regs: Vec<String> = vec![];
+                for i in 0..=7 {
+                    regs.push(format!("x{}", i));
+                }
+                regs
+            }
+        )
+    );
     let mut cg: Aarch64CodeGen = Aarch64CodeGen::new(rm);
     for sf in &mut source_files {
         let read_res: Result<i32, std::io::Error> = sf.read();

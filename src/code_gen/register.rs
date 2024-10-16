@@ -34,16 +34,24 @@ use std::collections::HashMap;
 /// 
 /// * `registers` - A HashMap that maps register names (String) to their statuses (u8).
 pub struct RegManager {
-    registers: HashMap<String, u8>
+    registers: HashMap<String, u8>,
+    param_regs: HashMap<String, u8>
 }
 
 impl RegManager {
     #[allow(clippy::new_without_default)]
-    pub fn new(reg_names: Vec<String>) -> Self {
+    pub fn new(reg_names: Vec<String>, param_regs: Vec<String>) -> Self {
         Self {
             registers: {
                 let mut regs: HashMap<String, u8> = HashMap::<String, u8>::new();
                 for name in reg_names {
+                    regs.insert(name, 1);
+                }
+                regs
+            },
+            param_regs: {
+                let mut regs: HashMap<String, u8> = HashMap::<String, u8>::new();
+                for name in param_regs {
                     regs.insert(name, 1);
                 }
                 regs
@@ -52,10 +60,13 @@ impl RegManager {
     }    
 
     pub fn allocate(&mut self) -> usize {
-        for (index, (reg_name, status)) in self.registers.iter().enumerate() {
-            if *status == 1 {
-                self.registers.insert(reg_name.clone(), 0);
-                return index;
+        for i in 0..29 {
+            let reg_name = format!("x{}", i);
+            if let Some(free_reg) = self.registers.get(reg_name.clone().as_str()) {
+                if *free_reg == 1 {
+                    self.registers.insert(reg_name, 0);
+                    return i;
+                }
             }
         }
         panic!("out of registers");
@@ -72,19 +83,47 @@ impl RegManager {
         self.registers.insert(dealloc_name, 1);
     }
 
+    pub fn allocate_param_reg(&mut self) -> usize {
+        for i in 0..8 {
+            let reg_name = format!("x{}", i);
+            if let Some(free_reg) = self.param_regs.get(reg_name.clone().as_str()) {
+                if *free_reg == 1 {
+                    self.param_regs.insert(reg_name, 0);
+                    return i;
+                }
+            }
+        }
+        panic!("out of parameter registers");
+    }
+    
+    pub fn deallocate_param_reg(&mut self, index: usize) {
+        let mut dealloc_name: String = String::from("");
+        for (dindex, (reg_name, _)) in self.param_regs.iter().enumerate() {
+            if dindex == index {
+                dealloc_name.push_str(reg_name);
+                break;
+            }
+        }
+        self.param_regs.insert(dealloc_name, 1);
+    }
+
     pub fn deallocate_all(&mut self) {
         for (_, reg_status) in self.registers.iter_mut() {
             *reg_status = 1;
         }
     }
 
-    pub fn name(&self, index: usize) -> String {
-        for (dindex, (reg_name, _)) in self.registers.iter().enumerate() {
-            if dindex == index {
-                return reg_name.clone();
-            }
+    pub fn deallocate_all_param_regs(&mut self) {
+        for (_, reg_status) in self.param_regs.iter_mut() {
+            *reg_status = 1;
         }
-        String::from("")
+    }
+
+    pub fn name(&self, index: usize) -> String {
+        if index > 28 {
+            return String::from("");
+        }
+        format!("x{}", index)
     }
 }
 
@@ -95,14 +134,26 @@ mod tests {
 
     #[test]
     fn test_allocation_of_one_register() {
-        let rm: RefCell<RegManager> = RefCell::new(RegManager::new({
-            let mut regs: Vec<String> = vec![];
-            for i in 0..8 {
-                regs.push(format!("x{}", i));
-                regs.push(format!("w{}", i));
-            }
-            regs
-        }));
+        let rm: RefCell<RegManager> = RefCell::new(
+            RegManager::new(
+                {
+                    let mut regs: Vec<String> = vec![];
+                    for i in 0..28 {
+                        regs.push(format!("x{}", i));
+                        regs.push(format!("w{}", i));
+                    }
+                    regs
+                },
+                {
+                    let mut regs: Vec<String> = vec![];
+                    for i in 0..7 {
+                        regs.push(format!("x{}", i));
+                        regs.push(format!("w{}", i));
+                    }
+                    regs
+                }
+            )
+        );
         let reg: usize = rm.borrow_mut().allocate();
         assert!(reg != 0xFFFFFFFF);
     }

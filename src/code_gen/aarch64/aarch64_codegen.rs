@@ -58,7 +58,8 @@ lazy_static::lazy_static! {
 pub struct Aarch64CodeGen<'aarch64> {
     reg_manager: RefCell<RegManager>,
     ctx: Option<Rc<RefCell<CompilerCtx<'aarch64>>>>,
-    label_id: usize
+    label_id: usize,
+    function_id: usize
 }
 
 impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
@@ -188,8 +189,14 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     }
 
     fn gen_load_id_into_reg(&mut self, id: usize) -> usize {
-        let value_containing_reg: usize = self.reg_manager.borrow_mut().allocate();
-        let value_reg_name: String = self.reg_manager.borrow().name(value_containing_reg);
+        let mut reg: usize = 0xFFFFFFFF;
+        let inside_func: bool = self.function_id != reg;
+        if inside_func {
+            reg = self.reg_manager.borrow_mut().allocate_param_reg();
+        } else {
+            reg = self.reg_manager.borrow_mut().allocate();
+        }
+        let value_reg_name: String = self.reg_manager.borrow().name(reg);
         let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
             let ctx_borrow = ctx_rc.borrow();
             ctx_borrow.sym_table.get_symbol(id).unwrap().clone()
@@ -204,7 +211,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         } else {
             println!("ldr {}, [sp, #{}] // load {}", value_reg_name, symbol.local_offset, symbol.name);
         } 
-        value_containing_reg
+        reg
     }
 
     // Refer to this page for explanation on '@PAGE' and '@PAGEOFF': https://stackoverflow.com/questions/65351533/apple-clang12-llvm-unknown-aarch64-fixup-kind
@@ -230,7 +237,13 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
 
     // Load an integer literal into a register
     fn gen_load_intlit_into_reg(&mut self, value: &LitType) -> usize {
-        let reg: usize = self.reg_manager.borrow_mut().allocate();
+        let mut reg: usize = 0xFFFFFFFF;
+        let inside_func: bool = self.function_id != reg;
+        if inside_func {
+            reg = self.reg_manager.borrow_mut().allocate_param_reg();
+        } else {
+            reg = self.reg_manager.borrow_mut().allocate();
+        }
         let reg_name: String = self.reg_manager.borrow().name(reg);
         let result: Result<String, ()> = Aarch64CodeGen::gen_int_value_load_code(value, &reg_name);
         if let Ok(code) = result {
@@ -243,10 +256,16 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
 
     // id --> label information of the string
     fn gen_load_global_strlit(&mut self, id: &LitType) -> usize {
-        let str_addr_reg: usize = self.reg_manager.borrow_mut().allocate();
-        let str_addr_name: String = self.reg_manager.borrow().name(str_addr_reg);
+        let mut reg: usize = 0xFFFFFFFF;
+        let inside_func: bool = self.function_id != reg;
+        if inside_func {
+            reg = self.reg_manager.borrow_mut().allocate_param_reg();
+        } else {
+            reg = self.reg_manager.borrow_mut().allocate();
+        }
+        let str_addr_name: String = self.reg_manager.borrow().name(reg);
         self.dump_gid_address_load_code_from_label_id(&str_addr_name, id);
-        str_addr_reg
+        reg
     }
 
     fn gen_add(&mut self, r1: usize, r2: usize) -> usize {
@@ -368,13 +387,18 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         } else {
             panic!("No context provided for code generation");
         };
+        // Assign the function id whenever generating code for function
+        self.function_id = func_info.func_id;
         let args: &Vec<crate::ast::Expr> = &func_call_stmt.args;
         for expr in args {
-            let reg: usize = self.gen_expr(expr, ASTOperation::AST_FUNC_CALL, 0xFFFFFFFF, ASTOperation::AST_NONE);
-            let reg_name: String = self.reg_manager.borrow().name(reg);
-            println!("mov x0, {}", reg_name);
+            _ = self.gen_expr(expr, ASTOperation::AST_FUNC_CALL, 0xFFFFFFFF, ASTOperation::AST_NONE);
+            // let reg_name: String = self.reg_manager.borrow().name(reg);
+            // let param_reg: usize = self.reg_manager.borrow_mut().allocate_param_reg();
+            // let param_reg_name: String = self.reg_manager.borrow().name(param_reg);
+            // println!("mov {}, {}", param_reg_name, reg_name);
         }
         println!("bl _{}", func_info.name);
+        self.function_id = 0xFFFFFFFF;
     }
     
     fn gen_local_var_decl_stmt(&mut self, var_decl_stmt: &crate::ast::VarDeclStmt, expr_ast: &Expr) {
@@ -390,7 +414,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         };
         let expr_reg = self.gen_expr(expr_ast, ASTOperation::AST_VAR_DECL, 0xFFFFFFFF, ASTOperation::AST_NONE);
         let reg_name: String = self.reg_manager.borrow().name(expr_reg);
-        println!("str {}, [sp, #{}]", reg_name, symbol.local_offset);
+        println!("str {}, [sp, #{}] // store into {}", reg_name, symbol.local_offset, symbol.name);
     }
     
     fn gen_func_call_expr(&mut self, func_call_expr: &crate::ast::FuncCallExpr) -> usize {
@@ -410,15 +434,18 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         };
         let args: &Vec<crate::ast::Expr> = &func_call_expr.args;
         for expr in args {
-            let reg: usize = self.gen_expr(expr, ASTOperation::AST_FUNC_CALL, 0xFFFFFFFF, ASTOperation::AST_NONE);
-            let reg_name: String = self.reg_manager.borrow().name(reg);
-            println!("mov x0, {}", reg_name);
+            _ = self.gen_expr(expr, ASTOperation::AST_FUNC_CALL, 0xFFFFFFFF, ASTOperation::AST_NONE);
+            // let reg_name: String = self.reg_manager.borrow().name(reg);
+            // let param_reg: usize = self.reg_manager.borrow_mut().allocate_param_reg();
+            // let param_reg_name: String = self.reg_manager.borrow().name(param_reg);
+            // println!("mov {}, {}", param_reg_name, reg_name);
         }
         let mut reg_mgr = self.reg_manager.borrow_mut();
         let alloced_reg: usize = reg_mgr.allocate();
         let alloced_reg_name: String = reg_mgr.name(alloced_reg);
         println!("bl _{}", func_info.name);
         println!("mov {}, x0", alloced_reg_name);
+        self.function_id = 0xFFFFFFFF;
         alloced_reg
     }
 }
@@ -430,7 +457,8 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
         Self {
             reg_manager,
             ctx: None,
-            label_id: 0
+            label_id: 0,
+            function_id: 0xFFFFFFFF
         }
     }
 
@@ -521,10 +549,10 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
                 result.push_str(&format!("movk {}, 0x{}", reg_name, splitted_i32[1]));
             }
             LitType::I16(int_val) => {
-                result.push_str(&format!("movz {}, 0x{}", reg_name, int_val));
+                result.push_str(&format!("movz {}, {}", reg_name, to_hex(int_val)));
             }
             LitType::U8(u8_val) => {
-                result.push_str(&format!("movz {}, 0x{}", reg_name, *u8_val));
+                result.push_str(&format!("movz {}, {}", reg_name, to_hex(u8_val)));
             }
             _ => {
                 return Err(());

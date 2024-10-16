@@ -1,15 +1,14 @@
 use std::fmt::LowerHex;
 use itertools::Itertools;
 
-pub fn to_hex<T: LowerHex>(x: T) -> String {
-    format!("0x{:x}", x)
+pub fn to_hex<T: LowerHex>(num: T) -> String {
+    format!("0x{:x}", num)
 }
 
 /// Split the given 64 bit hex string  into 4 parts.
-/// ```Example:```
-/// ```
+/// Example:
+/// 
 ///     0xf98dcba4b4bacd23 into vec!["f98d", "cba4", "b4ba", "cd23"]
-/// ```
 pub fn i64_hex_split_quarter(x: String) -> Vec<String> {
     if !x.starts_with("0x") {
         return vec![];
