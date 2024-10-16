@@ -578,8 +578,9 @@ impl<'parser> Parser<'parser> {
 
         // checking whether variable is assigned at the time of its declaration
         let mut assignment_parse_res: Option<ParseResult2> = None;
+
+        // if identifier name is followed by an equal sign
         if self.current_token.kind == TokenKind::T_EQUAL {
-            // if identifier name is followed by an equal sign
             _ = self.token_match(TokenKind::T_EQUAL); // match and ignore '=' sign
             assignment_parse_res = Some(self.parse_equality());
         }
@@ -604,9 +605,11 @@ impl<'parser> Parser<'parser> {
                 }
             }
             // else get the type that results from evaluating the expression
-            let assign_value_type: LitTypeVariant =
-                self.determine_type(assignment_parse_res.as_ref().unwrap());
-            if var_type != LitTypeVariant::None && var_type != assign_value_type {
+            let assign_value_type: LitTypeVariant = self.determine_type(assignment_parse_res.as_ref().unwrap());
+
+            if (var_type != LitTypeVariant::None)
+                && (var_type != assign_value_type)
+                && (!is_type_coalescing_possible(assign_value_type, var_type)) {
                 return Err(Box::new(BErr::new(
                     BErrType::TypeError(BTypeErr::AssignmentTypeMismatch {
                         var_type: var_type.to_string(),
@@ -928,7 +931,7 @@ impl<'parser> Parser<'parser> {
                 ASTOperation::AST_INTLIT,
             )),
             TokenKind::T_STRING => {
-                let mut str_label: i32;
+                let mut str_label: i32 = 0;
                 if let Some(ctx_rc) = &mut self.ctx {
                     let mut ctx_borrow = ctx_rc.borrow_mut();
                     str_label = ctx_borrow.label_id as i32;

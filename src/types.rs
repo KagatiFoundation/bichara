@@ -23,7 +23,7 @@ SOFTWARE.
 */
 
 use core::panic;
-use std::{collections::HashMap, fmt::{Display, Pointer}};
+use std::{collections::HashMap, fmt::Display};
 
 use lazy_static::lazy_static;
 
@@ -71,17 +71,19 @@ pub enum LitTypeVariant {
     None, // placeholder
 }
 
-impl LitTypeVariant {
-    pub fn to_string(&self) -> String {
+impl Display for LitTypeVariant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::I32 => "integer".to_string(),
-            Self::I64 => "long".to_string(),
-            Self::U8 => "byte".to_string(),
-            Self::Str => "str".to_string(),
-            _ => "".to_string(),
+            Self::I32 => write!(f, "integer"),
+            Self::I64 => write!(f, "long"),
+            Self::U8 => write!(f, "byte"),
+            Self::Str => write!(f, "str"),
+            _ => write!(f, ""),
         }
     }
+}
 
+impl LitTypeVariant {
     pub fn from_token_kind(kind: TokenKind) -> Self {
         match kind {
             TokenKind::KW_VOID => Self::Void,
@@ -374,6 +376,15 @@ pub fn modify_ast_node_type(node: &mut AST, to: LitTypeVariant) -> Option<AST> {
     }
     // if we reach here, then types are incompatible
     None
+}
+
+pub fn is_type_coalescing_possible(src: LitTypeVariant, dest: LitTypeVariant) -> bool {
+    match src {
+        LitTypeVariant::U8 => matches!(dest, LitTypeVariant::I16 | LitTypeVariant::I32 | LitTypeVariant::I64),
+        LitTypeVariant::I16 => matches!(dest, LitTypeVariant::I32 | LitTypeVariant::I64),
+        LitTypeVariant::I32 => matches!(dest, LitTypeVariant::I64),
+        _ => false
+    }
 }
 
 // tests

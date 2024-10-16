@@ -46,12 +46,13 @@ use crate::types::{
     LitType, 
     LitTypeVariant
 };
-use crate::utils::integer::split_i64_hex_half_each;
+use crate::utils::integer::i32_hex_split_half;
+use crate::utils::integer::i64_hex_split_quarter;
 use crate::utils::integer::to_hex;
 use crate::SymbolType;
 
 lazy_static::lazy_static! {
-    static ref CMP_CONDS_LIST: Vec<&'static str> = vec!["neq", "eq", "ge", "le", "lt", "gt"];
+    static ref CMP_CONDS_LIST: Vec<&'static str> = vec!["ne", "eq", "ge", "le", "lt", "gt"];
 }
 
 pub struct Aarch64CodeGen<'aarch64> {
@@ -231,25 +232,12 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     fn gen_load_intlit_into_reg(&mut self, value: &LitType) -> usize {
         let reg: usize = self.reg_manager.borrow_mut().allocate();
         let reg_name: String = self.reg_manager.borrow().name(reg);
-        match value {
-            LitType::I64(int_val) => {
-                let splitted_i64 = split_i64_hex_half_each(to_hex(*int_val));
-                println!("movz {}, 0x{}", reg_name, splitted_i64[0]);
-                println!("movk {}, 0x{}", reg_name, splitted_i64[1]);
-            },
-            LitType::I32(int_val) => {
-                let splitted_i64 = split_i64_hex_half_each(to_hex(*int_val));
-                println!("movk {}, 0x{}, lsl #16", reg_name, splitted_i64[0]);
-                println!("movk {}, 0x{}", reg_name, splitted_i64[1]);
-            }
-            LitType::I16(int_val) => {
-                println!("mov {}, {}", reg_name, int_val);
-            }
-            LitType::U8(u8_val) => {
-                println!("mov {}, {}", reg_name, *u8_val);
-            }
-            _ => panic!("Not a recognized type of integer: {:?}", value),
-        };
+        let result: Result<String, ()> = Aarch64CodeGen::gen_int_value_load_code(value, &reg_name);
+        if let Ok(code) = result {
+            println!("{}", code);
+        } else {
+            panic!("Was that supposed to be an integer: {:?}", value);
+        }
         reg
     }
 
@@ -509,5 +497,39 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
             }
             _ => panic!("Symbol's size is not supported right now: '{:?}'", symbol),
         }
+    }
+
+    fn gen_int_value_load_code(value: &LitType, reg_name: &str) -> Result<String, ()> {
+        let mut result: String = "".to_string();
+        match value {
+            LitType::I64(int_val) => {
+                let splitted_i64: Vec<String> = i64_hex_split_quarter(to_hex(*int_val));
+                if splitted_i64.is_empty() {
+                    return Err(());
+                }
+                result.push_str(&format!("movz {}, 0x{}, lsl #48\n", reg_name, splitted_i64[0]));
+                result.push_str(&format!("movk {}, 0x{}, lsl #32\n", reg_name, splitted_i64[1]));
+                result.push_str(&format!("movk {}, 0x{}, lsl #16\n", reg_name, splitted_i64[2]));
+                result.push_str(&format!("movk {}, 0x{}", reg_name, splitted_i64[3]));
+            },
+            LitType::I32(int_val) => {
+                let splitted_i32: Vec<String> = i32_hex_split_half(to_hex(*int_val));
+                if splitted_i32.is_empty() {
+                    return Err(());
+                }
+                result.push_str(&format!("movz {}, 0x{}, lsl #16\n", reg_name, splitted_i32[0]));
+                result.push_str(&format!("movk {}, 0x{}", reg_name, splitted_i32[1]));
+            }
+            LitType::I16(int_val) => {
+                result.push_str(&format!("movz {}, 0x{}", reg_name, int_val));
+            }
+            LitType::U8(u8_val) => {
+                result.push_str(&format!("movz {}, 0x{}", reg_name, *u8_val));
+            }
+            _ => {
+                return Err(());
+            },
+        };
+        Ok(result)
     }
 }
