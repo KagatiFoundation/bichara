@@ -111,6 +111,7 @@ impl RegManager {
         for (_, reg_status) in self.registers.iter_mut() {
             *reg_status = 1;
         }
+        self.deallocate_all_param_regs();
     }
 
     pub fn deallocate_all_param_regs(&mut self) {

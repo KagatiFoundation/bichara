@@ -35,6 +35,8 @@ pub enum Stmt {
     If,
     For,
     While,
+    Loop,
+    Break,
     FuncDecl(FuncDeclStmt),
     Return(ReturnStmt),
     Assignment(AssignStmt),

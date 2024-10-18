@@ -95,23 +95,38 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         }
     }
     
-    fn gen_if_stmt(&mut self, ast: &AST) -> usize {
-        let label_if_false: usize = self.get_next_label(); // label id to jump to if condition turns out to be false
-        let label_end: usize = self.get_next_label(); // this label is put after the end of entire if-else block
-        let cond_result_reg: usize = self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_if_false, ast.operation);
+    fn gen_if_stmt(&mut self, ast: &AST, reg: usize) -> usize {
+        // Label for jumping to the 'else' block if the condition is false
+        let label_if_false: usize = self.get_next_label();
+    
+        // Label marking the end of the entire if-else block
+        let label_end: usize = self.get_next_label();
+    
+        // Evaluate the condition and store the result in a register
+        let _cond_result_reg: usize = self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_if_false, ast.operation);
+    
+        // Free registers to allow usage within the if-else body
         self.reg_manager.borrow_mut().deallocate_all();
-        self.gen_code_from_ast(ast.mid.as_ref().unwrap(), cond_result_reg, ast.operation);
+    
+        // Generate code for the 'if-true' block
+        self.gen_code_from_ast(ast.mid.as_ref().unwrap(), reg, ast.operation);
+    
+        // Free registers again to prepare for any subsequent operations
         self.reg_manager.borrow_mut().deallocate_all();
-        // if there is an 'else' block
+    
+        // Jump to the end of the if-else block to skip the 'else' block if present
         if ast.right.is_some() {
             self.gen_jump(label_end);
         }
-        // false label
+    
+        // Label for the start of the 'else' block
         self.gen_label(label_if_false);
+    
+        // Generate code for the 'else' block, if it exists
         if let Some(ref right_ast) = ast.right {
-            self.gen_code_from_ast(right_ast, 0xFFFFFFFF, ast.operation);
+            self.gen_code_from_ast(right_ast, reg, ast.operation);
             self.reg_manager.borrow_mut().deallocate_all();
-            self.gen_label(label_end);
+            self.gen_label(label_end); // Mark the end of the if-else block
         }
         0xFFFFFFFF
     }
@@ -120,10 +135,19 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let r1name: String = self.reg_manager.borrow().name(r1);
         let r2name: String = self.reg_manager.borrow().name(r2);
         println!("cmp {}, {}", r1name, r2name);
+        let compare_operator: &str = match operation {
+            ASTOperation::AST_LTHAN => "bge",
+            ASTOperation::AST_GTHAN => "ble",
+            ASTOperation::AST_EQEQ => "bne",
+            ASTOperation::AST_NEQ => "beq",
+            ASTOperation::AST_GTEQ => "blt",
+            ASTOperation::AST_LTEQ => "bgt",
+            _ => panic!("Not a valid ASTOperation for cmp and set")
+        };
         println!(
             "cset {}, {}",
             r2name,
-            CMP_CONDS_LIST[operation as usize - ASTOperation::AST_EQEQ as usize]
+            compare_operator
         );
         println!("and {}, {}, 255", r2name, r2name);
         r2
@@ -133,9 +157,18 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let r1name: String = self.reg_manager.borrow().name(r1);
         let r2name: String = self.reg_manager.borrow().name(r2);
         println!("cmp {}, {}", r1name, r2name);
+        let compare_operator: &str = match operation {
+            ASTOperation::AST_LTHAN => "bhs",
+            ASTOperation::AST_GTHAN => "bls",
+            ASTOperation::AST_EQEQ => "bne",
+            ASTOperation::AST_NEQ => "beq",
+            ASTOperation::AST_GTEQ => "blo",
+            ASTOperation::AST_LTEQ => "bhi",
+            _ => panic!("Not a valid ASTOperation for cmp and jmp")
+        };
         println!(
-            "b{} _L{}",
-            CMP_CONDS_LIST[operation as usize - ASTOperation::AST_EQEQ as usize],
+            "{} _L{}",
+            compare_operator,
             label
         );
         self.reg_manager.borrow_mut().deallocate_all();
@@ -167,10 +200,12 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         }
         println!(".global _{}\n_{}:", func_name, func_name);
         println!("sub sp, sp, {}", func_info.stack_size);
+        println!("stp x29, x30, [sp, #16]");
         if let Some(ref body) = ast.left {
             self.gen_code_from_ast(body, 0xFFFFFFFF, ast.operation);
         }
         // function postamble
+        println!("ldp x29, x30, [sp, #16]");
         println!("add sp, sp, {}\nret", func_info.stack_size);
         0xFFFFFFFF
     }
@@ -181,10 +216,29 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         self.gen_label(label_start); // start of loop body
         self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_end, ast.operation);
         self.reg_manager.borrow_mut().deallocate_all();
-        self.gen_code_from_ast(ast.right.as_ref().unwrap(), 0xFFFFFFFF, ast.operation);
+        self.gen_code_from_ast(ast.right.as_ref().unwrap(), label_end, ast.operation);
         self.reg_manager.borrow_mut().deallocate_all();
         self.gen_jump(label_start);
         self.gen_label(label_end);
+        0xFFFFFFFF
+    }
+
+    fn gen_loop_stmt(&mut self, ast: &AST) {
+        // loop start label
+        let label_start: usize = self.get_next_label();
+
+        // loop end label
+        let label_end: usize = self.get_next_label();
+
+        self.gen_label(label_start);
+        self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_end, ast.operation);
+        self.reg_manager.borrow_mut().deallocate_all();
+        self.gen_jump(label_start);
+        self.gen_label(label_end);
+    }
+
+    fn gen_break_stmt(&mut self, break_label: usize) -> usize {
+        println!("b _L{}", break_label);
         0xFFFFFFFF
     }
 
@@ -230,7 +284,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             println!("str {}, [{}] // store into {}", reg_name, addr_reg_name, symbol.name);
             addr_reg
         } else {
-            println!("str {}, [sp, {}] // store into {}", reg_name, symbol.local_offset, symbol.name);
+            println!("str {}, [sp, #{}] // store into {}", reg_name, symbol.local_offset, symbol.name);
             0xFFFFFFFF
         }
     }
@@ -293,12 +347,12 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     fn gen_return_stmt(&mut self, result_reg: usize, _func_id: usize) -> usize {
         // NOTE: Generate code depending on the function's type. i.e. use w0 for i32, x0 for i64 etc.
         // let func_ret_type: LitTypeVariant = self.sym_table.get_symbol(func_id).lit_type;
-        if result_reg != 0xFFFFFFFF {
-            println!(
-                "mov x0, {}",
-                self.reg_manager.borrow().name(result_reg)
-            );
-        }
+        // if result_reg != 0xFFFFFFFF {
+        //     println!(
+        //         "mov x0, {}",
+        //         self.reg_manager.borrow().name(result_reg)
+        //     );
+        // }
         0xFFFFFFFF
     }
 
@@ -447,6 +501,23 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         println!("mov {}, x0", alloced_reg_name);
         self.function_id = 0xFFFFFFFF;
         alloced_reg
+    }
+
+    fn gen_var_assignment_stmt(&mut self, assign_stmt: &crate::ast::AssignStmt, expr_ast: &Expr) {
+        // self.gen_load_id_into_reg(assign_stmt.symtbl_pos);
+        let expr_reg = self.gen_expr(expr_ast, ASTOperation::AST_ASSIGN, 0xFFFFFFFF, ASTOperation::AST_NONE);
+        self.gen_store_reg_value_into_id(expr_reg, assign_stmt.symtbl_pos);
+        // let symbol: Symbol = if let Some(ctx_rc) = &self.ctx {
+            // let ctx_borrow = ctx_rc.borrow_mut();
+            // if let Some(symbol) = ctx_borrow.sym_table.get_symbol(assign_stmt.symtbl_pos) {
+                // symbol.clone()
+            // } else {
+                // panic!("not possible to reach here");
+            // }
+        // } else {
+            // panic!("no context provided");
+        // };
+
     }
 }
 

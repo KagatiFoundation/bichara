@@ -1,5 +1,20 @@
-def __socket__() -> integer;
+def extern print_int(x: integer) -> void;
+def extern print(x: str) -> void;
 
-def main() -> void {
-    let a: integer = __socket__();
+def double_it(x: integer) -> integer {
+    return x * 2;
+}
+
+def main() -> integer {
+    let a: long = 1;
+    let msg: str = "'a' is greater than 5. Exiting...";
+    loop {
+        if (a > 5) {
+            print(msg);
+            break;
+        }
+        print_int(double_it(a));
+        a = a + 1;
+    }
+    return a;
 }

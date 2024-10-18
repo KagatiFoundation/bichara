@@ -98,7 +98,9 @@ impl LitTypeVariant {
 
     pub fn size(&self) -> usize {
         match self {
-            Self::I64 | Self::F64 => 8,
+            Self::I64 
+            | Self::F64
+            | Self::Str => 8,
             Self::F32 | Self::I32 => 4,
             Self::U8 => 1,
             Self::I16 => 2,

@@ -30,18 +30,19 @@ use super::ASTKind;
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Debug)]
 pub enum ASTOperation {
-    AST_NONE,     // used as a placeholder
-    AST_ADD = 10, // an AST node with "+" as the root node
-    AST_SUBTRACT, // an AST node with "-" as the root node
-    AST_MULTIPLY, // an AST node with "*" as the root node
-    AST_DIVIDE,   // an AST node with "/" as the root node
     // below this are relational operators
-    AST_EQEQ,  // equal equal
+    AST_EQEQ = 0,  // equal equal
     AST_NEQ,   // not equal
     AST_LTEQ,  // less than or equal to
     AST_GTEQ,  // greate than equal to
     AST_GTHAN, // greater than
     AST_LTHAN, // less than
+
+    AST_NONE,     // used as a placeholder
+    AST_ADD = 10, // an AST node with "+" as the root node
+    AST_SUBTRACT, // an AST node with "-" as the root node
+    AST_MULTIPLY, // an AST node with "*" as the root node
+    AST_DIVIDE,   // an AST node with "/" as the root node
     // end of relational operators
     AST_INTLIT, // a leaf AST node with literal integer value
     AST_IDENT,  // a leaf AST node with an identifier name
@@ -50,6 +51,8 @@ pub enum ASTOperation {
     AST_GLUE,
     AST_IF,
     AST_WHILE,
+    AST_LOOP,
+    AST_BREAK,
     AST_FUNCTION,
     AST_FUNC_CALL,
     AST_RETURN,       // return statement AST node

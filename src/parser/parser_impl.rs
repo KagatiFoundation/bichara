@@ -44,7 +44,9 @@ use crate::tokenizer::*;
 use crate::types;
 use crate::types::*;
 use core::panic;
+use std::borrow::Borrow;
 use std::cell::RefCell;
+use std::env::var;
 use std::rc::Rc;
 
 /// A type alias representing the result of parsing, which can either
@@ -201,6 +203,8 @@ impl<'parser> Parser<'parser> {
                 TokenKind::KW_FOR => self.parse_for_stmt(),
                 TokenKind::T_LBRACE => self.parse_compound_stmt(),
                 TokenKind::KW_RETURN => self.parse_return_stmt(),
+                TokenKind::KW_LOOP => self.parse_loop_stmt(),
+                TokenKind::KW_BREAK => self.parse_break_stmt(),
                 _ => Err(Box::new(BErr::unexpected_token(
                     self.get_current_file_name(),
                     self.current_token.clone(),
@@ -340,7 +344,14 @@ impl<'parser> Parser<'parser> {
         let temp_func_id: usize = self.current_function_id;
         self.current_function_id = INVALID_FUNC_ID; // function parsing done; exiting out of function body
                                                     // function information collection
+        
+        /*
+        Stack offset calculation:
+         'x29' and 'x30' has to be preserved. Thus, the extra 15 bytes has to 
+         be allocated for them.
+         */
         let stack_offset: i32 = (self.local_offset + 15) & !15;
+
         let func_info: FunctionInfo = FunctionInfo::new(
             id_token.lexeme.clone(),
             function_id.unwrap(),
@@ -443,7 +454,9 @@ impl<'parser> Parser<'parser> {
         }
         let return_expr: AST = self.parse_equality()?;
         let return_expr_type: LitTypeVariant = return_expr.result_type;
-        if return_expr_type != func_symbol.as_ref().unwrap().lit_type {
+        let func_return_type: LitTypeVariant = func_symbol.as_ref().unwrap().lit_type;
+        if (return_expr_type != func_return_type) 
+            && (!is_type_coalescing_possible(return_expr_type, func_return_type)) {
             let expected_type: LitTypeVariant = func_symbol.as_ref().unwrap().lit_type;
             return Err(Box::new(BErr::new(
                 BErrType::TypeError(BTypeErr::ReturnTypeMismatch {
@@ -475,6 +488,30 @@ impl<'parser> Parser<'parser> {
             cond_ast.ok(),
             Some(while_body),
             LitTypeVariant::None,
+        ))
+    }
+
+    fn parse_loop_stmt(&mut self) -> ParseResult2 {
+        _ = self.token_match(TokenKind::KW_LOOP); // match and ignore 'loop'
+        let loop_body: AST = self.parse_compound_stmt()?;
+        Ok(AST::new(
+            ASTKind::StmtAST(Stmt::Loop),
+            ASTOperation::AST_LOOP,
+            Some(loop_body),
+            None,
+            LitTypeVariant::None,
+        ))
+    }
+
+    fn parse_break_stmt(&mut self) -> ParseResult2 {
+        _ = self.token_match(TokenKind::KW_BREAK); // match and ignore 'break'
+        _ = self.token_match(TokenKind::T_SEMICOLON); // match and ignore ';'
+        Ok(AST::new(
+            ASTKind::StmtAST(Stmt::Break),
+            ASTOperation::AST_BREAK,
+            None,
+            None,
+            LitTypeVariant::None
         ))
     }
 
@@ -786,9 +823,9 @@ impl<'parser> Parser<'parser> {
     }
 
     fn parse_assignment_stmt(&mut self, id_token: Token) -> ParseResult2 {
-        let symbol_search_result: Option<(usize, StorageClass)> =
-            self.find_symbol(&id_token.lexeme);
+        let symbol_search_result: Option<(usize, StorageClass)> = self.find_symbol(&id_token.lexeme);
         if symbol_search_result.is_none() {
+            println!("symbol not found");
             self.skip_past(TokenKind::T_SEMICOLON);
             return Err(Box::new(BErr::undefined_symbol(
                 self.get_current_file_name(),
@@ -825,8 +862,7 @@ impl<'parser> Parser<'parser> {
         }
         _ = self.token_match(TokenKind::T_EQUAL);
         let mut bin_expr_ast_node: AST = self.parse_equality()?;
-        let compat_node: Option<AST> =
-            Parser::validate_assign_compatibility(&symbol, &mut bin_expr_ast_node);
+        let compat_node: Option<AST> = Parser::validate_assign_compatibility(&symbol, &mut bin_expr_ast_node);
         // following code is going to break at some point. unwrap()ing an Option type without checking?
         let _result_type: LitTypeVariant = compat_node.as_ref().unwrap().result_type;
         _ = self.token_match(TokenKind::T_SEMICOLON);
@@ -1182,7 +1218,7 @@ impl<'parser> Parser<'parser> {
     }
 
     fn find_symbol(&self, name: &str) -> Option<(usize, StorageClass)> {
-        // first search in the local scope to determine if a symbol exists in this scope
+        // first search in the local scope to determine if the symbol exists in local scope
         if let Some(global_pos) = self.find_symbol_local(name) {
             return Some((global_pos, StorageClass::LOCAL));
         }

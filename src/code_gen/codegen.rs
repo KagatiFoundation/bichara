@@ -25,6 +25,7 @@ SOFTWARE.
 use std::cell::RefMut;
 
 use crate::ast::ASTKind;
+use crate::ast::AssignStmt;
 use crate::ast::BinExpr;
 use crate::ast::Expr;
 use crate::ast::FuncCallExpr;
@@ -108,18 +109,24 @@ pub trait CodeGen {
         parent_ast_kind: ASTOperation) 
     -> usize where Self: Sized {
         if ast_node.operation == ASTOperation::AST_IF {
-            self.gen_if_stmt(ast_node)
-        } else if ast_node.operation == ASTOperation::AST_WHILE {
+            self.gen_if_stmt(ast_node, reg)
+        } 
+        else if ast_node.operation == ASTOperation::AST_WHILE {
             self.gen_while_stmt(ast_node)
-        } else if ast_node.operation == ASTOperation::AST_FUNCTION {
+        } 
+        else if ast_node.operation == ASTOperation::AST_FUNCTION {
             self.gen_function_stmt(ast_node)
-        } else if ast_node.operation == ASTOperation::AST_GLUE {
+        } 
+        else if ast_node.operation == ASTOperation::AST_BREAK {
+            self.gen_break_stmt(reg)
+        }
+        else if ast_node.operation == ASTOperation::AST_GLUE {
             if let Some(left) = ast_node.left.as_ref() {
-                self.gen_code_from_ast(left, 0xFFFFFFFF, ast_node.operation);
+                self.gen_code_from_ast(left, reg, ast_node.operation);
                 self.reg_manager().deallocate_all();
             }
             if let Some(right) = ast_node.right.as_ref() {
-                self.gen_code_from_ast(right, 0xFFFFFFFF, ast_node.operation);
+                self.gen_code_from_ast(right, reg, ast_node.operation);
                 self.reg_manager().deallocate_all();
             }
             return 0xFFFFFFFF;
@@ -166,8 +173,31 @@ pub trait CodeGen {
             0xFFFFFFFF 
         } 
         else if ast_node.operation == ASTOperation::AST_NONE || ast_node.operation == ASTOperation::AST_VAR_DECL {
-            return 0xFFFFFFFF
+            return 0xFFFFFFFF;
         }  
+        else if ast_node.operation == ASTOperation::AST_ASSIGN {
+            let possible_assign_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
+            return match possible_assign_stmt {
+                Stmt::Assignment(assign) => {
+                    let assign_expr = &ast_node.right.as_ref().unwrap().kind;
+                    if let ASTKind::ExprAST(__expr) = assign_expr {
+                        self.gen_var_assignment_stmt(&assign, __expr);
+                    }
+                    0xFFFFFFFF
+                },
+                _ => 0xFFFFFFFF
+            };
+        }
+        else if ast_node.operation == ASTOperation::AST_LOOP {
+            let possible_loop_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
+            return match possible_loop_stmt {
+                Stmt::Loop => {
+                    self.gen_loop_stmt(ast_node); 
+                    0xFFFFFFFF
+                },
+                _ => 0xFFFFFFFF
+            }
+        }
         else {
             let expr_ast: Expr = ast_node.kind.clone().unwrap_expr();
             let reg_used_for_expr: usize = self.gen_expr(&expr_ast, ast_node.operation, reg, parent_ast_kind);
@@ -268,7 +298,7 @@ pub trait CodeGen {
     ///
     /// The function always returns `0xFFFFFFFF` to signify no register allocation during 
     /// code generation.
-    fn gen_if_stmt(&mut self, ast: &AST) -> usize;
+    fn gen_if_stmt(&mut self, ast: &AST, reg: usize) -> usize;
     
     fn gen_jump(&self, label_id: usize);
 
@@ -314,6 +344,12 @@ pub trait CodeGen {
     fn gen_func_call_expr(&mut self, func_call_expr: &FuncCallExpr) -> usize;
 
     fn gen_local_var_decl_stmt(&mut self, var_decl_stmt: &VarDeclStmt, expr_ast: &Expr);
+
+    fn gen_var_assignment_stmt(&mut self, assign_stmt: &AssignStmt, expr_ast: &Expr);
+
+    fn gen_loop_stmt(&mut self, ast: &AST);
+
+    fn gen_break_stmt(&mut self, break_label: usize) -> usize;
 
     fn reg_manager(&self) -> RefMut<RegManager>;
 }
