@@ -262,6 +262,7 @@ pub trait CodeGen {
         match bin_expr.operation {
             ASTOperation::AST_ADD => self.gen_add(leftreg, rightreg),
             ASTOperation::AST_SUBTRACT => self.gen_sub(leftreg, rightreg),
+            ASTOperation::AST_MULTIPLY => self.gen_mul(leftreg, rightreg),
             ASTOperation::AST_GTHAN
             | ASTOperation::AST_LTHAN
             | ASTOperation::AST_LTEQ
@@ -328,7 +329,9 @@ pub trait CodeGen {
     fn gen_add(&mut self, r1: usize, r2: usize) -> usize;
 
     fn gen_sub(&mut self, r1: usize, r2: usize) -> usize;
-
+    
+    fn gen_mul(&mut self, r1: usize, r2: usize) -> usize;
+    
     fn gen_load_intlit_into_reg(&mut self, value: &LitType) -> usize;
 
     fn gen_load_global_strlit(&mut self, symbol_id: &LitType) -> usize;

@@ -33,7 +33,7 @@ use std::{
 
 use crate::tokenizer::{Token, Tokenizer};
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ParsingStageError {
     FileNotFound,
     TokenizationError,
@@ -42,7 +42,7 @@ pub enum ParsingStageError {
     None,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ParsingStage {
     /// Nothing has been done till now. Even the file hasn't
     /// been loaded into memory.
@@ -61,7 +61,7 @@ pub enum ParsingStage {
     Error(ParsingStageError),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SourceFile {
     /// Path of the source file.
     pub path: String,

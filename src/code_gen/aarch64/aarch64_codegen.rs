@@ -193,19 +193,45 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         } else {
             panic!("Please provide a context to work on!");
         };
-        // function preamble
+
+        // If the function is declared as extern, print its external linkage
+        // declaration and return a placeholder value indicating an unresolved
+        // address (0xFFFFFFFF).
         if func_info.storage_class == StorageClass::EXTERN {
             println!(".extern _{}", func_name);
             return 0xFFFFFFFF;
         }
+
+        // let func_stack_size: usize = func_info.stack_size
+
+        // Function preamble
         println!(".global _{}\n_{}:", func_name, func_name);
         println!("sub sp, sp, {}", func_info.stack_size);
+
+        // STP -> Store Pair of Registers
+        // Save the current frame pointer (x29) and link register (x30) onto the stack.
         println!("stp x29, x30, [sp, #16]");
+
+        // generating code for function parameters
+        for param_sym in func_info.params.iter() {
+            if param_sym.lit_type != LitTypeVariant::None {
+                let param_reg = self.reg_manager.borrow_mut().allocate_param_reg();
+                println!("str {}, [sp, #{}]", self.reg_manager.borrow().name(param_reg), param_sym.offset);
+            }
+        }
+
+        // deallocate all of the registers after manging function parameters
+        if func_info.params.iter().len() > 0 {
+            self.reg_manager.borrow_mut().deallocate_all_param_regs();
+        }
+
         if let Some(ref body) = ast.left {
             self.gen_code_from_ast(body, 0xFFFFFFFF, ast.operation);
         }
-        // function postamble
+        // ldp -> Load Pair of Registers
+        // Restore the saved frame pointer (x29) and link register (x30) from the stack.
         println!("ldp x29, x30, [sp, #16]");
+
         println!("add sp, sp, {}\nret", func_info.stack_size);
         0xFFFFFFFF
     }
@@ -336,6 +362,17 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     fn gen_sub(&mut self, r1: usize, r2: usize) -> usize {
         println!(
             "sub {}, {}, {}",
+            self.reg_manager.borrow().name(r1),
+            self.reg_manager.borrow().name(r1),
+            self.reg_manager.borrow().name(r2)
+        );
+        self.reg_manager.borrow_mut().deallocate(r2);
+        r1
+    }
+
+   fn gen_mul(&mut self, r1: usize, r2: usize) -> usize {
+        println!(
+            "mul {}, {}, {}",
             self.reg_manager.borrow().name(r1),
             self.reg_manager.borrow().name(r1),
             self.reg_manager.borrow().name(r2)
@@ -545,6 +582,13 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
         lbl
     }
 
+    // ADRP loads the address of the page of given variables. In other words, 
+    // ADRP loads the address of the page where the given global identifier lies 
+    // on. Doing this alone doesn't give us the address of the global identifier. 
+    // We need to add the offset of the global into the page address. 
+    // For example, if the page address is 40 and our global's address is 44, 
+    // we first load the page address (40) into the register and add the global's 
+    // offset (4) into it, creating an PC relative address.
     fn dump_gid_address_load_code_from_label_id(&self, reg_name: &str, id: &LitType) {
         let symbol_label_id: usize = match id {
             LitType::I32(_idx) => *_idx as usize,

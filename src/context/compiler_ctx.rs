@@ -24,6 +24,7 @@ SOFTWARE.
 
 use crate::{ast::SourceFile, FunctionInfoTable, Symbol, Symtable};
 
+#[derive(Debug)]
 pub struct CompilerCtx<'ctx> {
     /// Symbol table that is passed around each compilation unit
     /// during the whole compilation process.

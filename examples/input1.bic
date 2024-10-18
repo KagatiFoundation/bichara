@@ -1,20 +1,12 @@
 def extern print_int(x: integer) -> void;
 def extern print(x: str) -> void;
 
-def double_it(x: integer) -> integer {
-    return x * 2;
+def plus(x: integer, y: integer) -> integer {
+    return x + y;
 }
 
-def main() -> integer {
-    let a: long = 1;
-    let msg: str = "'a' is greater than 5. Exiting...";
-    loop {
-        if (a > 5) {
-            print(msg);
-            break;
-        }
-        print_int(double_it(a));
-        a = a + 1;
-    }
-    return a;
+def main() -> void {
+    let a: integer = 12;
+    let b: integer = plus(a, 2);
+    print_int(b);
 }

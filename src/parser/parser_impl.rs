@@ -46,7 +46,6 @@ use crate::types::*;
 use core::panic;
 use std::borrow::Borrow;
 use std::cell::RefCell;
-use std::env::var;
 use std::rc::Rc;
 
 /// A type alias representing the result of parsing, which can either
@@ -95,6 +94,14 @@ pub struct Parser<'parser> {
     /// function.
     current_function_id: usize,
 
+    /// Name of the function that is currently being parsed.
+    current_function_name: Option<String>,
+
+    /// Local symbols of the function that is currently being parsed.
+    temp_local_syms: Symtable<Symbol>,
+
+    temp_local_params: Symtable<FuncParam>,
+
     /// Offset of next local variable.
     local_offset: i32,
 
@@ -120,6 +127,9 @@ impl<'parser> Parser<'parser> {
             current: 0,
             current_token,
             current_function_id: INVALID_FUNC_ID,
+            current_function_name: None,
+            temp_local_syms: Symtable::new(),
+            temp_local_params: Symtable::new(),
             local_offset: 0,
             next_global_sym_pos: 0,
             next_local_sym_pos: NSYMBOLS - 1,
@@ -260,8 +270,12 @@ impl<'parser> Parser<'parser> {
         }
     }
 
+    // parsing a function declaration and definition
+    // supports multiple parameters
     fn parse_function_stmt(&mut self) -> ParseResult2 {
+        // reset local offset counter to 0
         self.local_offset = 0;
+
         // match and ignore function declaration keyword 'def'
         _ = self.token_match(TokenKind::KW_DEF);
 
@@ -285,7 +299,17 @@ impl<'parser> Parser<'parser> {
         if self.current_token.kind != TokenKind::T_RPAREN {
             loop {
                 if let Ok(param) = self.parse_parameter() {
-                    func_params.add_symbol(param);
+                    self.add_symbol_local(Symbol { 
+                        name: param.name.clone(), 
+                        lit_type: param.lit_type, 
+                        sym_type: SymbolType::Variable, 
+                        size: param.lit_type.size(), 
+                        class: StorageClass::PARAM, 
+                        local_offset: self.local_offset, 
+                        default_value: None
+                    });
+                    func_params.add_symbol(param.clone());
+                    self.temp_local_params.add_symbol(param);
                 } 
                 let is_tok_comma: bool = self.current_token.kind == TokenKind::T_COMMA;
                 let is_tok_rparen: bool = self.current_token.kind == TokenKind::T_RPAREN;
@@ -304,7 +328,8 @@ impl<'parser> Parser<'parser> {
 
         _ = self.token_match(TokenKind::T_RPAREN);
         _ = self.token_match(TokenKind::T_ARROW); // match and ignore '->' operator
-                                                  // Extract and validate function return type
+        
+        // Extract and validate function return type
         let curr_tok_kind: TokenKind = self.current_token.kind;
         let func_return_type: LitTypeVariant = LitTypeVariant::from_token_kind(curr_tok_kind);
         if func_return_type == LitTypeVariant::None {
@@ -329,6 +354,8 @@ impl<'parser> Parser<'parser> {
             )));
         }
         self.current_function_id = function_id.unwrap();
+        self.current_function_name = Some(id_token.lexeme.clone());
+
         let mut function_body: Option<AST> = None;
         // create function body
         if func_storage_class != StorageClass::EXTERN {
@@ -342,15 +369,14 @@ impl<'parser> Parser<'parser> {
             _ = self.token_match(TokenKind::T_SEMICOLON);
         }
         let temp_func_id: usize = self.current_function_id;
-        self.current_function_id = INVALID_FUNC_ID; // function parsing done; exiting out of function body
-                                                    // function information collection
+        self.current_function_id = INVALID_FUNC_ID; 
         
         /*
         Stack offset calculation:
          'x29' and 'x30' has to be preserved. Thus, the extra 15 bytes has to 
          be allocated for them.
          */
-        let stack_offset: i32 = (self.local_offset + 15) & !15;
+        let stack_offset: i32 = ((self.local_offset + 15) & !15) + 16;
 
         let func_info: FunctionInfo = FunctionInfo::new(
             id_token.lexeme.clone(),
@@ -365,9 +391,12 @@ impl<'parser> Parser<'parser> {
             let mut ctx_borrow = ctx_rc.borrow_mut();
             ctx_borrow.func_table.add(func_info);
         }
-        // self.ctx.borrow_mut().func_table.add(func_info);
         // reset offset counter after parsing a function
         self.local_offset = 0;
+
+        // reset temporary symbols holder after the function has been parsed
+        self.temp_local_syms = Symtable::new();
+
         // Return AST for function declaration
         Ok(AST::new(
             ASTKind::StmtAST(Stmt::FuncDecl(FuncDeclStmt {
@@ -384,10 +413,12 @@ impl<'parser> Parser<'parser> {
         let param_name: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
         let _ = self.token_match(TokenKind::T_COLON);
         let param_type: LitTypeVariant = self.parse_id_type();
+        let param_loc_off: i32 = self.gen_next_local_offset(param_type);
         self.skip_to_next_token();
         Ok(FuncParam {
             lit_type: param_type,
-            name: param_name.lexeme
+            name: param_name.lexeme,
+            offset: param_loc_off
         })
     }
 
@@ -750,7 +781,7 @@ impl<'parser> Parser<'parser> {
         let temp_offset: i32 = if var_type.size() > 4 {
             var_type.size() as i32
         } else {
-            4
+            8
         };
         self.local_offset += temp_offset;
         self.local_offset
@@ -1024,18 +1055,14 @@ impl<'parser> Parser<'parser> {
                         lexeme: current_token.lexeme.clone() 
                     }), current_file.clone(), current_token.clone())));
                 }
-                let sym_find_res: Option<usize> = if self.is_scope_func() {
-                    Some(self.find_symbol(&current_token.lexeme).unwrap().0)
-                } else {
-                    self.find_symbol_global(&current_token.lexeme)
-                };
+                let sym_find_res: Option<(usize, StorageClass)> = self.find_symbol(&current_token.lexeme);
                 if sym_find_res.is_none() {
                     return Err(Box::new(BErr::undefined_symbol(
                         current_file.clone(),
                         current_token.clone(),
                     )));
                 }
-                let id_index: usize = sym_find_res.unwrap();
+                let id_index: usize = sym_find_res.unwrap().0;
                 let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
                     let ctx_borrow = ctx_rc.borrow_mut();
                     ctx_borrow.sym_table.get_symbol(id_index).unwrap().clone()
@@ -1208,6 +1235,7 @@ impl<'parser> Parser<'parser> {
         let insert_pos: Option<usize> = {
             if let Some(ctx_rc) = &mut self.ctx {
                 let mut ctx_borrow = ctx_rc.borrow_mut();
+                self.temp_local_syms.insert(self.next_local_sym_pos, sym.clone());
                 ctx_borrow.sym_table.insert(self.next_local_sym_pos, sym)
             } else {
                 panic!("Can't add a new symbol locally");
@@ -1219,12 +1247,12 @@ impl<'parser> Parser<'parser> {
 
     fn find_symbol(&self, name: &str) -> Option<(usize, StorageClass)> {
         // first search in the local scope to determine if the symbol exists in local scope
-        if let Some(global_pos) = self.find_symbol_local(name) {
-            return Some((global_pos, StorageClass::LOCAL));
+        if let Some(local_pos) = self.find_symbol_local(name) {
+            return Some((local_pos, StorageClass::LOCAL));
         }
         // then inquire global scope
-        if let Some(local_pos) = self.find_symbol_global(name) {
-            return Some((local_pos, StorageClass::GLOBAL));
+        if let Some(global_pos) = self.find_symbol_global(name) {
+            return Some((global_pos, StorageClass::GLOBAL));
         }
         None
     }
@@ -1243,12 +1271,13 @@ impl<'parser> Parser<'parser> {
         None
     }
 
-    fn find_symbol_local(&self, name: &str) -> Option<usize> {
+    fn find_symbol_local(&self, param_name: &str) -> Option<usize> {
         if let Some(ctx_rc) = &self.ctx {
             let ctx_borrow = ctx_rc.borrow_mut();
             for index in (self.next_local_sym_pos + 1)..NSYMBOLS {
                 if let Some(symbol) = ctx_borrow.sym_table.get_symbol(index) {
-                    if symbol.name == name {
+                    let has_local_sym: Option<usize> = self.temp_local_syms.find_symbol(param_name);
+                    if symbol.name == param_name && has_local_sym.is_some() {
                         return Some(index);
                     }
                 }

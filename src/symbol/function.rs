@@ -39,14 +39,17 @@ pub struct FuncParam {
     pub lit_type: LitTypeVariant,
 
     /// The name of the function parameter.
-    pub name: String
+    pub name: String,
+
+    pub offset: i32
 }
 
 impl SymbolTrait for FuncParam {
     fn uninit() -> Self {
         Self {
             lit_type: LitTypeVariant::None,
-            name: "".to_string()
+            name: "".to_string(),
+            offset: -1
         }
     }
 
@@ -55,14 +58,14 @@ impl SymbolTrait for FuncParam {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LocalSymbol {
     pub name: String,
     pub sym_type: LitTypeVariant,
     pub offset: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LocalSymtable {
     pub syms: Vec<LocalSymbol>,
     pub counter: usize,
@@ -105,7 +108,7 @@ impl LocalSymtable {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FunctionInfo {
     pub name: String,
     pub func_id: usize,
@@ -136,8 +139,13 @@ impl FunctionInfo {
             params
         }
     }
+
+    pub fn has_param(&self, param_name: &str) -> bool {
+        self.params.find_symbol(param_name).is_some()
+    }
 }
 
+#[derive(Debug)]
 pub struct FunctionInfoTable {
     functions: HashMap<String, FunctionInfo>,
 }
