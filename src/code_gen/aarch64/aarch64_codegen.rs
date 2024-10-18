@@ -202,8 +202,6 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             return 0xFFFFFFFF;
         }
 
-        // let func_stack_size: usize = func_info.stack_size
-
         // Function preamble
         println!(".global _{}\n_{}:", func_name, func_name);
         println!("sub sp, sp, {}", func_info.stack_size);
@@ -623,7 +621,10 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
     fn dump_global_with_alignment(symbol: &Symbol) {
         let def_val: String = if let Some(dv) = &symbol.default_value {
             dv.to_string()
-        } else { "0".to_string() };
+        } 
+        else { 
+            "0".to_string() 
+        };
         match symbol.lit_type {
             LitTypeVariant::I32 => println!("{}: .align 4\n\t.word {}", symbol.name, def_val),
             LitTypeVariant::U8 => println!("{}:\t.byte {}", symbol.name, def_val),
@@ -674,5 +675,82 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
             },
         };
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::f64;
+    use std::cell::RefCell;
+
+    use crate::{code_gen::RegManager, types::LitType};
+
+    use super::Aarch64CodeGen;
+
+    fn create_reg_mgr() -> RegManager {
+        let rm: RegManager = RegManager::new(
+            {
+                let mut regs: Vec<String> = vec![];
+                for i in 0..=28 {
+                    regs.push(format!("x{}", i));
+                }
+                regs
+            },
+            {
+                let mut regs: Vec<String> = vec![];
+                for i in 0..=7 {
+                    regs.push(format!("x{}", i));
+                }
+                regs
+            }
+        );
+        rm
+    }
+
+    #[test]
+    fn test_gen_int_value_load_code_i64() {
+        // let rm = create_reg_mgr();
+        // let cg = Aarch64CodeGen::new(RefCell::new(rm));
+        let value = LitType::I64(0x123456789ABCDEF0);
+        let result = Aarch64CodeGen::gen_int_value_load_code(&value, "x0").unwrap();
+        let expected = 
+            "movz x0, 0x1234, lsl #48\n\
+            movk x0, 0x5678, lsl #32\n\
+            movk x0, 0x9abc, lsl #16\n\
+            movk x0, 0xdef0";
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_gen_int_value_load_code_i32() {
+        let value = LitType::I32(0x12345678);
+        let result = Aarch64CodeGen::gen_int_value_load_code(&value, "x0").unwrap();
+        let expected = 
+            "movz x0, 0x1234, lsl #16\n\
+             movk x0, 0x5678";
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_gen_int_value_load_code_i16() {
+        let value = LitType::I16(0x1234);
+        let result = Aarch64CodeGen::gen_int_value_load_code(&value, "w0").unwrap();
+        let expected = "movz w0, 0x1234";
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_gen_int_value_load_code_u8() {
+        let value = LitType::U8(0x12);
+        let result = Aarch64CodeGen::gen_int_value_load_code(&value, "w0").unwrap();
+        let expected = "movz w0, 0x12";
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_gen_int_value_load_code_unsupported_type() {
+        let value = LitType::F64(f64::consts::PI);
+        let result = Aarch64CodeGen::gen_int_value_load_code(&value, "x0");
+        assert!(result.is_err()); // The function should return an error for unsupported types
     }
 }

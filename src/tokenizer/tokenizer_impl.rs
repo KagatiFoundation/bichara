@@ -411,7 +411,6 @@ impl Tokenizer {
     }
 }
 
-/*  tests
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -419,23 +418,22 @@ mod tests {
     #[test]
     fn test_int_var_decl_tokenization() {
         let mut tok: Tokenizer = Tokenizer::new();
-        let tokens: Vec<Token> = tok.tokenize("global integer a; a = 2323;");
-        assert!(tokens.len() == 9);
+        let tokens: Vec<Token> = tok.tokenize(Rc::new("let a: integer = 23;".to_string()));
+        assert!(tokens.len() == 8);
         assert_eq!(tokens[0].kind, TokenKind::KW_LET);
-        assert_eq!(tokens[1].kind, TokenKind::KW_INT);
-        assert_eq!(tokens[2].kind, TokenKind::T_IDENTIFIER);
-        assert_eq!(tokens[3].kind, TokenKind::T_SEMICOLON);
-        assert_eq!(tokens[4].kind, TokenKind::T_IDENTIFIER);
-        assert_eq!(tokens[5].kind, TokenKind::T_EQUAL);
-        assert_eq!(tokens[6].kind, TokenKind::T_INT_NUM);
-        assert_eq!(tokens[7].kind, TokenKind::T_SEMICOLON);
-        assert_eq!(tokens[8].kind, TokenKind::T_EOF);
+        assert_eq!(tokens[1].kind, TokenKind::T_IDENTIFIER);
+        assert_eq!(tokens[2].kind, TokenKind::T_COLON);
+        assert_eq!(tokens[3].kind, TokenKind::KW_INT);
+        assert_eq!(tokens[4].kind, TokenKind::T_EQUAL);
+        assert_eq!(tokens[5].kind, TokenKind::T_CHAR);
+        assert_eq!(tokens[6].kind, TokenKind::T_SEMICOLON);
+        assert_eq!(tokens[7].kind, TokenKind::T_EOF);
     }
     
     #[test]
     fn test_should_report_invalid_numeric_value_error3() {
         let mut tok: Tokenizer = Tokenizer::new();
-        let tokens: Vec<Token> = tok.tokenize(".9999");
+        let tokens: Vec<Token> = tok.tokenize(Rc::new(".9999".to_string()));
         assert_eq!(tokens[0].kind, TokenKind::T_DOT);
         assert_eq!(tokens[1].kind, TokenKind::T_INT_NUM);
     }
@@ -443,57 +441,68 @@ mod tests {
     #[test]
     fn test_int_var_decl_len_correct() {
         let mut tok: Tokenizer = Tokenizer::new();
-        let tokens: Vec<Token> = tok.tokenize("let a = 43343;");
+        let tokens: Vec<Token> = tok.tokenize(Rc::new("let a = 43343;".to_string()));
         assert!(tokens.len() == 6);
-        assert_eq!(tokens[3].lexeme.len(), 6);
+        assert_eq!(tokens[3].lexeme.len(), 5);
     }
     
     #[test]
     fn test_float_var_decl_len_correct() {
         let mut tok: Tokenizer = Tokenizer::new();
-        let tokens: Vec<Token> = tok.tokenize("let a = 34.343");
-        assert!(tokens.len() == 6);
-        assert_eq!(tokens[3].lexeme, "4334.34");
-        assert_eq!(tokens[3].lexeme.len(), 7);
+        let tokens: Vec<Token> = tok.tokenize(Rc::new("let a = 34.343".to_string()));
+        assert!(tokens.len() == 5);
+        assert_eq!(tokens[3].lexeme, "34.343");
+        assert_eq!(tokens[3].lexeme.len(), 6);
     }
     
     #[test]
     #[should_panic]
     fn test_float_var_decl_len_correct2() {
         let mut tok: Tokenizer = Tokenizer::new();
-        let tokens: Vec<Token> = tok.tokenize("let a = 3443.44ff");
+        let tokens: Vec<Token> = tok.tokenize(Rc::new("let a = 3443.44ff".to_string()));
         assert!(tokens.len() == 6);
     }
 
     #[test]
     fn test_char_ptr_var_decl_tokenization() {
         let mut tok: Tokenizer = Tokenizer::new();
-        let tokens: Vec<Token> = tok.tokenize("let name = \"ram\";");
-        assert!(tokens.len() == 7);
-        assert_eq!(tokens[0].kind, TokenKind::KW_CHAR);
-        assert_eq!(tokens[1].kind, TokenKind::T_STAR);
-        assert_eq!(tokens[2].kind, TokenKind::T_IDENTIFIER);
-        assert_eq!(tokens[3].kind, TokenKind::T_EQUAL);
-        assert_eq!(tokens[4].kind, TokenKind::T_STRING);
-        assert_eq!(tokens[5].kind, TokenKind::T_SEMICOLON);
-        assert_eq!(tokens[6].kind, TokenKind::T_EOF);
-        assert_eq!(tokens[2].lexeme, "name"); // give identifier
-        assert_eq!(tokens[4].lexeme, "ram"); // give string
+        let tokens: Vec<Token> = tok.tokenize(Rc::new("let name = \"ram\";".to_string()));
+        assert!(tokens.len() == 6);
+        assert_eq!(tokens[0].kind, TokenKind::KW_LET);
+        assert_eq!(tokens[1].kind, TokenKind::T_IDENTIFIER);
+        assert_eq!(tokens[2].kind, TokenKind::T_EQUAL);
+        assert_eq!(tokens[3].kind, TokenKind::T_STRING);
+        assert_eq!(tokens[4].kind, TokenKind::T_SEMICOLON);
+        assert_eq!(tokens[5].kind, TokenKind::T_EOF);
+        assert_eq!(tokens[1].lexeme, "name"); // give identifier
+        assert_eq!(tokens[3].lexeme, "ram"); // give string
     }
 
     #[test]
     fn test_func_decl_tokenization() {
         let mut tok: Tokenizer = Tokenizer::new();
-        let tokens: Vec<Token> = tok.tokenize("def main() { return 0; }");
-        assert!(tokens.len() == 11);
+        let tokens: Vec<Token> = tok.tokenize(Rc::new("def main() -> void { return 0; }".to_string()));
+        assert!(tokens.len() == 12);
         assert_eq!(tokens[1].kind, TokenKind::T_IDENTIFIER);
         assert_eq!(tokens[1].lexeme, "main");
+        assert_eq!(tokens[7].lexeme, "return");
+    }
+
+    #[test]
+    fn test_empty_func_decl_tokenization() {
+        let mut tok: Tokenizer = Tokenizer::new();
+        let tokens: Vec<Token> = tok.tokenize(Rc::new("def main() -> void {  }".to_string()));
+        assert!(tokens.len() == 9);
+        assert_eq!(tokens[1].kind, TokenKind::T_IDENTIFIER);
+        assert_eq!(tokens[1].lexeme, "main");
+        assert_eq!(tokens[6].lexeme, "{");
+        assert_eq!(tokens[7].lexeme, "}");
     }
 
     #[test]
     fn test_empty_source() {
         let mut tok: Tokenizer = Tokenizer::new();
-        let tokens: Vec<Token> = tok.tokenize("");
+        let tokens: Vec<Token> = tok.tokenize(Rc::new("".to_string()));
         assert_eq!(tokens.len(), 1); // only T_EOF is present
         assert_eq!(tokens[0].kind, TokenKind::T_EOF); // only T_EOF is present
     }
@@ -501,18 +510,17 @@ mod tests {
     #[test]
     fn test_only_whitespace_source() {
         let mut tok: Tokenizer = Tokenizer::new();
-        let tokens: Vec<Token> = tok.tokenize("        ");
+        let tokens: Vec<Token> = tok.tokenize(Rc::new("        ".to_string()));
         assert_eq!(tokens.len(), 1); // only T_EOF is present
         assert_eq!(tokens[0].kind, TokenKind::T_EOF); // only EOF is present
     }
 
     #[test]
-    fn test_while_if_else_statement() {
+    fn test_if_else_statement() {
         let mut tok: Tokenizer = Tokenizer::new();
-        let tokens: Vec<Token> = tok.tokenize("if (4 > 5) { } else { }");
+        let tokens: Vec<Token> = tok.tokenize(Rc::new("if (4 > 5) { } else { }".to_string()));
         assert_eq!(tokens.len(), 12); // including T_EOF
         assert_eq!(tokens[0].kind, TokenKind::KW_IF);
         assert_eq!(tokens[8].kind, TokenKind::KW_ELSE);
     }
 }
-    */

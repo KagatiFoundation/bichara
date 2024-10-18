@@ -1327,4 +1327,6 @@ impl<'parser> Parser<'parser> {
 
 // REWRITE ALL THE TEST CASES
 #[cfg(test)]
-mod tests {}
+mod tests {
+
+}
