@@ -396,6 +396,7 @@ impl<'parser> Parser<'parser> {
 
         // reset temporary symbols holder after the function has been parsed
         self.temp_local_syms = Symtable::new();
+        self.temp_local_params = Symtable::new();
 
         // Return AST for function declaration
         Ok(AST::new(
