@@ -47,6 +47,8 @@ pub type CodeGenResult = Result<usize, CodeGenErr>;
 /// Indicating no register was produced from an code generation operation.
 pub const NO_REG: usize = 0xFFFFFFFF;
 
+pub const EARLY_RETURN: usize = 0xEEEEEEEE;
+
 pub trait CodeGen {
     /// Starts the code generation process.
     ///
@@ -131,11 +133,11 @@ pub trait CodeGen {
         }
         else if ast_node.operation == ASTOperation::AST_GLUE {
             if let Some(left) = ast_node.left.as_ref() {
-                _ = self.gen_code_from_ast(left, reg, ast_node.operation);
+                _ = self.gen_code_from_ast(left, reg, parent_ast_kind);
                 self.reg_manager().deallocate_all();
             }
             if let Some(right) = ast_node.right.as_ref() {
-                _ = self.gen_code_from_ast(right, reg, ast_node.operation);
+                _ = self.gen_code_from_ast(right, reg, parent_ast_kind);
                 self.reg_manager().deallocate_all();
             }
             Ok(NO_REG)
@@ -154,11 +156,12 @@ pub trait CodeGen {
             Ok(NO_REG)
         }
         else if ast_node.operation == ASTOperation::AST_RETURN {
+            let early_return = parent_ast_kind != ASTOperation::AST_FUNCTION;
             let possible_ret_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
             let return_expr: &AST = ast_node.left.as_ref().unwrap();
             let result_reg: usize = self.gen_expr(&return_expr.kind.clone().unwrap_expr(), ast_node.operation, reg, parent_ast_kind)?;
             return match possible_ret_stmt {
-                Stmt::Return(ret) => self.gen_return_stmt(result_reg, ret.func_id),
+                Stmt::Return(_) => self.gen_return_stmt(result_reg, early_return),
                 _ => Ok(NO_REG)
             };
         }
@@ -348,7 +351,7 @@ pub trait CodeGen {
     
     fn gen_array_access2(&mut self, symbol_id: usize, index: usize) -> CodeGenResult;
 
-    fn gen_return_stmt(&mut self, result_reg: usize, _func_id: usize) -> CodeGenResult;
+    fn gen_return_stmt(&mut self, result_reg: usize, early_return: bool) -> CodeGenResult;
 
     fn gen_func_call_stmt(&mut self, func_call_stmt: &FuncCallStmt) -> CodeGenResult;
 

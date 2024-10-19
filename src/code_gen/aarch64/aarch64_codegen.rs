@@ -35,6 +35,7 @@ use crate::ast::{
     AST
 };
 use crate::code_gen::codegen::CodeGenResult;
+use crate::code_gen::codegen::EARLY_RETURN;
 use crate::code_gen::codegen::NO_REG;
 use crate::code_gen::CodeGen;
 use crate::code_gen::register::RegManager;
@@ -62,7 +63,8 @@ pub struct Aarch64CodeGen<'aarch64> {
     reg_manager: RefCell<RegManager>,
     ctx: Option<Rc<RefCell<CompilerCtx<'aarch64>>>>,
     label_id: usize,
-    function_id: usize
+    function_id: usize,
+    early_return_label_id: usize
 }
 
 impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
@@ -106,13 +108,13 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let label_end: usize = self.get_next_label();
     
         // Evaluate the condition and store the result in a register
-        let _cond_result_reg: usize = self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_if_false, ast.operation)?;
+        let _cond_result_reg: usize = self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_if_false, ASTOperation::AST_IF)?;
     
         // Free registers to allow usage within the if-else body
         self.reg_manager.borrow_mut().deallocate_all();
     
         // Generate code for the 'if-true' block
-        _ = self.gen_code_from_ast(ast.mid.as_ref().unwrap(), reg, ast.operation)?;
+        _ = self.gen_code_from_ast(ast.mid.as_ref().unwrap(), reg, ASTOperation::AST_IF)?;
     
         // Free registers again to prepare for any subsequent operations
         self.reg_manager.borrow_mut().deallocate_all();
@@ -127,7 +129,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     
         // Generate code for the 'else' block, if it exists
         if let Some(ref right_ast) = ast.right {
-            _ = self.gen_code_from_ast(right_ast, reg, ast.operation)?;
+            _ = self.gen_code_from_ast(right_ast, reg, ASTOperation::AST_IF)?;
             self.reg_manager.borrow_mut().deallocate_all();
             _ = self.gen_label(label_end)?; // Mark the end of the if-else block
         }
@@ -228,6 +230,10 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
 
         if let Some(ref body) = ast.left {
             _ = self.gen_code_from_ast(body, 0xFFFFFFFF, ast.operation)?;
+            if self.early_return_label_id != NO_REG {
+                println!("_L{}:", self.early_return_label_id);
+                self.early_return_label_id = NO_REG; // reset early return label after function code generation
+            }
         }
         // ldp -> Load Pair of Registers
         // Restore the saved frame pointer (x29) and link register (x30) from the stack.
@@ -283,7 +289,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             let ctx_borrow = ctx_rc.borrow();
             ctx_borrow.sym_table.get_symbol(id).unwrap().clone()
         } else {
-            panic!("Please provide a context to work on!");
+            return Err(CodeGenErr::NoContext);
         };
         if symbol.class == StorageClass::GLOBAL {
             let reg: usize = self.reg_manager.borrow_mut().allocate();
@@ -383,11 +389,23 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         Ok(r1)
     }
 
-    fn gen_return_stmt(&mut self, _result_reg: usize, _func_id: usize) -> CodeGenResult {
+    fn gen_return_stmt(&mut self, result_reg: usize, early_return: bool) -> CodeGenResult {
         // NOTE: Generate code depending on the function's type. i.e. use w0 for i32, x0 for i64 etc.
         // let func_ret_type: LitTypeVariant = self.sym_table.get_symbol(func_id).lit_type;
-        
-        Ok(NO_REG)
+        // is it an early return? 
+        if self.early_return_label_id == NO_REG {
+            self.early_return_label_id = self.get_next_label();
+        }
+
+        if early_return {
+            println!("b _L{}", self.early_return_label_id);
+        }
+
+        if early_return {
+            Ok(EARLY_RETURN)
+        } else {
+            Ok(NO_REG)
+        }
     }
 
     fn gen_array_access(&mut self, id: usize, expr: &AST) -> CodeGenResult {
@@ -535,13 +553,9 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             // let param_reg_name: String = self.reg_manager.borrow().name(param_reg);
             // println!("mov {}, {}", param_reg_name, reg_name);
         }
-        let mut reg_mgr = self.reg_manager.borrow_mut();
-        let alloced_reg: usize = reg_mgr.allocate();
-        let alloced_reg_name: String = reg_mgr.name(alloced_reg);
         println!("bl _{}", func_info.name);
-        println!("mov {}, x0", alloced_reg_name);
         self.function_id = 0xFFFFFFFF;
-        Ok(alloced_reg)
+        Ok(0) // always return the 'x0' register's index after function calls
     }
 
     fn gen_var_assignment_stmt(&mut self, assign_stmt: &crate::ast::AssignStmt, expr_ast: &Expr) -> CodeGenResult {
@@ -559,7 +573,8 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
             reg_manager,
             ctx: None,
             label_id: 0,
-            function_id: 0xFFFFFFFF
+            function_id: 0xFFFFFFFF,
+            early_return_label_id: 0xFFFFFFFF
         }
     }
 
