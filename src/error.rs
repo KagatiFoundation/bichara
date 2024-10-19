@@ -152,6 +152,11 @@ impl BErr {
     }
 }
 
+pub fn bichara_error(msg: &str) {
+    println!("error: {}", msg);
+    std::process::exit(1);
+}
+
 pub fn error(pos: TokenPos, msg: &str) {
     panic!("Error: {}:{} {}", pos.line, pos.column, msg);
 }

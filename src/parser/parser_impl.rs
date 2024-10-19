@@ -1024,7 +1024,7 @@ impl<'parser> Parser<'parser> {
                 ASTOperation::AST_INTLIT,
             )),
             TokenKind::T_STRING => {
-                let mut str_label: i32 = 0;
+                let mut str_label: i32;
                 if let Some(ctx_rc) = &mut self.ctx {
                     let mut ctx_borrow = ctx_rc.borrow_mut();
                     str_label = ctx_borrow.label_id as i32;

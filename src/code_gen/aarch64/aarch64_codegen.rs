@@ -34,8 +34,11 @@ use crate::ast::{
     ASTOperation, 
     AST
 };
+use crate::code_gen::codegen::CodeGenResult;
+use crate::code_gen::codegen::NO_REG;
 use crate::code_gen::CodeGen;
 use crate::code_gen::register::RegManager;
+use crate::code_gen::CodeGenErr;
 use crate::context::CompilerCtx;
 use crate::symbol::{
     StorageClass, 
@@ -95,7 +98,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         }
     }
     
-    fn gen_if_stmt(&mut self, ast: &AST, reg: usize) -> usize {
+    fn gen_if_stmt(&mut self, ast: &AST, reg: usize) -> CodeGenResult {
         // Label for jumping to the 'else' block if the condition is false
         let label_if_false: usize = self.get_next_label();
     
@@ -103,35 +106,35 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let label_end: usize = self.get_next_label();
     
         // Evaluate the condition and store the result in a register
-        let _cond_result_reg: usize = self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_if_false, ast.operation);
+        let _cond_result_reg: usize = self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_if_false, ast.operation)?;
     
         // Free registers to allow usage within the if-else body
         self.reg_manager.borrow_mut().deallocate_all();
     
         // Generate code for the 'if-true' block
-        self.gen_code_from_ast(ast.mid.as_ref().unwrap(), reg, ast.operation);
+        _ = self.gen_code_from_ast(ast.mid.as_ref().unwrap(), reg, ast.operation)?;
     
         // Free registers again to prepare for any subsequent operations
         self.reg_manager.borrow_mut().deallocate_all();
     
         // Jump to the end of the if-else block to skip the 'else' block if present
         if ast.right.is_some() {
-            self.gen_jump(label_end);
+            _ = self.gen_jump(label_end)?;
         }
     
         // Label for the start of the 'else' block
-        self.gen_label(label_if_false);
+        _ = self.gen_label(label_if_false)?;
     
         // Generate code for the 'else' block, if it exists
         if let Some(ref right_ast) = ast.right {
-            self.gen_code_from_ast(right_ast, reg, ast.operation);
+            _ = self.gen_code_from_ast(right_ast, reg, ast.operation)?;
             self.reg_manager.borrow_mut().deallocate_all();
-            self.gen_label(label_end); // Mark the end of the if-else block
+            _ = self.gen_label(label_end)?; // Mark the end of the if-else block
         }
-        0xFFFFFFFF
+        Ok(NO_REG)
     }
     
-    fn gen_cmp_and_set(&self, operation: ASTOperation, r1: usize, r2: usize) -> usize {
+    fn gen_cmp_and_set(&self, operation: ASTOperation, r1: usize, r2: usize) -> CodeGenResult {
         let r1name: String = self.reg_manager.borrow().name(r1);
         let r2name: String = self.reg_manager.borrow().name(r2);
         println!("cmp {}, {}", r1name, r2name);
@@ -150,10 +153,10 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             compare_operator
         );
         println!("and {}, {}, 255", r2name, r2name);
-        r2
+        Ok(r2)
     }
 
-    fn gen_cmp_and_jmp(&self, operation: ASTOperation, r1: usize, r2: usize, label: usize) -> usize {
+    fn gen_cmp_and_jmp(&self, operation: ASTOperation, r1: usize, r2: usize, label: usize) -> CodeGenResult {
         let r1name: String = self.reg_manager.borrow().name(r1);
         let r2name: String = self.reg_manager.borrow().name(r2);
         println!("cmp {}, {}", r1name, r2name);
@@ -172,10 +175,10 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             label
         );
         self.reg_manager.borrow_mut().deallocate_all();
-        0xFFFFFFFF
+        Ok(NO_REG)
     }
 
-    fn gen_function_stmt(&mut self, ast: &AST) -> usize {
+    fn gen_function_stmt(&mut self, ast: &AST) -> CodeGenResult {
         let possible_func_decl: Stmt = ast.kind.clone().unwrap_stmt();
         let index: usize = match possible_func_decl {
             Stmt::FuncDecl(func_decl) => func_decl.func_id,
@@ -185,13 +188,13 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             let ctx_borrow: std::cell::Ref<CompilerCtx<'aarch64>> = ctx_rc.borrow();
             ctx_borrow.sym_table.get_symbol(index).unwrap().name.clone()
         } else {
-            panic!("Please provide a context to work on!");
+            return Err(CodeGenErr::NoContext);
         };
         let func_info: FunctionInfo = if let Some(ctx_rc) = &mut self.ctx {
             let ctx_borrow = ctx_rc.borrow();
             ctx_borrow.func_table.get(&func_name).unwrap().clone()
         } else {
-            panic!("Please provide a context to work on!");
+            return Err(CodeGenErr::NoContext);
         };
 
         // If the function is declared as extern, print its external linkage
@@ -199,7 +202,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         // address (0xFFFFFFFF).
         if func_info.storage_class == StorageClass::EXTERN {
             println!(".extern _{}", func_name);
-            return 0xFFFFFFFF;
+            return Ok(NO_REG);
         }
 
         // Function preamble
@@ -224,49 +227,50 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         }
 
         if let Some(ref body) = ast.left {
-            self.gen_code_from_ast(body, 0xFFFFFFFF, ast.operation);
+            _ = self.gen_code_from_ast(body, 0xFFFFFFFF, ast.operation)?;
         }
         // ldp -> Load Pair of Registers
         // Restore the saved frame pointer (x29) and link register (x30) from the stack.
         println!("ldp x29, x30, [sp, #16]");
 
         println!("add sp, sp, {}\nret", func_info.stack_size);
-        0xFFFFFFFF
+        Ok(NO_REG)
     }
 
-    fn gen_while_stmt(&mut self, ast: &AST) -> usize {
+    fn gen_while_stmt(&mut self, ast: &AST) -> CodeGenResult {
         let label_start: usize = self.get_next_label();
         let label_end: usize = self.get_next_label();
-        self.gen_label(label_start); // start of loop body
-        self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_end, ast.operation);
+        _ = self.gen_label(label_start)?; // start of loop body
+        _ = self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_end, ast.operation)?;
         self.reg_manager.borrow_mut().deallocate_all();
-        self.gen_code_from_ast(ast.right.as_ref().unwrap(), label_end, ast.operation);
+        _ = self.gen_code_from_ast(ast.right.as_ref().unwrap(), label_end, ast.operation)?;
         self.reg_manager.borrow_mut().deallocate_all();
-        self.gen_jump(label_start);
-        self.gen_label(label_end);
-        0xFFFFFFFF
+        _ = self.gen_jump(label_start)?;
+        _ = self.gen_label(label_end)?;
+        Ok(NO_REG)
     }
 
-    fn gen_loop_stmt(&mut self, ast: &AST) {
+    fn gen_loop_stmt(&mut self, ast: &AST) -> Result<usize, CodeGenErr> {
         // loop start label
         let label_start: usize = self.get_next_label();
 
         // loop end label
         let label_end: usize = self.get_next_label();
 
-        self.gen_label(label_start);
-        self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_end, ast.operation);
+        _ = self.gen_label(label_start)?;
+        _ = self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_end, ast.operation)?;
         self.reg_manager.borrow_mut().deallocate_all();
-        self.gen_jump(label_start);
-        self.gen_label(label_end);
+        _ = self.gen_jump(label_start)?;
+        _ = self.gen_label(label_end)?;
+        Ok(NO_REG)
     }
 
-    fn gen_break_stmt(&mut self, break_label: usize) -> usize {
+    fn gen_break_stmt(&mut self, break_label: usize) -> Result<usize, CodeGenErr> {
         println!("b _L{}", break_label);
-        0xFFFFFFFF
+        Ok(NO_REG)
     }
 
-    fn gen_load_id_into_reg(&mut self, id: usize) -> usize {
+    fn gen_load_id_into_reg(&mut self, id: usize) -> CodeGenResult {
         let mut reg: usize = 0xFFFFFFFF;
         let inside_func: bool = self.function_id != reg;
         if inside_func {
@@ -289,32 +293,32 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         } else {
             println!("ldr {}, [sp, #{}] // load {}", value_reg_name, symbol.local_offset, symbol.name);
         } 
-        reg
+        Ok(reg)
     }
 
     // Refer to this page for explanation on '@PAGE' and '@PAGEOFF': https://stackoverflow.com/questions/65351533/apple-clang12-llvm-unknown-aarch64-fixup-kind
-    fn gen_store_reg_value_into_id(&mut self, reg: usize, id: usize) -> usize {
+    fn gen_store_reg_value_into_id(&mut self, reg: usize, id: usize) -> CodeGenResult {
         let reg_name: String = self.reg_manager.borrow().name(reg);
         let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
             let ctx_borrow = ctx_rc.borrow();
             ctx_borrow.sym_table.get_symbol(id).unwrap().clone()
         } else {
-            panic!("Please provide a context to work on!");
+            return Err(CodeGenErr::NoContext);
         };
         if symbol.class == StorageClass::GLOBAL {
             let addr_reg: usize = self.reg_manager.borrow_mut().allocate();
             let addr_reg_name: String = self.reg_manager.borrow().name(addr_reg);
             self.dump_gid_address_load_code_from_name(&addr_reg_name, id);
             println!("str {}, [{}] // store into {}", reg_name, addr_reg_name, symbol.name);
-            addr_reg
+            Ok(addr_reg)
         } else {
             println!("str {}, [sp, #{}] // store into {}", reg_name, symbol.local_offset, symbol.name);
-            0xFFFFFFFF
+            Ok(NO_REG)
         }
     }
 
     // Load an integer literal into a register
-    fn gen_load_intlit_into_reg(&mut self, value: &LitType) -> usize {
+    fn gen_load_intlit_into_reg(&mut self, value: &LitType) -> CodeGenResult {
         let mut reg: usize = 0xFFFFFFFF;
         let inside_func: bool = self.function_id != reg;
         if inside_func {
@@ -329,11 +333,11 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         } else {
             panic!("Was that supposed to be an integer: {:?}", value);
         }
-        reg
+        Ok(reg)
     }
 
     // id --> label information of the string
-    fn gen_load_global_strlit(&mut self, id: &LitType) -> usize {
+    fn gen_load_global_strlit(&mut self, id: &LitType) -> CodeGenResult {
         let mut reg: usize = 0xFFFFFFFF;
         let inside_func: bool = self.function_id != reg;
         if inside_func {
@@ -343,10 +347,10 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         }
         let str_addr_name: String = self.reg_manager.borrow().name(reg);
         self.dump_gid_address_load_code_from_label_id(&str_addr_name, id);
-        reg
+        Ok(reg)
     }
 
-    fn gen_add(&mut self, r1: usize, r2: usize) -> usize {
+    fn gen_add(&mut self, r1: usize, r2: usize) -> CodeGenResult {
         println!(
             "add {}, {}, {}",
             self.reg_manager.borrow().name(r1),
@@ -354,10 +358,10 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             self.reg_manager.borrow().name(r2)
         );
         self.reg_manager.borrow_mut().deallocate(r2);
-        r1
+        Ok(r1)
     }
 
-    fn gen_sub(&mut self, r1: usize, r2: usize) -> usize {
+    fn gen_sub(&mut self, r1: usize, r2: usize) -> CodeGenResult {
         println!(
             "sub {}, {}, {}",
             self.reg_manager.borrow().name(r1),
@@ -365,10 +369,10 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             self.reg_manager.borrow().name(r2)
         );
         self.reg_manager.borrow_mut().deallocate(r2);
-        r1
+        Ok(r1)
     }
 
-   fn gen_mul(&mut self, r1: usize, r2: usize) -> usize {
+   fn gen_mul(&mut self, r1: usize, r2: usize) -> CodeGenResult {
         println!(
             "mul {}, {}, {}",
             self.reg_manager.borrow().name(r1),
@@ -376,23 +380,18 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             self.reg_manager.borrow().name(r2)
         );
         self.reg_manager.borrow_mut().deallocate(r2);
-        r1
+        Ok(r1)
     }
 
-    fn gen_return_stmt(&mut self, result_reg: usize, _func_id: usize) -> usize {
+    fn gen_return_stmt(&mut self, _result_reg: usize, _func_id: usize) -> CodeGenResult {
         // NOTE: Generate code depending on the function's type. i.e. use w0 for i32, x0 for i64 etc.
         // let func_ret_type: LitTypeVariant = self.sym_table.get_symbol(func_id).lit_type;
-        // if result_reg != 0xFFFFFFFF {
-        //     println!(
-        //         "mov x0, {}",
-        //         self.reg_manager.borrow().name(result_reg)
-        //     );
-        // }
-        0xFFFFFFFF
+        
+        Ok(NO_REG)
     }
 
-    fn gen_array_access(&mut self, id: usize, expr: &AST) -> usize {
-        let expr_res_reg: usize = self.gen_code_from_ast(expr, 0xFFFFFFFF, ASTOperation::AST_ARRAY_ACCESS);
+    fn gen_array_access(&mut self, id: usize, expr: &AST) -> CodeGenResult {
+        let expr_res_reg: usize = self.gen_code_from_ast(expr, 0xFFFFFFFF, ASTOperation::AST_ARRAY_ACCESS)?;
         let mut reg_mgr = self.reg_manager.borrow_mut();
         let expr_res_reg_name: String = reg_mgr.name(expr_res_reg);
         let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
@@ -418,10 +417,10 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             "ldr {}, [{}, {}, lsl {}]",
             off_addr_reg_name, addr_reg_name, expr_res_reg_name, offset_shift
         );
-        off_addr_reg
+        Ok(off_addr_reg)
     }
     
-    fn gen_array_access2(&mut self, symbol_id: usize, index: usize) -> usize {
+    fn gen_array_access2(&mut self, symbol_id: usize, index: usize) -> CodeGenResult {
         let mut reg_mgr: RefMut<RegManager> = self.reg_manager.borrow_mut();
         let expr_res_reg_name: String = reg_mgr.name(index);
         let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
@@ -446,24 +445,26 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             "ldr {}, [{}, {}, lsl {}]",
             off_addr_reg_name, addr_reg_name, expr_res_reg_name, offset_shift
         );
-        off_addr_reg
+        Ok(off_addr_reg)
     }
     
-    fn gen_jump(&self, label_id: usize) {
+    fn gen_jump(&self, label_id: usize) -> CodeGenResult {
         println!("b _L{}", label_id);
+        Ok(NO_REG)
     }
 
-    fn gen_label(&mut self, label: usize) {
+    fn gen_label(&mut self, label: usize) -> CodeGenResult {
         println!("_L{}:", label);
+        Ok(NO_REG)
     }
     
     fn reg_manager(&self) -> RefMut<RegManager> {
         self.reg_manager.borrow_mut()
     }
     
-    fn gen_func_call_stmt(&mut self, func_call_stmt: &FuncCallStmt) {
+    fn gen_func_call_stmt(&mut self, func_call_stmt: &FuncCallStmt) -> CodeGenResult {
         let func_info: FunctionInfo = if let Some(ctx_rc) = &self.ctx {
-            let ctx_borrow = ctx_rc.borrow_mut();
+            let ctx_borrow = ctx_rc.borrow();
             if let Some(symbol) = ctx_borrow.sym_table.get_symbol(func_call_stmt.symtbl_pos) {
                 if let Some(func_info) = ctx_borrow.func_table.get(&symbol.name) {
                     func_info.clone()
@@ -474,13 +475,13 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
                 panic!("undefined symbol");
             }
         } else {
-            panic!("No context provided for code generation");
+            return Err(CodeGenErr::NoContext);
         };
         // Assign the function id whenever generating code for function
         self.function_id = func_info.func_id;
         let args: &Vec<crate::ast::Expr> = &func_call_stmt.args;
         for expr in args {
-            _ = self.gen_expr(expr, ASTOperation::AST_FUNC_CALL, 0xFFFFFFFF, ASTOperation::AST_NONE);
+            _ = self.gen_expr(expr, ASTOperation::AST_FUNC_CALL, 0xFFFFFFFF, ASTOperation::AST_NONE)?;
             // let reg_name: String = self.reg_manager.borrow().name(reg);
             // let param_reg: usize = self.reg_manager.borrow_mut().allocate_param_reg();
             // let param_reg_name: String = self.reg_manager.borrow().name(param_reg);
@@ -488,42 +489,47 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         }
         println!("bl _{}", func_info.name);
         self.function_id = 0xFFFFFFFF;
+        Ok(NO_REG)
     }
     
-    fn gen_local_var_decl_stmt(&mut self, var_decl_stmt: &crate::ast::VarDeclStmt, expr_ast: &Expr) {
+    fn gen_local_var_decl_stmt(&mut self, var_decl_stmt: &crate::ast::VarDeclStmt, expr_ast: &Expr) -> CodeGenResult {
         let symbol: Symbol = if let Some(ctx_rc) = &self.ctx {
-            let ctx_borrow = ctx_rc.borrow_mut();
+            let ctx_borrow = ctx_rc.borrow();
             if let Some(symbol) = ctx_borrow.sym_table.get_symbol(var_decl_stmt.symtbl_pos) {
                 symbol.clone()
             } else {
                 panic!("not possible to reach here");
             }
         } else {
-            panic!("no context provided");
+            return Err(CodeGenErr::NoContext);
         };
-        let expr_reg = self.gen_expr(expr_ast, ASTOperation::AST_VAR_DECL, 0xFFFFFFFF, ASTOperation::AST_NONE);
-        let reg_name: String = self.reg_manager.borrow().name(expr_reg);
+        let expr_reg_res: usize = self.gen_expr(expr_ast, ASTOperation::AST_VAR_DECL, 0xFFFFFFFF, ASTOperation::AST_NONE)?;
+        let reg_name: String = self.reg_manager.borrow().name(expr_reg_res);
         println!("str {}, [sp, #{}] // store into {}", reg_name, symbol.local_offset, symbol.name);
+        Ok(NO_REG)
     }
     
-    fn gen_func_call_expr(&mut self, func_call_expr: &crate::ast::FuncCallExpr) -> usize {
-        let func_info: FunctionInfo = if let Some(ctx_rc) = &self.ctx {
+    fn gen_func_call_expr(&mut self, func_call_expr: &crate::ast::FuncCallExpr) -> CodeGenResult {
+        let func_info_res: Option<FunctionInfo> = if let Some(ctx_rc) = &self.ctx {
             let ctx_borrow = ctx_rc.borrow_mut();
             if let Some(symbol) = ctx_borrow.sym_table.get_symbol(func_call_expr.symtbl_pos) {
-                if let Some(func_info) = ctx_borrow.func_table.get(&symbol.name) {
-                    func_info.clone()
-                } else {
-                    panic!("function info not found");
-                }
+                ctx_borrow.func_table.get(&symbol.name).cloned()
             } else {
-                panic!("undefined symbol");
+                None
             }
         } else {
-            panic!("No context provided for code generation");
+            return Err(CodeGenErr::NoContext);
         };
+
+        if func_info_res.is_none() {
+            return Err(CodeGenErr::UndefinedSymbol("function name".to_string()));
+        }
+
+        let func_info = func_info_res.unwrap();
+
         let args: &Vec<crate::ast::Expr> = &func_call_expr.args;
         for expr in args {
-            _ = self.gen_expr(expr, ASTOperation::AST_FUNC_CALL, 0xFFFFFFFF, ASTOperation::AST_NONE);
+            _ = self.gen_expr(expr, ASTOperation::AST_FUNC_CALL, 0xFFFFFFFF, ASTOperation::AST_NONE)?;
             // let reg_name: String = self.reg_manager.borrow().name(reg);
             // let param_reg: usize = self.reg_manager.borrow_mut().allocate_param_reg();
             // let param_reg_name: String = self.reg_manager.borrow().name(param_reg);
@@ -535,24 +541,13 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         println!("bl _{}", func_info.name);
         println!("mov {}, x0", alloced_reg_name);
         self.function_id = 0xFFFFFFFF;
-        alloced_reg
+        Ok(alloced_reg)
     }
 
-    fn gen_var_assignment_stmt(&mut self, assign_stmt: &crate::ast::AssignStmt, expr_ast: &Expr) {
-        // self.gen_load_id_into_reg(assign_stmt.symtbl_pos);
-        let expr_reg = self.gen_expr(expr_ast, ASTOperation::AST_ASSIGN, 0xFFFFFFFF, ASTOperation::AST_NONE);
-        self.gen_store_reg_value_into_id(expr_reg, assign_stmt.symtbl_pos);
-        // let symbol: Symbol = if let Some(ctx_rc) = &self.ctx {
-            // let ctx_borrow = ctx_rc.borrow_mut();
-            // if let Some(symbol) = ctx_borrow.sym_table.get_symbol(assign_stmt.symtbl_pos) {
-                // symbol.clone()
-            // } else {
-                // panic!("not possible to reach here");
-            // }
-        // } else {
-            // panic!("no context provided");
-        // };
-
+    fn gen_var_assignment_stmt(&mut self, assign_stmt: &crate::ast::AssignStmt, expr_ast: &Expr) -> CodeGenResult {
+        let expr_reg: usize = self.gen_expr(expr_ast, ASTOperation::AST_ASSIGN, 0xFFFFFFFF, ASTOperation::AST_NONE)?;
+        _ = self.gen_store_reg_value_into_id(expr_reg, assign_stmt.symtbl_pos)?;
+        Ok(NO_REG)
     }
 }
 
@@ -681,13 +676,11 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
 #[cfg(test)]
 mod tests {
     use core::f64;
-    use std::cell::RefCell;
-
     use crate::{code_gen::RegManager, types::LitType};
 
     use super::Aarch64CodeGen;
 
-    fn create_reg_mgr() -> RegManager {
+    fn _create_reg_mgr() -> RegManager {
         let rm: RegManager = RegManager::new(
             {
                 let mut regs: Vec<String> = vec![];

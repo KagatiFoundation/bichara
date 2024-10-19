@@ -2,6 +2,9 @@ def extern print_int(x: integer) -> void;
 def extern print(x: str) -> void;
 
 def plus(x: integer, y: integer) -> integer {
+    if (x > y) {
+        return x - y;
+    }
     return x + y;
 }
 
