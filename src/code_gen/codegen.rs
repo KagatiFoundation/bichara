@@ -158,10 +158,14 @@ pub trait CodeGen {
         else if ast_node.operation == ASTOperation::AST_RETURN {
             let early_return = parent_ast_kind != ASTOperation::AST_FUNCTION;
             let possible_ret_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
-            let return_expr: &AST = ast_node.left.as_ref().unwrap();
-            let result_reg: usize = self.gen_expr(&return_expr.kind.clone().unwrap_expr(), ast_node.operation, reg, parent_ast_kind)?;
             return match possible_ret_stmt {
-                Stmt::Return(_) => self.gen_return_stmt(result_reg, early_return),
+                Stmt::Return(_) => {
+                    if ast_node.left.is_some() {
+                        let return_expr: &AST = ast_node.left.as_ref().unwrap();
+                        _ = self.gen_expr(&return_expr.kind.clone().unwrap_expr(), ast_node.operation, reg, parent_ast_kind)?;
+                    }
+                    self.gen_return_stmt(early_return)
+                }
                 _ => Ok(NO_REG)
             };
         }
@@ -351,7 +355,7 @@ pub trait CodeGen {
     
     fn gen_array_access2(&mut self, symbol_id: usize, index: usize) -> CodeGenResult;
 
-    fn gen_return_stmt(&mut self, result_reg: usize, early_return: bool) -> CodeGenResult;
+    fn gen_return_stmt(&mut self, early_return: bool) -> CodeGenResult;
 
     fn gen_func_call_stmt(&mut self, func_call_stmt: &FuncCallStmt) -> CodeGenResult;
 

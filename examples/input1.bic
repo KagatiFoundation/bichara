@@ -1,3 +1,4 @@
+// this is a comment
 def extern sock(port: integer) -> integer;
 def extern sock_listen(fd: integer, backlog: integer) -> void;
 def extern sock_accept(fd: integer) -> integer;

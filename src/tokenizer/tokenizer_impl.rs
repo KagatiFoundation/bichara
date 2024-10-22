@@ -72,6 +72,7 @@ lazy_static! {
         _keys.insert("let", TokenKind::KW_LET);
         _keys.insert("def", TokenKind::KW_DEF);
         _keys.insert("str", TokenKind::KW_STR);
+        _keys.insert("in", TokenKind::KW_IN);
         _keys.insert("null", TokenKind::KW_NULL);
         _keys
     };
@@ -192,8 +193,12 @@ impl Tokenizer {
                 }
             },
             '/' => {
-                token.kind = TokenKind::T_SLASH;
                 self.advance_to_next_char_pos();
+                if self.curr_char == '/' {
+                    self.advance_to_next_line(); 
+                    return TokenizationResult::Success(Token::none());
+                }
+                token.kind = TokenKind::T_SLASH;
                 if self.curr_char == '=' {
                     token.kind = TokenKind::T_SLASHEQ;
                     self.advance_to_next_char_pos();
@@ -408,6 +413,17 @@ impl Tokenizer {
         else {
             self.curr_char = '\0';
         }
+    }
+
+    fn advance_to_next_line(&mut self) {
+        if self.next_char_pos < self.source.len() {
+            while self.curr_char != '\n' {
+                self.advance_to_next_char_pos();
+            }
+        }
+        self.line += 1;
+        self.col_counter = 0;
+        self.advance_to_next_char_pos();
     }
 }
 

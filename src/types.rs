@@ -53,6 +53,10 @@ pub enum LitType {
     /// Value and the label id
     Str(String, usize),
 
+    /// First usize: Length of the array, second usize: Size of each 
+    /// element in the array
+    Array(usize, usize),
+
     Null, // null type
     None, // placeholder
 }
@@ -67,6 +71,7 @@ pub enum LitTypeVariant {
     F32,
     Void,
     Str,
+    Array,
     Null,
     None, // placeholder
 }
@@ -78,6 +83,7 @@ impl Display for LitTypeVariant {
             Self::I64 => write!(f, "long"),
             Self::U8 => write!(f, "byte"),
             Self::Str => write!(f, "str"),
+            Self::Array => write!(f, "array"),
             _ => write!(f, ""),
         }
     }
@@ -161,6 +167,7 @@ impl LitType {
             Self::F32(_) => LitTypeVariant::F32,
             Self::Str(_, _) => LitTypeVariant::Str,
             Self::Void => LitTypeVariant::Void,
+            Self::Array(_, _) => LitTypeVariant::Array,
             _ => panic!("not a valid type to calculate variant of!"),
         }
     }
@@ -344,7 +351,15 @@ pub fn are_compatible_for_operation<T: BTypeComparable + TypeSized>(left: &T, ri
         (LitTypeVariant::I64, LitTypeVariant::U8) | 
         (LitTypeVariant::I32, LitTypeVariant::I64) | 
         (LitTypeVariant::U8, LitTypeVariant::I64) => {
-            if matches!(op, ASTOperation::AST_ADD | ASTOperation::AST_SUBTRACT | ASTOperation::AST_MULTIPLY | ASTOperation::AST_DIVIDE) {
+            if matches!(
+                op, 
+                ASTOperation::AST_ADD 
+                | ASTOperation::AST_SUBTRACT 
+                | ASTOperation::AST_MULTIPLY 
+                | ASTOperation::AST_DIVIDE 
+                | ASTOperation::AST_LTHAN
+                | ASTOperation::AST_GTHAN
+            ) {
                 (true, larger_type)
             } else {
                 (false, larger_type)

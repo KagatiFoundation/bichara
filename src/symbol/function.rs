@@ -56,6 +56,10 @@ impl SymbolTrait for FuncParam {
     fn name(&self) -> String {
         self.name.clone()
     }
+
+    fn is_unused(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Clone, Debug)]

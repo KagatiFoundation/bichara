@@ -117,11 +117,13 @@ pub struct Parser<'parser> {
 
     /// Context of this parser.
     __pctx: ParserContext,
+
+    __panic_mode: bool
 }
 
 impl<'parser> Parser<'parser> {
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    pub fn new(panic_mode: bool) -> Self {
         let current_token: Token = Token::none();
         Self {
             tokens: vec![],
@@ -140,6 +142,7 @@ impl<'parser> Parser<'parser> {
                 scope: ParserScope::GLOBAL,
                 is_erronous_parse: false,
             },
+            __panic_mode: panic_mode
         }
     }
 
@@ -170,10 +173,7 @@ impl<'parser> Parser<'parser> {
                 nodes.push(stmt);
             } else if let Some(parse_error) = stmt_parse_result.err() {
                 if !parse_error.is_ignorable() {
-                    if self.is_scope_global() {
-                        parse_error.fatal();
-                    }
-                    parse_error.report();
+                    parse_error.fatal();
                     self.__pctx.toggle_error_flag();
                     // self.skip_past(TokenKind::T_SEMICOLON);
                     self.skip_to_next_stmt();
@@ -209,27 +209,27 @@ impl<'parser> Parser<'parser> {
                 return self.parse_var_decl_stmt();
             }
         }
-        else {
-            return match self.current_token.kind {
-                TokenKind::KW_LET => self.parse_var_decl_stmt(),
-                TokenKind::T_IDENTIFIER => self.assign_stmt_or_func_call(),
-                TokenKind::KW_IF => self.parse_if_stmt(),
-                TokenKind::KW_WHILE => self.parse_while_stmt(),
-                TokenKind::KW_FOR => self.parse_for_stmt(),
-                TokenKind::T_LBRACE => self.parse_compound_stmt(),
-                TokenKind::KW_RETURN => self.parse_return_stmt(),
-                TokenKind::KW_LOOP => self.parse_loop_stmt(),
-                TokenKind::KW_BREAK => self.parse_break_stmt(),
-                _ => Err(Box::new(BErr::unexpected_token(
+        match self.current_token.kind {
+            TokenKind::KW_LET => self.parse_var_decl_stmt(),
+            TokenKind::T_IDENTIFIER => self.assign_stmt_or_func_call(),
+            TokenKind::KW_IF => self.parse_if_stmt(),
+            TokenKind::KW_WHILE => self.parse_while_stmt(),
+            TokenKind::KW_FOR => self.parse_for_stmt(),
+            TokenKind::T_LBRACE => self.parse_compound_stmt(),
+            TokenKind::KW_RETURN => self.parse_return_stmt(),
+            TokenKind::KW_LOOP => self.parse_loop_stmt(),
+            TokenKind::KW_BREAK => self.parse_break_stmt(),
+            _ => {
+                let __err: Result<_, Box<BErr>> = Err(Box::new(BErr::unexpected_token(
                     self.get_current_file_name(),
                     self.current_token.clone(),
-                )))
+                )));
+                if self.__panic_mode {
+                    panic!("{:?}", __err);
+                }
+                __err
             }
         }
-        Err(Box::new(BErr::unexpected_token(
-            self.get_current_file_name(),
-            self.current_token.clone(),
-        )))
     }
 
     // parse compound statement(statement starting with '{' and ending with '}')
@@ -268,10 +268,14 @@ impl<'parser> Parser<'parser> {
         } else if let Some(node) = left {
             Ok(node)
         } else {
-            Err(Box::new(BErr::unexpected_token(
+            let __err: Result<AST, Box<BErr>> = Err(Box::new(BErr::unexpected_token(
                 self.get_current_file_name(),
                 self.current_token.clone(),
-            )))
+            )));
+            if self.__panic_mode {
+                panic!("{:?}", __err);
+            }
+            return __err;
         }
     }
 
@@ -304,25 +308,29 @@ impl<'parser> Parser<'parser> {
         if self.current_token.kind != TokenKind::T_RPAREN {
             loop {
                 if let Ok(param) = self.parse_parameter() {
-                    self.add_symbol_local(Symbol { 
-                        name: param.name.clone(), 
-                        lit_type: param.lit_type, 
-                        sym_type: SymbolType::Variable, 
-                        size: param.lit_type.size(), 
-                        class: StorageClass::PARAM, 
-                        local_offset: self.local_offset, 
-                        default_value: None
-                    });
+                    self.add_symbol_local(Symbol::__new(
+                        param.name.clone(), 
+                        param.lit_type, 
+                        SymbolType::Variable, 
+                        param.lit_type.size(), 
+                        StorageClass::PARAM, 
+                        self.local_offset, 
+                        None,
+                    ));
                     func_params.add_symbol(param.clone());
                     self.temp_local_params.add_symbol(param);
                 } 
                 let is_tok_comma: bool = self.current_token.kind == TokenKind::T_COMMA;
                 let is_tok_rparen: bool = self.current_token.kind == TokenKind::T_RPAREN;
                 if !is_tok_comma && !is_tok_rparen {
-                    return Err(Box::new(BErr::unexpected_token(
+                    let __err: Result<_, Box<BErr>> = Err(Box::new(BErr::unexpected_token(
                         current_file.clone(), 
                         self.current_token.clone()
                     )));
+                    if self.__panic_mode {
+                        panic!("{:?}", __err);
+                    }
+                    return __err;
                 } else if is_tok_rparen {
                     break;
                 } else {
@@ -331,20 +339,10 @@ impl<'parser> Parser<'parser> {
             } 
         }
 
-        _ = self.token_match(TokenKind::T_RPAREN)?;
-        _ = self.token_match(TokenKind::T_ARROW)?; // match and ignore '->' operator
-        
-        // Extract and validate function return type
-        let curr_tok_kind: TokenKind = self.current_token.kind;
-        let func_return_type: LitTypeVariant = LitTypeVariant::from_token_kind(curr_tok_kind);
-        if func_return_type == LitTypeVariant::None {
-            return Err(Box::new(BErr::unexpected_token(
-                self.get_current_file_name(),
-                self.current_token.clone(),
-            )));
-        }
-        self.skip_to_next_token(); // skip return type
-                                   // create a new function symbol with the storage class of global
+        _ = self.token_match(TokenKind::T_RPAREN);
+        let func_return_type: LitTypeVariant = self.__parse_fn_ret_type()?;
+        self.skip_to_next_token();
+
         let function_id: Option<usize> = self.add_symbol_global(Symbol::new(
             id_token.lexeme.clone(),
             func_return_type,
@@ -427,6 +425,27 @@ impl<'parser> Parser<'parser> {
         ))
     }
 
+    // parse function's return type
+    fn __parse_fn_ret_type(&mut self) -> Result<LitTypeVariant, Box<BErr>> {
+        let curr_tok: &Token = &self.current_token;
+        if curr_tok.kind != TokenKind::T_ARROW {
+            let __err = Err(Box::new(
+                BErr::new(
+                    BErrType::MissingReturnType, 
+                    self.get_current_file_name(), 
+                    curr_tok.clone()
+                )
+            ));
+            if self.__panic_mode {
+                panic!("{:?}", __err);
+            }
+            return __err;
+        }
+        _ = self.token_match(TokenKind::T_ARROW)?;
+        let func_ret_type: LitTypeVariant = self.parse_id_type();
+        Ok(func_ret_type)
+    }
+
     fn parse_parameter(&mut self) -> Result<FuncParam, Box<BErr>> {
         let param_name: Token = self.token_match(TokenKind::T_IDENTIFIER)?.clone();
         let _ = self.token_match(TokenKind::T_COLON)?;
@@ -456,10 +475,14 @@ impl<'parser> Parser<'parser> {
         let mut func_symbol: Option<Symbol> = None;
         // check whether parser's parsing a function or not
         if self.current_function_id == INVALID_FUNC_ID {
-            return Err(Box::new(BErr::unexpected_token(
-                self.get_current_file_name(),
-                self.current_token.clone(),
+            let __err: Result<_, Box<BErr>> = Err(Box::new(BErr::unexpected_token(
+                self.get_current_file_name(), 
+                self.current_token.clone()
             )));
+            if self.__panic_mode {
+                panic!("{:?}", __err);
+            }
+            return __err;
         } else {
             let mut sym: Option<Symbol> = None;
             if let Some(ctx_rc) = &mut self.ctx {
@@ -486,10 +509,14 @@ impl<'parser> Parser<'parser> {
         if void_ret_type {
             // if function has void as the return type, panic if any expression follows the keyword 'return'
             if self.current_token.kind != TokenKind::T_SEMICOLON {
-                return Err(Box::new(BErr::unexpected_token(
-                    self.get_current_file_name(),
-                    self.current_token.clone(),
+                let __err: Result<_, Box<BErr>> = Err(Box::new(BErr::unexpected_token(
+                    self.get_current_file_name(), 
+                    self.current_token.clone()
                 )));
+                if self.__panic_mode {
+                    panic!("{:?}", __err);
+                }
+                return __err;
             }
             // skip semicolon
             self.token_match(TokenKind::T_SEMICOLON)?;
@@ -844,6 +871,7 @@ impl<'parser> Parser<'parser> {
             TokenKind::KW_CHAR => LitTypeVariant::U8,
             TokenKind::KW_STR => LitTypeVariant::Str,
             TokenKind::KW_LONG => LitTypeVariant::I64,
+            TokenKind::KW_VOID => LitTypeVariant::Void,
             _ => panic!("{:?} is not a valid datatype.", current_tok),
         }
     }
@@ -1005,8 +1033,8 @@ impl<'parser> Parser<'parser> {
         ))
     }
 
-    fn get_current_file_name(&mut self) -> String {
-        if let Some(ctx_rc) = &mut self.ctx {
+    fn get_current_file_name(&self) -> String {
+        if let Some(ctx_rc) = &self.ctx {
             return ctx_rc
                 .borrow_mut()
                 .current_file
@@ -1080,7 +1108,7 @@ impl<'parser> Parser<'parser> {
                     )));
                 }
                 let id_index: usize = sym_find_res.unwrap().0;
-                let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
+                let mut symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
                     let ctx_borrow = ctx_rc.borrow_mut();
                     ctx_borrow.sym_table.get_symbol(id_index).unwrap().clone()
                 } else {
@@ -1089,6 +1117,10 @@ impl<'parser> Parser<'parser> {
                         current_token.clone(),
                     )));
                 };
+
+                // increment the use count of this symbol
+                symbol.incr_use();
+
                 let curr_tok_kind: TokenKind = self.current_token.kind;
                 if curr_tok_kind == TokenKind::T_LPAREN {
                     self.parse_func_call_expr(&symbol, id_index, &current_token)
@@ -1112,10 +1144,20 @@ impl<'parser> Parser<'parser> {
                 self.token_match(TokenKind::T_RPAREN)?;
                 Ok(group_expr.unwrap())
             }
-            _ => Err(Box::new(BErr::unexpected_token(
-                current_file.clone(),
-                current_token.clone(),
-            ))),
+            _ => {
+                let __e: Result<AST, Box<BErr>> = Err(
+                    Box::new(
+                        BErr::unexpected_token(
+                        current_file.clone(),
+                        current_token.clone(),
+                        )
+                    )
+                );
+                if self.__panic_mode {
+                    panic!("{:?}", __e);
+                }
+                __e
+            }
         }
     }
 
@@ -1177,7 +1219,7 @@ impl<'parser> Parser<'parser> {
             )));
         }
 
-        let curr_token_kind = self.current_token.kind;
+        let curr_token_kind: TokenKind = self.current_token.kind;
         let mut func_args: Vec<Expr> = vec![];
         if curr_token_kind != TokenKind::T_RPAREN {
             loop {
@@ -1186,10 +1228,14 @@ impl<'parser> Parser<'parser> {
                 let is_tok_comma: bool = self.current_token.kind == TokenKind::T_COMMA;
                 let is_tok_rparen: bool = self.current_token.kind == TokenKind::T_RPAREN;
                 if !is_tok_comma && !is_tok_rparen {
-                    return Err(Box::new(BErr::unexpected_token(
+                    let __err: Result<AST, Box<BErr>> = Err(Box::new(BErr::unexpected_token(
                         current_file.clone(), 
                         self.current_token.clone()
                     )));
+                    if self.__panic_mode {
+                        panic!("{:?}", __err);
+                    }
+                    return __err;
                 } else if is_tok_rparen {
                     break;
                 } else {
@@ -1202,7 +1248,7 @@ impl<'parser> Parser<'parser> {
 
         // Allocating extra 16 bytes to store x29(Frame Pointer), and x30(Link Register).
         // Storing and then loading them is collectively called a Frame Record.
-        self.local_offset += 16;
+        // self.local_offset += 16;
 
         if called_symbol.lit_type == LitTypeVariant::Void {
             _ = self.token_match(TokenKind::T_SEMICOLON)?;
@@ -1218,7 +1264,8 @@ impl<'parser> Parser<'parser> {
                     LitTypeVariant::Void
                 )
             )
-        } else  {
+        } 
+        else  {
             Ok(AST::create_leaf(
                 ASTKind::ExprAST(
                         Expr::FuncCall(
@@ -1319,7 +1366,11 @@ impl<'parser> Parser<'parser> {
     fn token_match(&mut self, kind: TokenKind) -> TokenMatch {
         let current: Token = self.current_token.clone();
         if kind != current.kind {
-            return Err(Box::new(BErr::unexpected_token(self.get_current_file_name(), current)));
+            let __err: Result<_, Box<BErr>> = Err(Box::new(BErr::unexpected_token(self.get_current_file_name(), current)));
+            if self.__panic_mode {
+                panic!("{:?}", __err);
+            }
+            return __err;
         }
         self.skip_to_next_token();
         Ok(&self.tokens[self.current - 1])

@@ -256,7 +256,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         Ok(NO_REG)
     }
 
-    fn gen_loop_stmt(&mut self, ast: &AST) -> Result<usize, CodeGenErr> {
+    fn gen_loop_stmt(&mut self, ast: &AST) -> CodeGenResult {
         // loop start label
         let label_start: usize = self.get_next_label();
 
@@ -271,7 +271,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         Ok(NO_REG)
     }
 
-    fn gen_break_stmt(&mut self, break_label: usize) -> Result<usize, CodeGenErr> {
+    fn gen_break_stmt(&mut self, break_label: usize) -> CodeGenResult {
         println!("b _L{}", break_label);
         Ok(NO_REG)
     }
@@ -402,7 +402,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         Ok(r1)
     }
 
-    fn gen_return_stmt(&mut self, result_reg: usize, early_return: bool) -> CodeGenResult {
+    fn gen_return_stmt(&mut self, early_return: bool) -> CodeGenResult {
         // NOTE: Generate code depending on the function's type. i.e. use w0 for i32, x0 for i64 etc.
         // let func_ret_type: LitTypeVariant = self.sym_table.get_symbol(func_id).lit_type;
         // is it an early return? 

@@ -64,6 +64,7 @@ pub enum BErrType {
     NonSubscriptable,
     NonCallable,
     SymbolAlreadyDefined,
+    MissingReturnType,
     TypeError(BTypeErr),
     None
 }
@@ -88,6 +89,7 @@ impl BErr {
             BErrType::NonSubscriptable => "Identifier is not subscriptable".to_string(),
             BErrType::NonCallable => "Identifier is not callable".to_string(),
             BErrType::SymbolAlreadyDefined => "Symbol already defined".to_string(),
+            BErrType::MissingReturnType => "Missing return type".to_string(),
             BErrType::TypeError(ref type_error) => match type_error {
                 BTypeErr::TypesMismatch { expected, found } => format!("Type mismatch: expected {}, found {}", expected, found),
                 BTypeErr::AssignmentTypeMismatch { var_type, assigned_type } => format!("Cannot assign a value of type '{}' to a variable of type '{}'", assigned_type, var_type),
@@ -141,26 +143,18 @@ impl BErr {
     pub fn report(&self) {
         if let Some(info) = &self.info {
             panic!(
-                "{}:{}:{}: error: {} '{}'",
+                "{}:{}:{}: error: {}",
                 info.source_file,
                 info.token.pos.line,
                 info.token.pos.column,
-                info.message,
-                info.token.lexeme
+                info.message
             );
         }
     }
     
     pub fn fatal(&self) {
-        if let Some(info) = &self.info {
-            eprintln!(
-                "{}:{}:{}: error: {} '{}'",
-                info.source_file,
-                info.token.pos.line,
-                info.token.pos.column,
-                info.message,
-                info.token.lexeme
-            );
+        if self.info.is_some() {
+            self.report();
             std::process::exit(1);
         }
     }

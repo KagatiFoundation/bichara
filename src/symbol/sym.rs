@@ -53,6 +53,8 @@ pub trait SymbolTrait {
     fn uninit() -> Self;
 
     fn name(&self) -> String;
+
+    fn is_unused(&self) -> bool;
 }
 
 /// Represents a symbol in Bichara, which can be a variable, 
@@ -84,7 +86,9 @@ pub struct Symbol {
 
     /// The default value of the symbol, applicable only for global 
     /// symbols.
-    pub default_value: Option<LitType>
+    pub default_value: Option<LitType>,
+
+    __use_count: usize, // how many times has this symbol been used
 }
 
 impl SymbolTrait for Symbol {
@@ -96,12 +100,17 @@ impl SymbolTrait for Symbol {
             local_offset: 0,
             name: "".to_string(),
             size: 0,
-            sym_type: SymbolType::Variable
+            sym_type: SymbolType::Variable,
+            __use_count: 0
         }
     }
 
     fn name(&self) -> String {
         self.name.clone()
+    }
+
+    fn is_unused(&self) -> bool {
+        self.__use_count == 0
     }
 }
 
@@ -114,20 +123,33 @@ impl Symbol {
             size: 1,
             class,
             local_offset: 0,
-            default_value: None
+            default_value: None,
+            __use_count: 0
         }
     }
 
-    /// Get an uninitialized(default) symbol
-    pub fn uninit() -> Self {
+    pub fn __new(
+        name: String,
+        lit_type: LitTypeVariant,
+        sym_type: SymbolType,
+        size: usize,
+        class: StorageClass,
+        local_offset: i32,
+        default_value: Option<LitType>,
+    ) -> Self {
         Self {
-            name: String::from(""),
-            lit_type: LitTypeVariant::None,
-            sym_type: SymbolType::Variable, // we don't have a None type
-            size: 0,                        // oooooh, scary
-            class: StorageClass::GLOBAL,
-            local_offset: 0,
-            default_value: None
+            name,
+            lit_type,
+            sym_type,
+            size,
+            class,
+            local_offset,
+            default_value,
+            __use_count: 0,  // Ignored or initialized to 0
         }
+    }
+
+    pub fn incr_use(&mut self) {
+        self.__use_count += 1;
     }
 }
