@@ -120,11 +120,15 @@ impl RegManager {
         }
     }
 
-    pub fn name(&self, index: usize) -> String {
-        if index > 28 {
+    pub fn name(&self, index: usize, offset: usize) -> String {
+        if index > 56 {
             return String::from("");
         }
-        format!("x{}", index)
+        let mut reg_name_prefix = "x";
+        if offset != 0 {
+            reg_name_prefix = "w";
+        }
+        format!("{}{}", reg_name_prefix, index)
     }
 }
 

@@ -140,7 +140,7 @@ impl BErr {
 
     pub fn report(&self) {
         if let Some(info) = &self.info {
-            println!(
+            panic!(
                 "{}:{}:{}: error: {} '{}'",
                 info.source_file,
                 info.token.pos.line,
@@ -148,6 +148,20 @@ impl BErr {
                 info.message,
                 info.token.lexeme
             );
+        }
+    }
+    
+    pub fn fatal(&self) {
+        if let Some(info) = &self.info {
+            eprintln!(
+                "{}:{}:{}: error: {} '{}'",
+                info.source_file,
+                info.token.pos.line,
+                info.token.pos.column,
+                info.message,
+                info.token.lexeme
+            );
+            std::process::exit(1);
         }
     }
 }

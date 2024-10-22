@@ -57,12 +57,18 @@ fn main() {
                 for i in 0..=28 {
                     regs.push(format!("x{}", i));
                 }
+                for i in 29..=56 {
+                    regs.push(format!("w{}", 56 - i));
+                }
                 regs
             },
             {
                 let mut regs: Vec<String> = vec![];
                 for i in 0..=7 {
                     regs.push(format!("x{}", i));
+                }
+                for i in 8..=14 {
+                    regs.push(format!("w{}", 14 - i));
                 }
                 regs
             }

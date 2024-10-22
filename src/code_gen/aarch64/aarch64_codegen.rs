@@ -137,8 +137,8 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     }
     
     fn gen_cmp_and_set(&self, operation: ASTOperation, r1: usize, r2: usize) -> CodeGenResult {
-        let r1name: String = self.reg_manager.borrow().name(r1);
-        let r2name: String = self.reg_manager.borrow().name(r2);
+        let r1name: String = self.reg_manager.borrow().name(r1, 0);
+        let r2name: String = self.reg_manager.borrow().name(r2, 0);
         println!("cmp {}, {}", r1name, r2name);
         let compare_operator: &str = match operation {
             ASTOperation::AST_LTHAN => "bge",
@@ -159,8 +159,8 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     }
 
     fn gen_cmp_and_jmp(&self, operation: ASTOperation, r1: usize, r2: usize, label: usize) -> CodeGenResult {
-        let r1name: String = self.reg_manager.borrow().name(r1);
-        let r2name: String = self.reg_manager.borrow().name(r2);
+        let r1name: String = self.reg_manager.borrow().name(r1, 0);
+        let r2name: String = self.reg_manager.borrow().name(r2, 0);
         println!("cmp {}, {}", r1name, r2name);
         let compare_operator: &str = match operation {
             ASTOperation::AST_LTHAN => "bhs",
@@ -219,7 +219,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         for param_sym in func_info.params.iter() {
             if param_sym.lit_type != LitTypeVariant::None {
                 let param_reg = self.reg_manager.borrow_mut().allocate_param_reg();
-                println!("str {}, [sp, #{}]", self.reg_manager.borrow().name(param_reg), param_sym.offset);
+                println!("str {}, [sp, #{}]", self.reg_manager.borrow().name(param_reg, 0), param_sym.offset);
             }
         }
 
@@ -284,7 +284,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         } else {
             reg = self.reg_manager.borrow_mut().allocate();
         }
-        let value_reg_name: String = self.reg_manager.borrow().name(reg);
+        let value_reg_name: String = self.reg_manager.borrow().name(reg, 0);
         let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
             let ctx_borrow = ctx_rc.borrow();
             ctx_borrow.sym_table.get_symbol(id).unwrap().clone()
@@ -293,7 +293,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         };
         if symbol.class == StorageClass::GLOBAL {
             let reg: usize = self.reg_manager.borrow_mut().allocate();
-            let reg_name: String = self.reg_manager.borrow().name(reg);
+            let reg_name: String = self.reg_manager.borrow().name(reg, 0);
             self.dump_gid_address_load_code_from_name(&reg_name, id);
             println!("ldr {}, [{}] // load {}", value_reg_name, reg_name, symbol.name);
         } else {
@@ -304,7 +304,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
 
     // Refer to this page for explanation on '@PAGE' and '@PAGEOFF': https://stackoverflow.com/questions/65351533/apple-clang12-llvm-unknown-aarch64-fixup-kind
     fn gen_store_reg_value_into_id(&mut self, reg: usize, id: usize) -> CodeGenResult {
-        let reg_name: String = self.reg_manager.borrow().name(reg);
+        let reg_name: String = self.reg_manager.borrow().name(reg, 0);
         let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
             let ctx_borrow = ctx_rc.borrow();
             ctx_borrow.sym_table.get_symbol(id).unwrap().clone()
@@ -313,7 +313,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         };
         if symbol.class == StorageClass::GLOBAL {
             let addr_reg: usize = self.reg_manager.borrow_mut().allocate();
-            let addr_reg_name: String = self.reg_manager.borrow().name(addr_reg);
+            let addr_reg_name: String = self.reg_manager.borrow().name(addr_reg, 0);
             self.dump_gid_address_load_code_from_name(&addr_reg_name, id);
             println!("str {}, [{}] // store into {}", reg_name, addr_reg_name, symbol.name);
             Ok(addr_reg)
@@ -326,13 +326,26 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     // Load an integer literal into a register
     fn gen_load_intlit_into_reg(&mut self, value: &LitType) -> CodeGenResult {
         let mut reg: usize = 0xFFFFFFFF;
-        let inside_func: bool = self.function_id != reg;
+        let mut reg_off: usize = 0x0;
+        let inside_func: bool = self.function_id != reg && reg_off == 0;
         if inside_func {
+           reg_off = match value {
+                LitType::I32(_)
+                | LitType::I16(_) 
+                | LitType::U8(_) => 8,
+                _ => 0
+            };
             reg = self.reg_manager.borrow_mut().allocate_param_reg();
         } else {
+            reg_off = match value {
+                LitType::I32(_)
+                | LitType::I16(_) 
+                | LitType::U8(_) => 29,
+                _ => 0
+            };
             reg = self.reg_manager.borrow_mut().allocate();
         }
-        let reg_name: String = self.reg_manager.borrow().name(reg);
+        let reg_name: String = self.reg_manager.borrow().name(reg, reg_off);
         let result: Result<String, ()> = Aarch64CodeGen::gen_int_value_load_code(value, &reg_name);
         if let Ok(code) = result {
             println!("{}", code);
@@ -351,7 +364,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         } else {
             reg = self.reg_manager.borrow_mut().allocate();
         }
-        let str_addr_name: String = self.reg_manager.borrow().name(reg);
+        let str_addr_name: String = self.reg_manager.borrow().name(reg, 0);
         self.dump_gid_address_load_code_from_label_id(&str_addr_name, id);
         Ok(reg)
     }
@@ -359,9 +372,9 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     fn gen_add(&mut self, r1: usize, r2: usize) -> CodeGenResult {
         println!(
             "add {}, {}, {}",
-            self.reg_manager.borrow().name(r1),
-            self.reg_manager.borrow().name(r1),
-            self.reg_manager.borrow().name(r2)
+            self.reg_manager.borrow().name(r1, 0),
+            self.reg_manager.borrow().name(r1, 0),
+            self.reg_manager.borrow().name(r2, 0)
         );
         self.reg_manager.borrow_mut().deallocate(r2);
         Ok(r1)
@@ -370,9 +383,9 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     fn gen_sub(&mut self, r1: usize, r2: usize) -> CodeGenResult {
         println!(
             "sub {}, {}, {}",
-            self.reg_manager.borrow().name(r1),
-            self.reg_manager.borrow().name(r1),
-            self.reg_manager.borrow().name(r2)
+            self.reg_manager.borrow().name(r1, 0),
+            self.reg_manager.borrow().name(r1, 0),
+            self.reg_manager.borrow().name(r2, 0)
         );
         self.reg_manager.borrow_mut().deallocate(r2);
         Ok(r1)
@@ -381,9 +394,9 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
    fn gen_mul(&mut self, r1: usize, r2: usize) -> CodeGenResult {
         println!(
             "mul {}, {}, {}",
-            self.reg_manager.borrow().name(r1),
-            self.reg_manager.borrow().name(r1),
-            self.reg_manager.borrow().name(r2)
+            self.reg_manager.borrow().name(r1, 0),
+            self.reg_manager.borrow().name(r1, 0),
+            self.reg_manager.borrow().name(r2, 0)
         );
         self.reg_manager.borrow_mut().deallocate(r2);
         Ok(r1)
@@ -411,7 +424,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     fn gen_array_access(&mut self, id: usize, expr: &AST) -> CodeGenResult {
         let expr_res_reg: usize = self.gen_code_from_ast(expr, 0xFFFFFFFF, ASTOperation::AST_ARRAY_ACCESS)?;
         let mut reg_mgr = self.reg_manager.borrow_mut();
-        let expr_res_reg_name: String = reg_mgr.name(expr_res_reg);
+        let expr_res_reg_name: String = reg_mgr.name(expr_res_reg, 0);
         let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
             let ctx_borrow = ctx_rc.borrow();
             ctx_borrow.sym_table.get_symbol(id).unwrap().clone()
@@ -426,9 +439,9 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         };
         // this will contain the address + offset of an array
         let addr_reg: usize = reg_mgr.allocate();
-        let addr_reg_name: String = reg_mgr.name(addr_reg);
+        let addr_reg_name: String = reg_mgr.name(addr_reg, 0);
         let off_addr_reg: usize = reg_mgr.allocate();
-        let off_addr_reg_name: String = reg_mgr.name(off_addr_reg);
+        let off_addr_reg_name: String = reg_mgr.name(off_addr_reg, 0);
         std::mem::drop(reg_mgr);
         self.dump_gid_address_load_code_from_name(&addr_reg_name, id);
         println!(
@@ -440,7 +453,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     
     fn gen_array_access2(&mut self, symbol_id: usize, index: usize) -> CodeGenResult {
         let mut reg_mgr: RefMut<RegManager> = self.reg_manager.borrow_mut();
-        let expr_res_reg_name: String = reg_mgr.name(index);
+        let expr_res_reg_name: String = reg_mgr.name(index, 0);
         let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
             let ctx_borrow = ctx_rc.borrow();
             ctx_borrow.sym_table.get_symbol(symbol_id).unwrap().clone()
@@ -454,9 +467,9 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         };
         // this will contain the address + offset of an array
         let addr_reg: usize = reg_mgr.allocate();
-        let addr_reg_name: String = reg_mgr.name(addr_reg);
+        let addr_reg_name: String = reg_mgr.name(addr_reg, 0);
         let off_addr_reg: usize = reg_mgr.allocate();
-        let off_addr_reg_name: String = reg_mgr.name(off_addr_reg);
+        let off_addr_reg_name: String = reg_mgr.name(off_addr_reg, 0);
         drop(reg_mgr);
         self.dump_gid_address_load_code_from_name(&addr_reg_name, symbol_id);
         println!(
@@ -522,7 +535,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             return Err(CodeGenErr::NoContext);
         };
         let expr_reg_res: usize = self.gen_expr(expr_ast, ASTOperation::AST_VAR_DECL, 0xFFFFFFFF, ASTOperation::AST_NONE)?;
-        let reg_name: String = self.reg_manager.borrow().name(expr_reg_res);
+        let reg_name: String = self.reg_manager.borrow().name(expr_reg_res, 0);
         println!("str {}, [sp, #{}] // store into {}", reg_name, symbol.local_offset, symbol.name);
         Ok(NO_REG)
     }
@@ -573,8 +586,8 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
             reg_manager,
             ctx: None,
             label_id: 0,
-            function_id: 0xFFFFFFFF,
-            early_return_label_id: 0xFFFFFFFF
+            function_id: NO_REG,
+            early_return_label_id: NO_REG
         }
     }
 

@@ -52,6 +52,8 @@ use std::rc::Rc;
 /// parsing failure.
 type ParseResult2<'a> = Result<AST, Box<BErr>>;
 
+type TokenMatch<'a> = Result<&'a Token, Box<BErr>>;
+
 /// Represents an invalid function ID.
 ///
 /// This constant is used to indicate that a function ID is not valid or
@@ -168,9 +170,13 @@ impl<'parser> Parser<'parser> {
                 nodes.push(stmt);
             } else if let Some(parse_error) = stmt_parse_result.err() {
                 if !parse_error.is_ignorable() {
+                    if self.is_scope_global() {
+                        parse_error.fatal();
+                    }
                     parse_error.report();
                     self.__pctx.toggle_error_flag();
-                    self.skip_past(TokenKind::T_SEMICOLON);
+                    // self.skip_past(TokenKind::T_SEMICOLON);
+                    self.skip_to_next_stmt();
                 }
             }
         }
@@ -228,12 +234,12 @@ impl<'parser> Parser<'parser> {
 
     // parse compound statement(statement starting with '{' and ending with '}')
     fn parse_compound_stmt(&mut self) -> ParseResult2 {
-        _ = self.token_match(TokenKind::T_LBRACE);
+        _ = self.token_match(TokenKind::T_LBRACE)?;
         let mut left: Option<AST> = None;
         let mut stmt_count: i32 = 0;
         loop {
             if self.current_token.kind == TokenKind::T_RBRACE {
-                _ = self.token_match(TokenKind::T_RBRACE); // match and ignore '}'
+                _ = self.token_match(TokenKind::T_RBRACE)?; // match and ignore '}'
                 break;
             }
             let tree_result: ParseResult2 = self.parse_single_stmt();
@@ -276,7 +282,7 @@ impl<'parser> Parser<'parser> {
         self.local_offset = 0;
 
         // match and ignore function declaration keyword 'def'
-        _ = self.token_match(TokenKind::KW_DEF);
+        _ = self.token_match(TokenKind::KW_DEF)?;
 
         // Storage class of the function that is being parsed.
         // By default, it is set to 'GLOBAL'.
@@ -285,12 +291,12 @@ impl<'parser> Parser<'parser> {
         // 'def' keyword could be followed by the 'extern' keyword, 
         // symbolizing the external definition of the function's body.
         if self.current_token.kind == TokenKind::KW_EXTERN {
-            _ = self.token_match(TokenKind::KW_EXTERN);
+            _ = self.token_match(TokenKind::KW_EXTERN)?;
             func_storage_class = StorageClass::EXTERN;
         }
 
-        let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
-        _ = self.token_match(TokenKind::T_LPAREN);
+        let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER)?.clone();
+        _ = self.token_match(TokenKind::T_LPAREN)?;
 
         let current_file = self.get_current_file_name();
 
@@ -320,13 +326,13 @@ impl<'parser> Parser<'parser> {
                 } else if is_tok_rparen {
                     break;
                 } else {
-                    self.token_match(TokenKind::T_COMMA);
+                    self.token_match(TokenKind::T_COMMA)?;
                 }
             } 
         }
 
-        _ = self.token_match(TokenKind::T_RPAREN);
-        _ = self.token_match(TokenKind::T_ARROW); // match and ignore '->' operator
+        _ = self.token_match(TokenKind::T_RPAREN)?;
+        _ = self.token_match(TokenKind::T_ARROW)?; // match and ignore '->' operator
         
         // Extract and validate function return type
         let curr_tok_kind: TokenKind = self.current_token.kind;
@@ -352,7 +358,19 @@ impl<'parser> Parser<'parser> {
                 self.current_token.clone(),
             )));
         }
+
+        // If this is not an extern function, ensure that the next token 
+        // is a left brace ('{') before starting the function body. This 
+        // prevents the parser from entering the "local" state prematurely 
+        // if the function signature is invalid.
+        if func_storage_class != StorageClass::EXTERN {
+            _ = self.token_match_no_advance(TokenKind::T_LBRACE)?;
+        }
+
+        // Parser has to know the function id if it is going into the 
+        // "local" state.
         self.current_function_id = function_id.unwrap();
+        // And of course the function name as well :)
         self.current_function_name = Some(id_token.lexeme.clone());
 
         let mut function_body: Option<AST> = None;
@@ -365,7 +383,7 @@ impl<'parser> Parser<'parser> {
             };
             function_body = Some(__body);
         } else {
-            _ = self.token_match(TokenKind::T_SEMICOLON);
+            _ = self.token_match(TokenKind::T_SEMICOLON)?;
         }
         let temp_func_id: usize = self.current_function_id;
         self.current_function_id = INVALID_FUNC_ID; 
@@ -410,8 +428,8 @@ impl<'parser> Parser<'parser> {
     }
 
     fn parse_parameter(&mut self) -> Result<FuncParam, Box<BErr>> {
-        let param_name: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
-        let _ = self.token_match(TokenKind::T_COLON);
+        let param_name: Token = self.token_match(TokenKind::T_IDENTIFIER)?.clone();
+        let _ = self.token_match(TokenKind::T_COLON)?;
         let param_type: LitTypeVariant = self.parse_id_type();
         let param_loc_off: i32 = self.gen_next_local_offset(param_type);
         self.skip_to_next_token();
@@ -464,7 +482,7 @@ impl<'parser> Parser<'parser> {
             // check if the function's return type is void
             void_ret_type = func_symbol.as_ref().unwrap().lit_type == LitTypeVariant::Void;
         }
-        _ = self.token_match(TokenKind::KW_RETURN);
+        _ = self.token_match(TokenKind::KW_RETURN)?;
         if void_ret_type {
             // if function has void as the return type, panic if any expression follows the keyword 'return'
             if self.current_token.kind != TokenKind::T_SEMICOLON {
@@ -474,7 +492,7 @@ impl<'parser> Parser<'parser> {
                 )));
             }
             // skip semicolon
-            self.token_match(TokenKind::T_SEMICOLON);
+            self.token_match(TokenKind::T_SEMICOLON)?;
             return Ok(AST::create_leaf(
                 ASTKind::StmtAST(Stmt::Return(ReturnStmt {
                     func_id: self.current_function_id,
@@ -498,7 +516,7 @@ impl<'parser> Parser<'parser> {
                 self.current_token.clone(),
             )));
         }
-        _ = self.token_match(TokenKind::T_SEMICOLON); // expect semicolon to end a return statement
+        _ = self.token_match(TokenKind::T_SEMICOLON)?; // expect semicolon to end a return statement
         Ok(AST::new(
             ASTKind::StmtAST(Stmt::Return(ReturnStmt {
                 func_id: self.current_function_id,
@@ -523,7 +541,7 @@ impl<'parser> Parser<'parser> {
     }
 
     fn parse_loop_stmt(&mut self) -> ParseResult2 {
-        _ = self.token_match(TokenKind::KW_LOOP); // match and ignore 'loop'
+        _ = self.token_match(TokenKind::KW_LOOP)?; // match and ignore 'loop'
         let loop_body: AST = self.parse_compound_stmt()?;
         Ok(AST::new(
             ASTKind::StmtAST(Stmt::Loop),
@@ -535,8 +553,8 @@ impl<'parser> Parser<'parser> {
     }
 
     fn parse_break_stmt(&mut self) -> ParseResult2 {
-        _ = self.token_match(TokenKind::KW_BREAK); // match and ignore 'break'
-        _ = self.token_match(TokenKind::T_SEMICOLON); // match and ignore ';'
+        _ = self.token_match(TokenKind::KW_BREAK)?; // match and ignore 'break'
+        _ = self.token_match(TokenKind::T_SEMICOLON)?; // match and ignore ';'
         Ok(AST::new(
             ASTKind::StmtAST(Stmt::Break),
             ASTOperation::AST_BREAK,
@@ -547,8 +565,8 @@ impl<'parser> Parser<'parser> {
     }
 
     fn parse_for_stmt(&mut self) -> ParseResult2 {
-        _ = self.token_match(TokenKind::KW_FOR); // match and ignore the keyword 'for'
-        _ = self.token_match(TokenKind::T_LPAREN); // match and ignore '('
+        _ = self.token_match(TokenKind::KW_FOR)?; // match and ignore the keyword 'for'
+        _ = self.token_match(TokenKind::T_LPAREN)?; // match and ignore '('
         let pre_stmt: AST = self.parse_single_stmt()?; // initialization statement
                                                        // _ = self.token_match(TokenKind::T_SEMICOLON);
         let cond_ast: ParseResult2 = self.parse_equality(); // conditional section of for loop
@@ -560,9 +578,9 @@ impl<'parser> Parser<'parser> {
                 panic!("Please provide conditional expression for 'for'");
             }
         }
-        _ = self.token_match(TokenKind::T_SEMICOLON); // expect semicolon
+        _ = self.token_match(TokenKind::T_SEMICOLON)?; // expect semicolon
         let incr_ast: ParseResult2 = self.parse_single_stmt();
-        _ = self.token_match(TokenKind::T_RPAREN); // match and ignore ')'
+        _ = self.token_match(TokenKind::T_RPAREN)?; // match and ignore ')'
         let for_body: ParseResult2 = self.parse_single_stmt();
         let mut tree: AST = AST::new(
             ASTKind::StmtAST(Stmt::Glue),
@@ -607,8 +625,8 @@ impl<'parser> Parser<'parser> {
 
     // parses tokens that are in the form '(expression [< | > | >= | <= | == | !=] expression)'
     fn parse_conditional_stmt(&mut self, kind: TokenKind) -> ParseResult2 {
-        _ = self.token_match(kind);
-        _ = self.token_match(TokenKind::T_LPAREN); // match and ignore '('
+        _ = self.token_match(kind)?;
+        _ = self.token_match(TokenKind::T_LPAREN)?; // match and ignore '('
         let cond_ast: ParseResult2 = self.parse_equality();
         if let Ok(_icast) = &cond_ast {
             if (_icast.operation < ASTOperation::AST_EQEQ)
@@ -621,7 +639,7 @@ impl<'parser> Parser<'parser> {
                 );
             }
         }
-        _ = self.token_match(TokenKind::T_RPAREN); // match and ignore ')'
+        _ = self.token_match(TokenKind::T_RPAREN)?; // match and ignore ')'
         cond_ast
     }
 
@@ -637,7 +655,7 @@ impl<'parser> Parser<'parser> {
     /// or a `ParseError` if the parsing fails.
     fn parse_var_decl_stmt(&mut self) -> ParseResult2 {
         // consume 'let'
-        _ = self.token_match(TokenKind::KW_LET);
+        _ = self.token_match(TokenKind::KW_LET)?;
 
         // Being "inside" a function means that we are currently parsing a function's body.
         //
@@ -657,13 +675,13 @@ impl<'parser> Parser<'parser> {
         let mut var_type: LitTypeVariant = LitTypeVariant::None;
 
         // Name of the variable.
-        let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
+        let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER)?.clone();
 
         // Parser may encounter a colon after the identifier name.
         // This means the type of this variable has been defined
         // by the user.
         if self.current_token.kind == TokenKind::T_COLON {
-            _ = self.token_match(TokenKind::T_COLON);
+            _ = self.token_match(TokenKind::T_COLON)?;
             var_type = self.parse_id_type();
             self.skip_to_next_token();
         }
@@ -675,7 +693,7 @@ impl<'parser> Parser<'parser> {
         // If identifier name is followed by an equal sign, then it is assigned 
         // at the time of declaration.
         if self.current_token.kind == TokenKind::T_EQUAL {
-            _ = self.token_match(TokenKind::T_EQUAL); // match and ignore '=' sign
+            _ = self.token_match(TokenKind::T_EQUAL)?; // match and ignore '=' sign
             assignment_parse_res = Some(self.parse_equality());
         }
 
@@ -762,7 +780,7 @@ impl<'parser> Parser<'parser> {
                 var_type,
             ))
         };
-        _ = self.token_match(TokenKind::T_SEMICOLON);
+        _ = self.token_match(TokenKind::T_SEMICOLON)?;
         return_result
     }
 
@@ -787,7 +805,7 @@ impl<'parser> Parser<'parser> {
         self.local_offset
     }
 
-    fn parse_array_var_decl_stmt(&mut self, mut sym: Symbol) -> ParseResult2 {
+    fn _parse_array_var_decl_stmt(&mut self, mut sym: Symbol) -> ParseResult2 {
         self.skip_to_next_token(); // skip '['
         let array_size_token: Token = self.current_token.clone();
         let mut array_size_type: TokenKind = TokenKind::T_NONE;
@@ -806,9 +824,9 @@ impl<'parser> Parser<'parser> {
                 array_size_token.lexeme
             );
         }
-        self.token_match(array_size_type);
-        self.token_match(TokenKind::T_RBRACKET);
-        self.token_match(TokenKind::T_SEMICOLON);
+        self.token_match(array_size_type)?;
+        self.token_match(TokenKind::T_RBRACKET)?;
+        self.token_match(TokenKind::T_SEMICOLON)?;
         sym.sym_type = SymbolType::Array;
         sym.size = array_size_token.lexeme.parse::<usize>().unwrap();
         if sym.class == StorageClass::LOCAL {
@@ -831,7 +849,7 @@ impl<'parser> Parser<'parser> {
     }
 
     fn assign_stmt_or_func_call(&mut self) -> ParseResult2 {
-        let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER).clone();
+        let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER)?.clone();
         let tok_kind_after_id_tok: TokenKind = self.current_token.kind;
         if tok_kind_after_id_tok != TokenKind::T_LPAREN {
             self.parse_assignment_stmt(id_token)
@@ -848,7 +866,7 @@ impl<'parser> Parser<'parser> {
             if let Some(sym) = symbol {
                 self.parse_func_call_expr(&sym, symbol_pos, &id_token)
             } else {
-                Err(Box::new(BErr::undefined_symbol(self.get_current_file_name(), id_token)))
+                Err(Box::new(BErr::undefined_symbol(self.get_current_file_name(), id_token.clone())))
             }
         }
     }
@@ -856,11 +874,10 @@ impl<'parser> Parser<'parser> {
     fn parse_assignment_stmt(&mut self, id_token: Token) -> ParseResult2 {
         let symbol_search_result: Option<(usize, StorageClass)> = self.find_symbol(&id_token.lexeme);
         if symbol_search_result.is_none() {
-            println!("symbol not found");
             self.skip_past(TokenKind::T_SEMICOLON);
             return Err(Box::new(BErr::undefined_symbol(
                 self.get_current_file_name(),
-                id_token,
+                id_token.clone(),
             )));
         }
         let id_index_symt: usize = symbol_search_result.unwrap().0;
@@ -883,7 +900,7 @@ impl<'parser> Parser<'parser> {
             self.skip_past(TokenKind::T_SEMICOLON);
             return Err(Box::new(BErr::undefined_symbol(
                 self.get_current_file_name(),
-                id_token,
+                id_token.clone(),
             )));
         }
         // Check if we are assigning to a type other than SymbolType::Variable. If yes, panic!
@@ -891,12 +908,12 @@ impl<'parser> Parser<'parser> {
             // self.skip_past(TokenKind::T_SEMICOLON);
             panic!("Assigning to type '{:?}' is not allowed! '{:?}'", symbol.sym_type, symbol);
         }
-        _ = self.token_match(TokenKind::T_EQUAL);
+        _ = self.token_match(TokenKind::T_EQUAL)?;
         let mut bin_expr_ast_node: AST = self.parse_equality()?;
         let compat_node: Option<AST> = Parser::validate_assign_compatibility(&symbol, &mut bin_expr_ast_node);
         // following code is going to break at some point. unwrap()ing an Option type without checking?
         let _result_type: LitTypeVariant = compat_node.as_ref().unwrap().result_type;
-        _ = self.token_match(TokenKind::T_SEMICOLON);
+        _ = self.token_match(TokenKind::T_SEMICOLON)?;
         let lvalueid: AST = AST::create_leaf(
             ASTKind::StmtAST(Stmt::LValue(id_index_symt)),
             ASTOperation::AST_LVIDENT,
@@ -1092,7 +1109,7 @@ impl<'parser> Parser<'parser> {
                 // group expression: e.g: (a * (b + c)))
                 let group_expr: ParseResult2 = self.parse_equality();
                 // Group expression terminates with ')'. Match and ignore ')'.
-                self.token_match(TokenKind::T_RPAREN);
+                self.token_match(TokenKind::T_RPAREN)?;
                 Ok(group_expr.unwrap())
             }
             _ => Err(Box::new(BErr::unexpected_token(
@@ -1119,7 +1136,7 @@ impl<'parser> Parser<'parser> {
         sym_index: usize,
         sym_token: &Token,
     ) -> ParseResult2 {
-        _ = self.token_match(TokenKind::T_LBRACKET);
+        _ = self.token_match(TokenKind::T_LBRACKET)?;
         let current_file: String = self.get_current_file_name();
         let array_access_expr_result: ParseResult2 = self.parse_equality();
         #[allow(clippy::question_mark)]
@@ -1133,7 +1150,7 @@ impl<'parser> Parser<'parser> {
                 sym_token.clone(),
             )));
         }
-        _ = self.token_match(TokenKind::T_RBRACKET);
+        _ = self.token_match(TokenKind::T_RBRACKET)?;
         Ok(AST::create_leaf(
             ASTKind::ExprAST(Expr::Subscript(SubscriptExpr {
                 index: Box::new(array_access_expr.kind.unwrap_expr()),
@@ -1152,7 +1169,7 @@ impl<'parser> Parser<'parser> {
         sym_token: &Token,
     ) -> ParseResult2 {
         let current_file: String = self.get_current_file_name();
-        _ = self.token_match(TokenKind::T_LPAREN);
+        _ = self.token_match(TokenKind::T_LPAREN)?;
         if called_symbol.sym_type != SymbolType::Function {
             return Err(Box::new(BErr::noncallable_ident(
                 current_file.clone(),
@@ -1176,19 +1193,19 @@ impl<'parser> Parser<'parser> {
                 } else if is_tok_rparen {
                     break;
                 } else {
-                    self.token_match(TokenKind::T_COMMA);
+                    self.token_match(TokenKind::T_COMMA)?;
                 }
             }
         }
 
-        _ = self.token_match(TokenKind::T_RPAREN);
+        _ = self.token_match(TokenKind::T_RPAREN)?;
 
         // Allocating extra 16 bytes to store x29(Frame Pointer), and x30(Link Register).
         // Storing and then loading them is collectively called a Frame Record.
         self.local_offset += 16;
 
         if called_symbol.lit_type == LitTypeVariant::Void {
-            _ = self.token_match(TokenKind::T_SEMICOLON);
+            _ = self.token_match(TokenKind::T_SEMICOLON)?;
             Ok(AST::create_leaf(
                 ASTKind::StmtAST(
                     Stmt::FuncCall(
@@ -1290,20 +1307,32 @@ impl<'parser> Parser<'parser> {
         self.current_function_id == INVALID_FUNC_ID
     }
 
-    fn is_scope_func(&self) -> bool {
-        self.current_function_id != INVALID_FUNC_ID
-    }
-
-    fn token_match(&mut self, kind: TokenKind) -> &Token {
+    fn token_match_no_advance(&mut self, kind: TokenKind) -> TokenMatch {
         let current: Token = self.current_token.clone();
         if kind != current.kind {
-            panic!(
-                "Expected the token to be '{:?}' but found '{:?}'",
-                kind, current.kind
-            );
+            return Err(Box::new(BErr::unexpected_token(self.get_current_file_name(), current)));
+        }
+        // self.skip_to_next_token();
+        Ok(&self.tokens[self.current - 1])
+    }
+
+    fn token_match(&mut self, kind: TokenKind) -> TokenMatch {
+        let current: Token = self.current_token.clone();
+        if kind != current.kind {
+            return Err(Box::new(BErr::unexpected_token(self.get_current_file_name(), current)));
         }
         self.skip_to_next_token();
-        &self.tokens[self.current - 1]
+        Ok(&self.tokens[self.current - 1])
+    }
+
+    fn skip_to_next_stmt(&mut self) {
+        let stmt_start_tokens = [TokenKind::KW_LET, TokenKind::T_IDENTIFIER, TokenKind::KW_IF, TokenKind::KW_WHILE, TokenKind::KW_LOOP];
+        loop {
+            if stmt_start_tokens.contains(&self.current_token.kind) {
+                break;
+            }
+            self.skip_to_next_token();
+        }
     }
 
     fn skip_past(&mut self, kind: TokenKind) {
