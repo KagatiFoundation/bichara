@@ -25,6 +25,7 @@ SOFTWARE.
 use std::cell::RefMut;
 
 use crate::ast::ASTKind;
+use crate::ast::ArrVarDeclStmt;
 use crate::ast::AssignStmt;
 use crate::ast::BinExpr;
 use crate::ast::Expr;
@@ -188,7 +189,24 @@ pub trait CodeGen {
             }
             Ok(NO_REG) 
         } 
-        else if ast_node.operation == ASTOperation::AST_NONE || ast_node.operation == ASTOperation::AST_VAR_DECL {
+        else if ast_node.operation == ASTOperation::AST_ARR_VAR_DECL {
+            if let ASTKind::StmtAST(arr_var_decl) = &ast_node.kind {
+                return match arr_var_decl {
+                    Stmt::ArrVarDecl(arr_var_decl_stmt) => {
+                        if arr_var_decl_stmt.class != StorageClass::LOCAL {
+                            Ok(NO_REG)
+                        } 
+                        else {
+                            self.gen_local_arr_var_decl_stmt(arr_var_decl_stmt)
+                        }
+                    },
+                    _ => Ok(NO_REG)
+                }
+            }
+            Ok(NO_REG)
+        }
+        else if (ast_node.operation == ASTOperation::AST_NONE)
+            || (ast_node.operation == ASTOperation::AST_ARR_VAR_DECL) {
             return Ok(NO_REG);
         }  
         else if ast_node.operation == ASTOperation::AST_ASSIGN {
@@ -362,6 +380,8 @@ pub trait CodeGen {
     fn gen_func_call_expr(&mut self, func_call_expr: &FuncCallExpr) -> CodeGenResult;
 
     fn gen_local_var_decl_stmt(&mut self, var_decl_stmt: &VarDeclStmt, expr_ast: &Expr) -> CodeGenResult;
+    
+    fn gen_local_arr_var_decl_stmt(&mut self, arr_var_decl_stmt: &ArrVarDeclStmt) -> CodeGenResult;
 
     fn gen_var_assignment_stmt(&mut self, assign_stmt: &AssignStmt, expr_ast: &Expr) -> CodeGenResult;
 

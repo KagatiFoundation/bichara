@@ -47,7 +47,7 @@ fn main() {
     let mut symt: Symtable<Symbol> = Symtable::new();
     let mut funct: FunctionInfoTable = FunctionInfoTable::new();
     let mut file1: SourceFile =
-        SourceFile::new("/Users/rigelstar/Desktop/KagatiFoundation/bichara/Lib/socket/lib.bic");
+        SourceFile::new("/Users/rigelstar/Desktop/KagatiFoundation/bichara/examples/main.bic");
     let mut source_files: Vec<&mut SourceFile> = vec![&mut file1];
     let ctx: Rc<RefCell<CompilerCtx>> = Rc::new(RefCell::new(CompilerCtx::new(&mut symt, &mut funct)));
     let rm: RefCell<RegManager> = RefCell::new(

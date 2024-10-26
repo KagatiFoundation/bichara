@@ -1,3 +1,0 @@
-global integer nums[5];
-global integer value;
-value = nums[0] + 12;

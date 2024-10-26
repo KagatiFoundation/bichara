@@ -24,6 +24,7 @@ SOFTWARE.
 
 use crate::ast::ASTKind;
 use crate::ast::ASTOperation;
+use crate::ast::ArrVarDeclStmt;
 use crate::ast::AssignStmt;
 use crate::ast::BinExpr;
 use crate::ast::Expr;
@@ -709,6 +710,12 @@ impl<'parser> Parser<'parser> {
         // by the user.
         if self.current_token.kind == TokenKind::T_COLON {
             _ = self.token_match(TokenKind::T_COLON)?;
+
+            // '[' is for arrays
+            if self.current_token.kind == TokenKind::T_LBRACKET {
+                return self.parse_array_var_decl_stmt(&id_token);
+            }
+
             var_type = self.parse_id_type();
             self.skip_to_next_token();
         }
@@ -832,9 +839,19 @@ impl<'parser> Parser<'parser> {
         self.local_offset
     }
 
-    fn _parse_array_var_decl_stmt(&mut self, mut sym: Symbol) -> ParseResult2 {
+    // TODO: Write comments
+    fn parse_array_var_decl_stmt(&mut self, id_token: &Token) -> ParseResult2 {
         self.skip_to_next_token(); // skip '['
+        // array type
+        let array_type: LitTypeVariant = self.parse_id_type();
+        self.skip_to_next_token();
+
+        // semicolon before the array size
+        _ = self.token_match(TokenKind::T_SEMICOLON)?;
+
+        // array size
         let array_size_token: Token = self.current_token.clone();
+
         let mut array_size_type: TokenKind = TokenKind::T_NONE;
         for t in [
             TokenKind::T_INT_NUM,
@@ -851,17 +868,91 @@ impl<'parser> Parser<'parser> {
                 array_size_token.lexeme
             );
         }
+        let array_size: usize = array_size_token.lexeme.parse::<usize>().unwrap();
+
         self.token_match(array_size_type)?;
         self.token_match(TokenKind::T_RBRACKET)?;
-        self.token_match(TokenKind::T_SEMICOLON)?;
-        sym.sym_type = SymbolType::Array;
-        sym.size = array_size_token.lexeme.parse::<usize>().unwrap();
-        if sym.class == StorageClass::LOCAL {
-            self.add_symbol_local(sym);
+        self.token_match(TokenKind::T_EQUAL)?;
+
+
+        let sym: Symbol = Symbol::__new(
+            id_token.lexeme.clone(), 
+            array_type, 
+            SymbolType::Array, 
+            array_size,
+            self.ident_var_class(),
+            self.gen_next_local_offset(array_type),
+            None
+        );
+
+        self.local_offset += (array_size * array_type.size()) as i32;
+
+        let symbol_add_pos: usize = if self.is_scope_global() {
+            self.add_symbol_global(sym.clone()).unwrap()
         } else {
-            self.add_symbol_global(sym);
-        }
-        Err(Box::new(BErr::none())) // this indicates variable is declared without assignment
+            self.add_symbol_local(sym.clone()).unwrap()
+        };
+
+        let array_values: Vec<Expr> = self.parse_array_assign_values(sym.lit_type)?;
+
+        let final_result: Result<AST, Box<BErr>> = Ok(AST::new(
+            ASTKind::StmtAST(Stmt::ArrVarDecl(ArrVarDeclStmt {
+                symtbl_pos: symbol_add_pos,
+                vals: array_values,
+                class: sym.class
+            })),
+            ASTOperation::AST_ARR_VAR_DECL,
+            None,
+            None,
+            sym.lit_type,
+        ));
+        _ = self.token_match(TokenKind::T_SEMICOLON)?;
+        final_result 
+    }
+
+    // parsing array values
+    fn parse_array_assign_values(&mut self, lit_type: LitTypeVariant) -> Result<Vec<Expr>, Box<BErr>> {
+        _ = self.token_match(TokenKind::T_LBRACKET)?;
+        let mut vals: Vec<Expr> = vec![];
+        if self.current_token.kind != TokenKind::T_RBRACKET {
+            loop {
+                let argu: AST = self.parse_equality()?;
+                if argu.result_type != lit_type {
+                    let _err: Box<BErr> = Box::new(BErr::new(
+                        BErrType::TypeError(BTypeErr::AssignmentTypeMismatch { 
+                            var_type: lit_type.to_string(), 
+                            assigned_type: argu.result_type.to_string() 
+                        }),
+                        self.get_current_file_name(),
+                        self.current_token.clone()
+                    ));
+                    if self.__panic_mode {
+                        panic!("{:?}", _err);
+                    } 
+                    return Err(_err);
+                }
+                vals.push(argu.kind.unwrap_expr());
+                let is_tok_comma: bool = self.current_token.kind == TokenKind::T_COMMA;
+                let is_tok_rparen: bool = self.current_token.kind == TokenKind::T_RBRACKET;
+                if !is_tok_comma && !is_tok_rparen {
+                    let __err: Box<BErr> = Box::new(BErr::unexpected_token(
+                        self.get_current_file_name(), 
+                        self.current_token.clone()
+                    ));
+                    if self.__panic_mode {
+                        panic!("{:?}", __err);
+                    }
+                    return Err(__err);
+                } else if is_tok_rparen {
+                    break;
+                } else {
+                    self.token_match(TokenKind::T_COMMA)?;
+                }
+            }
+        } 
+
+        _ = self.token_match(TokenKind::T_RBRACKET)?;
+        Ok(vals)
     }
 
     fn parse_id_type(&mut self) -> LitTypeVariant {
@@ -876,6 +967,7 @@ impl<'parser> Parser<'parser> {
         }
     }
 
+    // TODO: Write comments
     fn assign_stmt_or_func_call(&mut self) -> ParseResult2 {
         let id_token: Token = self.token_match(TokenKind::T_IDENTIFIER)?.clone();
         let tok_kind_after_id_tok: TokenKind = self.current_token.kind;
@@ -1352,6 +1444,14 @@ impl<'parser> Parser<'parser> {
 
     fn is_scope_global(&self) -> bool {
         self.current_function_id == INVALID_FUNC_ID
+    }
+
+    fn ident_var_class(&self) -> StorageClass {
+        if self.is_scope_global() {
+            StorageClass::GLOBAL
+        } else {
+            StorageClass::LOCAL
+        }
     }
 
     fn token_match_no_advance(&mut self, kind: TokenKind) -> TokenMatch {

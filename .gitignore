@@ -18,3 +18,7 @@ Cargo.lock
 
 /target
 .vscode/
+
+*.S
+*.so
+out

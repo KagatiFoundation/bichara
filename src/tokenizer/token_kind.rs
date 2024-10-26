@@ -116,6 +116,7 @@ pub enum TokenKind {
     KW_NULL,
     KW_LOOP,
     KW_IN,
+    KW_IMPORT,
     KW_DEF,   // for function declarations
     _KW_END_, // keywords end here
 

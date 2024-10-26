@@ -19,6 +19,13 @@ pub struct VarDeclStmt {
 }
 
 #[derive(Clone, Debug)]
+pub struct ArrVarDeclStmt {
+    pub symtbl_pos: usize,
+    pub class: StorageClass,
+    pub vals: Vec<Expr>
+}
+
+#[derive(Clone, Debug)]
 pub struct AssignStmt {
     pub symtbl_pos: usize
 }
@@ -37,6 +44,7 @@ pub enum Stmt {
     While,
     Loop,
     Break,
+    ArrVarDecl(ArrVarDeclStmt),
     FuncDecl(FuncDeclStmt),
     Return(ReturnStmt),
     Assignment(AssignStmt),

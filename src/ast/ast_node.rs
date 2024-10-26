@@ -62,6 +62,7 @@ pub enum ASTOperation {
     AST_ARRAY_ACCESS, // access array element
     AST_STRLIT, // string literal node
     AST_VAR_DECL,
+    AST_ARR_VAR_DECL
 }
 
 impl ASTOperation {

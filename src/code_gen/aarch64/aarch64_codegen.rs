@@ -76,7 +76,11 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             let ctx_borrow = ctx_rc.borrow();
             for symbol in ctx_borrow.sym_table.iter() {
                 // symbol information is not generated if any of the following conditions matches
-                if symbol.lit_type == LitTypeVariant::None || symbol.sym_type == SymbolType::Function || symbol.class != StorageClass::GLOBAL {
+                if 
+                    symbol.lit_type == LitTypeVariant::None 
+                    || symbol.sym_type == SymbolType::Function 
+                    || symbol.class != StorageClass::GLOBAL 
+                {
                     continue;
                 }
                 if symbol.lit_type == LitTypeVariant::Str && symbol.sym_type == SymbolType::Constant {
@@ -91,6 +95,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
                     Aarch64CodeGen::dump_global_with_alignment(symbol);
                 } else if symbol.sym_type == SymbolType::Array {
                     let array_data_size: usize = symbol.lit_type.size();
+                    println!("here i come");
                     println!("{}:", symbol.name);
                     for _ in 0..symbol.size {
                         Aarch64CodeGen::alloc_data_space(array_data_size);
@@ -537,6 +542,27 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let expr_reg_res: usize = self.gen_expr(expr_ast, ASTOperation::AST_VAR_DECL, 0xFFFFFFFF, ASTOperation::AST_NONE)?;
         let reg_name: String = self.reg_manager.borrow().name(expr_reg_res, 0);
         println!("str {}, [sp, #{}] // store into {}", reg_name, symbol.local_offset, symbol.name);
+        Ok(NO_REG)
+    }
+    
+    fn gen_local_arr_var_decl_stmt(&mut self, arr_var_decl_stmt: &crate::ast::ArrVarDeclStmt) -> CodeGenResult {
+        let symbol: Symbol = if let Some(ctx_rc) = &self.ctx {
+            let ctx_borrow = ctx_rc.borrow();
+            if let Some(symbol) = ctx_borrow.sym_table.get_symbol(arr_var_decl_stmt.symtbl_pos) {
+                symbol.clone()
+            } else {
+                panic!("not possible to reach here");
+            }
+        } else {
+            return Err(CodeGenErr::NoContext);
+        };
+        let mut item_off_counter = symbol.local_offset;
+        for expr in &arr_var_decl_stmt.vals {
+            let expr_reg: usize = self.gen_expr(expr, ASTOperation::AST_ARR_VAR_DECL, NO_REG, ASTOperation::AST_NONE)?;
+            let reg_name: String = self.reg_manager.borrow().name(expr_reg, 0);
+            println!("str {}, [sp, #{}]", reg_name, item_off_counter);
+            item_off_counter += symbol.lit_type.size() as i32;
+        }
         Ok(NO_REG)
     }
     
