@@ -214,17 +214,17 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
 
         // Function preamble
         println!(".global _{}\n_{}:", func_name, func_name);
-        println!("sub sp, sp, {}", func_info.stack_size);
+        println!("sub sp, sp, #{}", func_info.stack_size + 16);
 
         // STP -> Store Pair of Registers
         // Save the current frame pointer (x29) and link register (x30) onto the stack.
-        println!("stp x29, x30, [sp, #16]");
+        println!("stp x29, x30, [sp, -0x10]!\nmov x29, sp");
 
         // generating code for function parameters
         for param_sym in func_info.params.iter() {
             if param_sym.lit_type != LitTypeVariant::None {
                 let param_reg = self.reg_manager.borrow_mut().allocate_param_reg();
-                println!("str {}, [sp, #{}]", self.reg_manager.borrow().name(param_reg, 0), param_sym.offset);
+                println!("str {}, [x29, #-{}]", self.reg_manager.borrow().name(param_reg, 0), param_sym.offset);
             }
         }
 
@@ -242,9 +242,8 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         }
         // ldp -> Load Pair of Registers
         // Restore the saved frame pointer (x29) and link register (x30) from the stack.
-        println!("ldp x29, x30, [sp, #16]");
-
-        println!("add sp, sp, {}\nret", func_info.stack_size);
+        println!("ldp x29, x30, [sp], 0x10");
+        println!("add sp, sp, #{}\nret", func_info.stack_size + 16);
         Ok(NO_REG)
     }
 
@@ -301,8 +300,9 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             let reg_name: String = self.reg_manager.borrow().name(reg, 0);
             self.dump_gid_address_load_code_from_name(&reg_name, id);
             println!("ldr {}, [{}] // load {}", value_reg_name, reg_name, symbol.name);
+            self.reg_manager.borrow_mut().deallocate(reg);
         } else {
-            println!("ldr {}, [sp, #{}] // load {}", value_reg_name, symbol.local_offset, symbol.name);
+            println!("ldr {}, [x29, #-{}] // load {}", value_reg_name, symbol.local_offset, symbol.name);
         } 
         Ok(reg)
     }
@@ -323,7 +323,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             println!("str {}, [{}] // store into {}", reg_name, addr_reg_name, symbol.name);
             Ok(addr_reg)
         } else {
-            println!("str {}, [sp, #{}] // store into {}", reg_name, symbol.local_offset, symbol.name);
+            println!("str {}, [x29, #-{}] // store into {}", reg_name, symbol.local_offset, symbol.name);
             Ok(NO_REG)
         }
     }
@@ -541,7 +541,8 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         };
         let expr_reg_res: usize = self.gen_expr(expr_ast, ASTOperation::AST_VAR_DECL, 0xFFFFFFFF, ASTOperation::AST_NONE)?;
         let reg_name: String = self.reg_manager.borrow().name(expr_reg_res, 0);
-        println!("str {}, [sp, #{}] // store into {}", reg_name, symbol.local_offset, symbol.name);
+        println!("str {}, [x29, #-{}] // store into {}", reg_name, symbol.local_offset, symbol.name);
+        self.reg_manager.borrow_mut().deallocate_all();
         Ok(NO_REG)
     }
     
@@ -560,8 +561,9 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         for expr in &arr_var_decl_stmt.vals {
             let expr_reg: usize = self.gen_expr(expr, ASTOperation::AST_ARR_VAR_DECL, NO_REG, ASTOperation::AST_NONE)?;
             let reg_name: String = self.reg_manager.borrow().name(expr_reg, 0);
-            println!("str {}, [sp, #{}]", reg_name, item_off_counter);
+            println!("str {}, [x29, #-{}]", reg_name, item_off_counter);
             item_off_counter += symbol.lit_type.size() as i32;
+            self.reg_manager.borrow_mut().deallocate_all();
         }
         Ok(NO_REG)
     }

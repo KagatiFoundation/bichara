@@ -142,7 +142,7 @@ impl BErr {
 
     pub fn report(&self) {
         if let Some(info) = &self.info {
-            panic!(
+            println!(
                 "{}:{}:{}: error: {}",
                 info.source_file,
                 info.token.pos.line,

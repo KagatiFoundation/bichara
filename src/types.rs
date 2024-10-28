@@ -397,9 +397,9 @@ pub fn modify_ast_node_type(node: &mut AST, to: LitTypeVariant) -> Option<AST> {
 
 pub fn is_type_coalescing_possible(src: LitTypeVariant, dest: LitTypeVariant) -> bool {
     match src {
-        LitTypeVariant::U8 => matches!(dest, LitTypeVariant::I16 | LitTypeVariant::I32 | LitTypeVariant::I64),
-        LitTypeVariant::I16 => matches!(dest, LitTypeVariant::I32 | LitTypeVariant::I64),
-        LitTypeVariant::I32 => matches!(dest, LitTypeVariant::I64),
+        LitTypeVariant::U8 => matches!(dest, LitTypeVariant::U8 | LitTypeVariant::I16 | LitTypeVariant::I32 | LitTypeVariant::I64),
+        LitTypeVariant::I16 => matches!(dest, LitTypeVariant::I16 | LitTypeVariant::I32 | LitTypeVariant::I64),
+        LitTypeVariant::I32 => matches!(dest, LitTypeVariant::I32 | LitTypeVariant::I64),
         _ => false
     }
 }
@@ -407,16 +407,19 @@ pub fn is_type_coalescing_possible(src: LitTypeVariant, dest: LitTypeVariant) ->
 // tests
 #[cfg(test)]
 mod tests {
-    use super::LitType;
+    use crate::types::is_type_coalescing_possible;
 
-    #[test]
-    fn test_conversion_from_i32_to_u8() {
-        let _a: LitType = LitType::I32(12);
-    }
+    use super::LitTypeVariant;
 
     #[test]
     // Trying to conver 1223 into unsigned char. This should fail.
-    fn test_conversion_from_i32_to_u8_with_overflowing_value() {
-        let _a: LitType = LitType::I32(1233);
+    fn test_type_coalescing() {
+        assert!(is_type_coalescing_possible(LitTypeVariant::U8, LitTypeVariant::I32));
+        assert!(is_type_coalescing_possible(LitTypeVariant::U8, LitTypeVariant::I16));
+        assert!(is_type_coalescing_possible(LitTypeVariant::U8, LitTypeVariant::I64));
+        assert!(!is_type_coalescing_possible(LitTypeVariant::I32, LitTypeVariant::U8));
+        assert!(!is_type_coalescing_possible(LitTypeVariant::I32, LitTypeVariant::I16));
+        assert!(is_type_coalescing_possible(LitTypeVariant::I32, LitTypeVariant::I32));
+        assert!(is_type_coalescing_possible(LitTypeVariant::I32, LitTypeVariant::I64));
     }
 }

@@ -392,7 +392,7 @@ impl<'parser> Parser<'parser> {
          'x29' and 'x30' has to be preserved. Thus, the extra 15 bytes has to 
          be allocated for them.
          */
-        let stack_offset: i32 = ((self.local_offset + 15) & !15) + 16;
+        let stack_offset: i32 = (self.local_offset + 15) & !15;
 
         let func_info: FunctionInfo = FunctionInfo::new(
             id_token.lexeme.clone(),
@@ -874,7 +874,6 @@ impl<'parser> Parser<'parser> {
         self.token_match(TokenKind::T_RBRACKET)?;
         self.token_match(TokenKind::T_EQUAL)?;
 
-
         let sym: Symbol = Symbol::__new(
             id_token.lexeme.clone(), 
             array_type, 
@@ -917,10 +916,12 @@ impl<'parser> Parser<'parser> {
         if self.current_token.kind != TokenKind::T_RBRACKET {
             loop {
                 let argu: AST = self.parse_equality()?;
-                if argu.result_type != lit_type {
+                if argu.result_type != lit_type 
+                    && !is_type_coalescing_possible(argu.result_type, argu.result_type) 
+                {
                     let _err: Box<BErr> = Box::new(BErr::new(
                         BErrType::TypeError(BTypeErr::AssignmentTypeMismatch { 
-                            var_type: lit_type.to_string(), 
+                            var_type: format!("{}[]", lit_type), 
                             assigned_type: argu.result_type.to_string() 
                         }),
                         self.get_current_file_name(),
