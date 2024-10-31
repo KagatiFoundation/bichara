@@ -42,7 +42,6 @@ use crate::context::CompilerCtx;
 use crate::error::*;
 use crate::symbol::*;
 use crate::tokenizer::*;
-use crate::types;
 use crate::types::*;
 use core::panic;
 use std::cell::RefCell;
@@ -62,14 +61,7 @@ type TokenMatch<'a> = Result<&'a Token, Box<BErr>>;
 /// to detect error states and invalid contexts.
 const INVALID_FUNC_ID: usize = 0xFFFFFFFF;
 
-enum ParserScope {
-    LOCAL,
-    GLOBAL,
-}
-
 struct ParserContext {
-    function_id: usize,
-    scope: ParserScope,
     is_erronous_parse: bool,
 }
 
@@ -136,11 +128,9 @@ impl<'parser> Parser<'parser> {
             temp_local_params: Symtable::new(),
             local_offset: 0,
             next_global_sym_pos: 0,
-            next_local_sym_pos: NSYMBOLS - 1,
+            next_local_sym_pos: 0,
             ctx: None,
             __pctx: ParserContext {
-                function_id: INVALID_FUNC_ID,
-                scope: ParserScope::GLOBAL,
                 is_erronous_parse: false,
             },
             __panic_mode: panic_mode
@@ -223,6 +213,7 @@ impl<'parser> Parser<'parser> {
             _ => {
                 let __err: Result<_, Box<BErr>> = Err(Box::new(BErr::unexpected_token(
                     self.get_current_file_name(),
+                    vec![TokenKind::KW_LET, TokenKind::KW_IF, TokenKind::KW_WHILE, TokenKind::KW_FOR, TokenKind::KW_LOOP],
                     self.current_token.clone(),
                 )));
                 if self.__panic_mode {
@@ -265,18 +256,20 @@ impl<'parser> Parser<'parser> {
             stmt_count += 1;
         }
         if stmt_count == 0 {
-            Ok(AST::empty())
-        } else if let Some(node) = left {
+            return Ok(AST::empty());
+        } 
+        if let Some(node) = left {
             Ok(node)
         } else {
             let __err: Result<AST, Box<BErr>> = Err(Box::new(BErr::unexpected_token(
                 self.get_current_file_name(),
+                vec![],
                 self.current_token.clone(),
             )));
             if self.__panic_mode {
                 panic!("{:?}", __err);
             }
-            return __err;
+            __err
         }
     }
 
@@ -326,6 +319,7 @@ impl<'parser> Parser<'parser> {
                 if !is_tok_comma && !is_tok_rparen {
                     let __err: Result<_, Box<BErr>> = Err(Box::new(BErr::unexpected_token(
                         current_file.clone(), 
+                        vec![TokenKind::T_COMMA, TokenKind::T_RPAREN],
                         self.current_token.clone()
                     )));
                     if self.__panic_mode {
@@ -400,7 +394,8 @@ impl<'parser> Parser<'parser> {
             stack_offset,
             func_return_type,
             func_storage_class,
-            func_params
+            func_params,
+            self.temp_local_syms.clone()
         );
         // create a new FunctionInfo
         if let Some(ctx_rc) = &mut self.ctx {
@@ -443,14 +438,14 @@ impl<'parser> Parser<'parser> {
             return __err;
         }
         _ = self.token_match(TokenKind::T_ARROW)?;
-        let func_ret_type: LitTypeVariant = self.parse_id_type();
+        let func_ret_type: LitTypeVariant = self.parse_id_type()?;
         Ok(func_ret_type)
     }
 
     fn parse_parameter(&mut self) -> Result<FuncParam, Box<BErr>> {
         let param_name: Token = self.token_match(TokenKind::T_IDENTIFIER)?.clone();
         let _ = self.token_match(TokenKind::T_COLON)?;
-        let param_type: LitTypeVariant = self.parse_id_type();
+        let param_type: LitTypeVariant = self.parse_id_type()?;
         let param_loc_off: i32 = self.gen_next_local_offset(param_type);
         self.skip_to_next_token();
         Ok(FuncParam {
@@ -478,6 +473,7 @@ impl<'parser> Parser<'parser> {
         if self.current_function_id == INVALID_FUNC_ID {
             let __err: Result<_, Box<BErr>> = Err(Box::new(BErr::unexpected_token(
                 self.get_current_file_name(), 
+                vec![],
                 self.current_token.clone()
             )));
             if self.__panic_mode {
@@ -512,6 +508,7 @@ impl<'parser> Parser<'parser> {
             if self.current_token.kind != TokenKind::T_SEMICOLON {
                 let __err: Result<_, Box<BErr>> = Err(Box::new(BErr::unexpected_token(
                     self.get_current_file_name(), 
+                    vec![TokenKind::T_SEMICOLON],
                     self.current_token.clone()
                 )));
                 if self.__panic_mode {
@@ -527,6 +524,8 @@ impl<'parser> Parser<'parser> {
                 })),
                 ASTOperation::AST_RETURN,
                 LitTypeVariant::Void,
+                None,
+                None
             ));
         }
         let return_expr: AST = self.parse_equality()?;
@@ -716,7 +715,7 @@ impl<'parser> Parser<'parser> {
                 return self.parse_array_var_decl_stmt(&id_token);
             }
 
-            var_type = self.parse_id_type();
+            var_type = self.parse_id_type()?;
             self.skip_to_next_token();
         }
 
@@ -736,9 +735,10 @@ impl<'parser> Parser<'parser> {
         let mut default_value: Option<LitType> = None;
 
         // if there is some error during expression parsing
-        if let Some(Err(parse_error)) = assignment_parse_res {
-            return Err(parse_error);
-        } else if let Some(Ok(ref res)) = assignment_parse_res {
+        if let Some(Err(parse_err)) = assignment_parse_res {
+            return Err(parse_err);
+        } 
+        else if let Some(Ok(ref res)) = assignment_parse_res {
             // if the variable being declared is a global variable and 
             // has some value assigned to it, then that assigned value 
             // can be evaluated at compile time as global expressions 
@@ -750,26 +750,9 @@ impl<'parser> Parser<'parser> {
                     }
                 }
             }
-            // else get the type that results from evaluating the expression
-            let assign_value_type: LitTypeVariant = self.determine_type(assignment_parse_res.as_ref().unwrap());
-
-            if (var_type != LitTypeVariant::None)
-                && (var_type != assign_value_type)
-                && (!is_type_coalescing_possible(assign_value_type, var_type)) {
-                return Err(Box::new(BErr::new(
-                    BErrType::TypeError(BTypeErr::AssignmentTypeMismatch {
-                        var_type: var_type.to_string(),
-                        assigned_type: assign_value_type.to_string(),
-                    }),
-                    self.get_current_file_name(),
-                    self.current_token.clone(),
-                )));
-            } else {
-                if var_type == LitTypeVariant::Str {
-                    let str_const_label: usize = self.ctx.as_ref().unwrap().borrow_mut().label_id - 1;
-                    default_value = Some(LitType::I32(str_const_label as i32));
-                }
-                var_type = assign_value_type;
+            else if var_type == LitTypeVariant::Str {
+                let str_const_label: usize = self.ctx.as_ref().unwrap().borrow_mut().label_id - 1;
+                default_value = Some(LitType::I32(str_const_label as i32));
             }
         }
         // TODO:: CHECK IF THE VARIABLE EXISTS IN THE SAME SCOPE ALREADY!!!
@@ -818,17 +801,6 @@ impl<'parser> Parser<'parser> {
         return_result
     }
 
-    fn determine_type(&self, res: &ParseResult2) -> LitTypeVariant {
-        if let Ok(ast) = res {
-            return match ast.kind.clone() {
-                ASTKind::Empty => LitTypeVariant::None,
-                ASTKind::ExprAST(ref expr) => infer_type_from_expr(expr),
-                ASTKind::StmtAST(_) => panic!("Can't determine type of this ParseResult"),
-            };
-        }
-        panic!("Cannot determine the type of this ParseResult.");
-    }
-
     fn gen_next_local_offset(&mut self, var_type: LitTypeVariant) -> i32 {
         let temp_offset: i32 = if var_type.size() > 4 {
             var_type.size() as i32
@@ -842,8 +814,14 @@ impl<'parser> Parser<'parser> {
     // TODO: Write comments
     fn parse_array_var_decl_stmt(&mut self, id_token: &Token) -> ParseResult2 {
         self.skip_to_next_token(); // skip '['
-        // array type
-        let array_type: LitTypeVariant = self.parse_id_type();
+        
+        // array type token
+        let array_type_token: Token = self.current_token.clone();
+
+        // extract type from the type token
+        let array_type: LitTypeVariant = self.parse_id_type()?;
+
+        // skip the type token
         self.skip_to_next_token();
 
         // semicolon before the array size
@@ -863,9 +841,14 @@ impl<'parser> Parser<'parser> {
             }
         }
         if array_size_type == TokenKind::T_NONE {
-            panic!(
-                "Array size must be specified with an integer value. Given: '{:?}'",
-                array_size_token.lexeme
+            return Err(
+                Box::new(
+                    BErr::unexpected_token(
+                        self.get_current_file_name(), 
+                        vec![TokenKind::T_INT_NUM], 
+                        array_size_token
+                    )
+                )
             );
         }
         let array_size: usize = array_size_token.lexeme.parse::<usize>().unwrap();
@@ -884,7 +867,7 @@ impl<'parser> Parser<'parser> {
             None
         );
 
-        self.local_offset += (array_size * array_type.size()) as i32;
+        self.local_offset += (array_size * array_type.size()) as i32 + 4; // allocate '4' extra bytes for size information
 
         let symbol_add_pos: usize = if self.is_scope_global() {
             self.add_symbol_global(sym.clone()).unwrap()
@@ -892,52 +875,38 @@ impl<'parser> Parser<'parser> {
             self.add_symbol_local(sym.clone()).unwrap()
         };
 
-        let array_values: Vec<Expr> = self.parse_array_assign_values(sym.lit_type)?;
+        let array_values: Vec<Expr> = self.parse_array_assign_values()?;
 
-        let final_result: Result<AST, Box<BErr>> = Ok(AST::new(
+        let array_decl_ast: AST = AST::create_leaf(
             ASTKind::StmtAST(Stmt::ArrVarDecl(ArrVarDeclStmt {
                 symtbl_pos: symbol_add_pos,
                 vals: array_values,
                 class: sym.class
             })),
             ASTOperation::AST_ARR_VAR_DECL,
-            None,
-            None,
             sym.lit_type,
-        ));
+            Some(array_type_token),
+            None
+        );
+
         _ = self.token_match(TokenKind::T_SEMICOLON)?;
-        final_result 
+        Ok(array_decl_ast )
     }
 
     // parsing array values
-    fn parse_array_assign_values(&mut self, lit_type: LitTypeVariant) -> Result<Vec<Expr>, Box<BErr>> {
+    fn parse_array_assign_values(&mut self) -> Result<Vec<Expr>, Box<BErr>> {
         _ = self.token_match(TokenKind::T_LBRACKET)?;
         let mut vals: Vec<Expr> = vec![];
         if self.current_token.kind != TokenKind::T_RBRACKET {
             loop {
                 let argu: AST = self.parse_equality()?;
-                if argu.result_type != lit_type 
-                    && !is_type_coalescing_possible(argu.result_type, argu.result_type) 
-                {
-                    let _err: Box<BErr> = Box::new(BErr::new(
-                        BErrType::TypeError(BTypeErr::AssignmentTypeMismatch { 
-                            var_type: format!("{}[]", lit_type), 
-                            assigned_type: argu.result_type.to_string() 
-                        }),
-                        self.get_current_file_name(),
-                        self.current_token.clone()
-                    ));
-                    if self.__panic_mode {
-                        panic!("{:?}", _err);
-                    } 
-                    return Err(_err);
-                }
                 vals.push(argu.kind.unwrap_expr());
                 let is_tok_comma: bool = self.current_token.kind == TokenKind::T_COMMA;
                 let is_tok_rparen: bool = self.current_token.kind == TokenKind::T_RBRACKET;
                 if !is_tok_comma && !is_tok_rparen {
                     let __err: Box<BErr> = Box::new(BErr::unexpected_token(
                         self.get_current_file_name(), 
+                        vec![TokenKind::T_COMMA, TokenKind::T_RBRACKET],
                         self.current_token.clone()
                     ));
                     if self.__panic_mode {
@@ -956,15 +925,23 @@ impl<'parser> Parser<'parser> {
         Ok(vals)
     }
 
-    fn parse_id_type(&mut self) -> LitTypeVariant {
+    fn parse_id_type(&mut self) -> Result<LitTypeVariant, Box<BErr>> {
         let current_tok: TokenKind = self.current_token.kind;
         match current_tok {
-            TokenKind::KW_INT => LitTypeVariant::I32,
-            TokenKind::KW_CHAR => LitTypeVariant::U8,
-            TokenKind::KW_STR => LitTypeVariant::Str,
-            TokenKind::KW_LONG => LitTypeVariant::I64,
-            TokenKind::KW_VOID => LitTypeVariant::Void,
-            _ => panic!("{:?} is not a valid datatype.", current_tok),
+            TokenKind::KW_INT => Ok(LitTypeVariant::I32),
+            TokenKind::KW_CHAR => Ok(LitTypeVariant::U8),
+            TokenKind::KW_STR => Ok(LitTypeVariant::Str),
+            TokenKind::KW_LONG => Ok(LitTypeVariant::I64),
+            TokenKind::KW_VOID => Ok(LitTypeVariant::Void),
+            _ => {
+                Err(Box::new(
+                    BErr::unexpected_token(
+                        self.get_current_file_name(), 
+                        vec![TokenKind::T_DTYPE], 
+                        self.current_token.clone()
+                    )
+                ))
+            }
         }
     }
 
@@ -1001,6 +978,7 @@ impl<'parser> Parser<'parser> {
                 id_token.clone(),
             )));
         }
+
         let id_index_symt: usize = symbol_search_result.unwrap().0;
         let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
             let ctx_borrow = ctx_rc.borrow_mut();
@@ -1016,6 +994,7 @@ impl<'parser> Parser<'parser> {
                 self.current_token.clone(),
             )));
         };
+
         // we are in global scope but trying to assign to a local variable
         if self.is_scope_global() && symbol.class == StorageClass::LOCAL {
             self.skip_past(TokenKind::T_SEMICOLON);
@@ -1024,37 +1003,39 @@ impl<'parser> Parser<'parser> {
                 id_token.clone(),
             )));
         }
+
         // Check if we are assigning to a type other than SymbolType::Variable. If yes, panic!
         if symbol.sym_type != SymbolType::Variable {
             // self.skip_past(TokenKind::T_SEMICOLON);
             panic!("Assigning to type '{:?}' is not allowed! '{:?}'", symbol.sym_type, symbol);
         }
+
         _ = self.token_match(TokenKind::T_EQUAL)?;
-        let mut bin_expr_ast_node: AST = self.parse_equality()?;
-        let compat_node: Option<AST> = Parser::validate_assign_compatibility(&symbol, &mut bin_expr_ast_node);
+
+        let bin_expr_ast_node: AST = self.parse_equality()?;
+
         // following code is going to break at some point. unwrap()ing an Option type without checking?
-        let _result_type: LitTypeVariant = compat_node.as_ref().unwrap().result_type;
+        let _result_type: LitTypeVariant = bin_expr_ast_node.result_type;
+
         _ = self.token_match(TokenKind::T_SEMICOLON)?;
+
         let lvalueid: AST = AST::create_leaf(
             ASTKind::StmtAST(Stmt::LValue(id_index_symt)),
             ASTOperation::AST_LVIDENT,
             symbol.lit_type,
+            None,
+            None
         );
+
         Ok(AST::new(
             ASTKind::StmtAST(Stmt::Assignment(AssignStmt {
                 symtbl_pos: id_index_symt,
             })),
             ASTOperation::AST_ASSIGN,
             Some(lvalueid),
-            compat_node,
+            Some(bin_expr_ast_node),
             _result_type,
         ))
-    }
-
-    fn validate_assign_compatibility(symbol: &Symbol, node: &mut AST) -> Option<AST> {
-        let compat_node: Option<AST> = types::modify_ast_node_type(node, symbol.lit_type);
-        compat_node.as_ref()?;
-        compat_node
     }
 
     fn parse_equality(&mut self) -> ParseResult2 {
@@ -1098,20 +1079,6 @@ impl<'parser> Parser<'parser> {
         self.skip_to_next_token(); // skip the operator
         let ast_op: ASTOperation = ASTOperation::from_token_kind(current_token_kind);
         let right: AST = self.parse_equality()?;
-        let compat_res: (bool, LitTypeVariant) =
-            are_compatible_for_operation(&left, &right, ast_op);
-        if !compat_res.0 {
-            return Err(Box::new(BErr::new(
-                BErrType::TypeError(BTypeErr::IncompatibleTypes {
-                    first_type: left.result_type.to_string(),
-                    second_type: right.result_type.to_string(),
-                    operator: format!("{:?}", ast_op),
-                }),
-                self.get_current_file_name(),
-                self.current_token.clone(),
-            )));
-        }
-        let result_type: LitTypeVariant = compat_res.1;
         let left_expr: Expr = left.kind.unwrap_expr();
         let right_expr: Expr = right.kind.unwrap_expr();
         Ok(AST::create_leaf(
@@ -1119,10 +1086,12 @@ impl<'parser> Parser<'parser> {
                 operation: ast_op,
                 left: Box::new(left_expr),
                 right: Box::new(right_expr),
-                result_type,
+                result_type: LitTypeVariant::None,
             })),
             ast_op,
-            result_type,
+            LitTypeVariant::None,
+            None,
+            None
         ))
     }
 
@@ -1131,7 +1100,6 @@ impl<'parser> Parser<'parser> {
             return ctx_rc
                 .borrow_mut()
                 .current_file
-                .as_ref()
                 .unwrap()
                 .name
                 .clone();
@@ -1162,14 +1130,14 @@ impl<'parser> Parser<'parser> {
                 ASTOperation::AST_INTLIT,
             )),
             TokenKind::T_STRING => {
-                let mut str_label: i32;
-                if let Some(ctx_rc) = &mut self.ctx {
+                let str_label: i32 = if let Some(ctx_rc) = &mut self.ctx {
                     let mut ctx_borrow = ctx_rc.borrow_mut();
-                    str_label = ctx_borrow.label_id as i32;
+                    let _lbl: i32 = ctx_borrow.label_id as i32;
                     ctx_borrow.incr_label_count();
+                    _lbl
                 } else {
                     panic!("No context provided for parser!");
-                }
+                };
                 let str_const_symbol: Symbol = Symbol::new(
                     format!("_L{}---{}", str_label, current_token.lexeme.clone()),
                     LitTypeVariant::Str,
@@ -1178,20 +1146,34 @@ impl<'parser> Parser<'parser> {
                 );
                 self.add_symbol_global(str_const_symbol);
                 Ok(AST::create_leaf(
-                    ASTKind::ExprAST(Expr::LitVal(LitValExpr {
-                        value: LitType::Str(current_token.lexeme.clone(), str_label as usize),
-                        result_type: LitTypeVariant::Str,
-                    })),
+                    ASTKind::ExprAST(
+                        Expr::LitVal(
+                            LitValExpr {
+                                value: LitType::Str(current_token.lexeme.clone(), str_label as usize),
+                                result_type: LitTypeVariant::Str,
+                            }
+                        )
+                    ),
                     ASTOperation::AST_STRLIT,
                     LitTypeVariant::Str,
+                    None,
+                    None
                 ))
             }
             TokenKind::T_IDENTIFIER => {
                 // Identifiers in a global variable declaration expression are not allowed.
                 if self.is_scope_global() {
-                    return Err(Box::new(BErr::new(BErrType::TypeError(BTypeErr::InitializerNotAConstant { 
-                        lexeme: current_token.lexeme.clone() 
-                    }), current_file.clone(), current_token.clone())));
+                    return Err(Box::new(
+                        BErr::new(
+                            BErrType::TypeError(
+                                BTypeErr::InitializerNotAConstant { 
+                                    lexeme: current_token.lexeme.clone() 
+                                }
+                            ),
+                            current_file.clone(), 
+                            current_token.clone()
+                        )
+                    ));
                 }
                 let sym_find_res: Option<(usize, StorageClass)> = self.find_symbol(&current_token.lexeme);
                 if sym_find_res.is_none() {
@@ -1227,6 +1209,8 @@ impl<'parser> Parser<'parser> {
                         })),
                         ASTOperation::AST_IDENT,
                         symbol.lit_type,
+                        None,
+                        None
                     ))
                 }
             }
@@ -1242,6 +1226,7 @@ impl<'parser> Parser<'parser> {
                     Box::new(
                         BErr::unexpected_token(
                         current_file.clone(),
+                        vec![TokenKind::T_EXPR],
                         current_token.clone(),
                         )
                     )
@@ -1262,6 +1247,8 @@ impl<'parser> Parser<'parser> {
             })),
             operation,
             value.variant(),
+            None,
+            None
         )
     }
 
@@ -1294,6 +1281,8 @@ impl<'parser> Parser<'parser> {
             })),
             ASTOperation::AST_ARRAY_ACCESS,
             indexed_symbol.lit_type,
+            None,
+            None
         ))
     }
 
@@ -1323,6 +1312,7 @@ impl<'parser> Parser<'parser> {
                 if !is_tok_comma && !is_tok_rparen {
                     let __err: Result<AST, Box<BErr>> = Err(Box::new(BErr::unexpected_token(
                         current_file.clone(), 
+                        vec![TokenKind::T_COMMA, TokenKind::T_RPAREN],
                         self.current_token.clone()
                     )));
                     if self.__panic_mode {
@@ -1354,7 +1344,9 @@ impl<'parser> Parser<'parser> {
                         }
                     )),
                     ASTOperation::AST_FUNC_CALL,
-                    LitTypeVariant::Void
+                    LitTypeVariant::Void,
+                    None,
+                    None
                 )
             )
         } 
@@ -1371,6 +1363,8 @@ impl<'parser> Parser<'parser> {
                     ),
                 ASTOperation::AST_FUNC_CALL,
                 called_symbol.lit_type,
+                None,
+                None
             ))
         }
     }
@@ -1389,16 +1383,8 @@ impl<'parser> Parser<'parser> {
     }
 
     fn add_symbol_local(&mut self, sym: Symbol) -> Option<usize> {
-        let insert_pos: Option<usize> = {
-            if let Some(ctx_rc) = &mut self.ctx {
-                let mut ctx_borrow = ctx_rc.borrow_mut();
-                self.temp_local_syms.insert(self.next_local_sym_pos, sym.clone());
-                ctx_borrow.sym_table.insert(self.next_local_sym_pos, sym)
-            } else {
-                panic!("Can't add a new symbol locally");
-            }
-        };
-        self.next_local_sym_pos -= 1;
+        let insert_pos: Option<usize> = self.temp_local_syms.insert(self.next_local_sym_pos, sym.clone());
+        self.next_local_sym_pos += 1;
         insert_pos
     }
 
@@ -1429,18 +1415,12 @@ impl<'parser> Parser<'parser> {
     }
 
     fn find_symbol_local(&self, param_name: &str) -> Option<usize> {
-        if let Some(ctx_rc) = &self.ctx {
-            let ctx_borrow = ctx_rc.borrow_mut();
-            for index in (self.next_local_sym_pos + 1)..NSYMBOLS {
-                if let Some(symbol) = ctx_borrow.sym_table.get_symbol(index) {
-                    let has_local_sym: Option<usize> = self.temp_local_syms.find_symbol(param_name);
-                    if symbol.name == param_name && has_local_sym.is_some() {
-                        return Some(index);
-                    }
-                }
-            }
+        let has_local_sym: Option<usize> = self.temp_local_syms.find_symbol(param_name);
+        if has_local_sym.is_some() {
+            has_local_sym
+        } else {
+            None
         }
-        None
     }
 
     fn is_scope_global(&self) -> bool {
@@ -1458,7 +1438,15 @@ impl<'parser> Parser<'parser> {
     fn token_match_no_advance(&mut self, kind: TokenKind) -> TokenMatch {
         let current: Token = self.current_token.clone();
         if kind != current.kind {
-            return Err(Box::new(BErr::unexpected_token(self.get_current_file_name(), current)));
+            return Err(
+                Box::new(
+                    BErr::unexpected_token(
+                        self.get_current_file_name(), 
+                        vec![kind],
+                        current
+                    )
+                )
+            );
         }
         // self.skip_to_next_token();
         Ok(&self.tokens[self.current - 1])
@@ -1467,7 +1455,15 @@ impl<'parser> Parser<'parser> {
     fn token_match(&mut self, kind: TokenKind) -> TokenMatch {
         let current: Token = self.current_token.clone();
         if kind != current.kind {
-            let __err: Result<_, Box<BErr>> = Err(Box::new(BErr::unexpected_token(self.get_current_file_name(), current)));
+            let __err: Result<_, Box<BErr>> = Err(
+                Box::new(
+                    BErr::unexpected_token(
+                        self.get_current_file_name(), 
+                        vec![kind],
+                        current
+                    )
+                )
+            );
             if self.__panic_mode {
                 panic!("{:?}", __err);
             }

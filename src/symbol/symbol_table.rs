@@ -84,6 +84,32 @@ impl<T: SymbolTrait + Clone> Symtable<T> {
         self.syms.get(idx)
     }
 
+    pub fn get_symbol_mut(&mut self, idx: usize) -> Option<&mut T> {
+        assert!(
+            idx < NSYMBOLS,
+            "value '{}' out of bounds for range '{}'",
+            idx,
+            self.counter
+        );
+        self.syms.get_mut(idx)
+    }
+
+    pub fn get_or_fail(&self, idx: usize) -> &T {
+        if let Some(sym) = self.get_symbol(idx) {
+            sym
+        } else {
+            panic!("Symbol at index '{}' not found in provided symbol table", idx);
+        }
+    }
+
+   pub fn get_mut_or_fail(&mut self, idx: usize) -> &mut T {
+        if let Some(sym) = self.get_symbol_mut(idx) {
+            sym
+        } else {
+            panic!("Symbol at index '{}' not found in provided symbol table", idx);
+        }
+    }
+
     pub fn remove_symbol(&mut self, index: usize) -> T {
         assert!(self.counter < NSYMBOLS);
         self.syms.remove(index)

@@ -136,11 +136,17 @@ pub enum TokenKind {
     T_QMARK,
     T_EOF,
     T_NONE,
+
+    // these tokens are for error purpose. Not to be used
+    // for Token construction.
+    T_EXPR, // expression token
+    T_DTYPE // datatype
 }
 
 impl TokenKind {
     pub fn as_str(&self) -> &'static str {
         match self {
+            Self::T_INT_NUM => "integer value",
             Self::T_PLUS => "+",
             Self::T_INCR => "++",
             Self::T_PLUSEQ => "+=",
@@ -176,6 +182,10 @@ impl TokenKind {
             Self::T_LBRACE => "{",
             Self::T_RBRACE => "}",
             Self::T_DOT => ".",
+            Self::T_LBRACKET => "[",
+            Self::T_RBRACKET => "]",
+            Self::T_EXPR => "expression",
+            Self::T_DTYPE => "data type",
             _ => "",
         }
     }

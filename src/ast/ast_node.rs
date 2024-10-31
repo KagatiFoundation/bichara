@@ -24,7 +24,7 @@ SOFTWARE.
 
 #![allow(non_camel_case_types)]
 
-use crate::{tokenizer::TokenKind, types::{BTypeComparable, LitTypeVariant, TypeSized}};
+use crate::{tokenizer::{Token, TokenKind}, types::{BTypeComparable, LitTypeVariant, TypeSized}};
 
 use super::ASTKind;
 
@@ -126,7 +126,9 @@ pub struct AST {
     pub left: Option<Box<AST>>,
     pub mid: Option<Box<AST>>,
     pub right: Option<Box<AST>>,
-    pub result_type: LitTypeVariant
+    pub result_type: LitTypeVariant,
+    pub start_token: Option<Token>,
+    pub end_token: Option<Token>
 }
 
 impl AST {
@@ -137,7 +139,9 @@ impl AST {
             left: None,
             right: None,
             mid: None,
-            result_type: LitTypeVariant::None
+            result_type: LitTypeVariant::None,
+            start_token: None,
+            end_token: None
         }
     }
 
@@ -154,14 +158,18 @@ impl AST {
             left: left.map(Box::new),
             mid: None,
             right: right.map(Box::new),
-            result_type
+            result_type,
+            start_token: None,
+            end_token: None
         }
     }
 
     pub fn create_leaf(
         kind: ASTKind,
         operation: ASTOperation, 
-        result_type: LitTypeVariant
+        result_type: LitTypeVariant,
+        start_tok: Option<Token>,
+        end_tok: Option<Token>
     ) -> Self {
         Self {
             kind,
@@ -169,7 +177,9 @@ impl AST {
             left: None,
             mid: None,
             right: None,
-            result_type
+            result_type,
+            start_token: start_tok,
+            end_token: end_tok
         }
     }
     
@@ -187,7 +197,9 @@ impl AST {
             left: left.map(Box::new),
             mid: mid.map(Box::new),
             right: right.map(Box::new),
-            result_type
+            result_type,
+            start_token: None,
+            end_token: None
         }
     }
 }

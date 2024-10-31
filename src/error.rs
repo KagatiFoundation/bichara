@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use crate::tokenizer::{Token, TokenPos};
+use crate::tokenizer::{Token, TokenKind, TokenPos};
 
 /// Trait representing a basic error in the compiler. Any struct 
 /// implementing this trait should provide a mechanism to report 
@@ -60,7 +60,10 @@ pub enum BTypeErr {
 #[derive(PartialEq, Clone, Debug)]
 pub enum BErrType {
     UndefinedSymbol,
-    UnexpectedToken,
+    UnexpectedToken {
+        expected: Vec<TokenKind>,
+        found: Token
+    },
     NonSubscriptable,
     NonCallable,
     SymbolAlreadyDefined,
@@ -85,7 +88,6 @@ impl BErr {
         }
         let message: String = match err_type {
             BErrType::UndefinedSymbol => "Undefined symbol".to_string(),
-            BErrType::UnexpectedToken => "Unexpected token".to_string(),
             BErrType::NonSubscriptable => "Identifier is not subscriptable".to_string(),
             BErrType::NonCallable => "Identifier is not callable".to_string(),
             BErrType::SymbolAlreadyDefined => "Symbol already defined".to_string(),
@@ -120,16 +122,36 @@ impl BErr {
         BErr::new(BErrType::UndefinedSymbol, source_file, err_token)
     }
 
-    pub fn unexpected_token(source_file: String, err_token: Token) -> BErr {
-        BErr::new(BErrType::UnexpectedToken, source_file, err_token)
+    pub fn unexpected_token(source_file: String, expected: Vec<TokenKind>, found: Token) -> BErr {
+        let mut expect_token_msg: String = String::from("");
+        if expected.len() > 1 {
+            expect_token_msg.push_str(" one of ");
+        }
+        for expect in &expected {
+            expect_token_msg.push_str(&format!("'{}'", expect.as_str()));
+        }
+
+        BErr {
+            err_type: BErrType::UnexpectedToken { 
+                expected: expected.clone(), 
+                found: found.clone() 
+            },
+            info: Some(
+                BErrorInfo { 
+                    token: found.clone(), 
+                    message: format!("Unexpected token: expected {} but found '{}'", expect_token_msg, found.kind.as_str()), 
+                    source_file
+                }
+            )
+        }
     }
 
     pub fn nonsubsriptable_ident(source_file: String, err_token: Token) -> BErr {
-        BErr::new(BErrType::UnexpectedToken, source_file, err_token)
+        BErr::new(BErrType::NonSubscriptable, source_file, err_token)
     }
 
     pub fn noncallable_ident(source_file: String, err_token: Token) -> BErr {
-        BErr::new(BErrType::UnexpectedToken, source_file, err_token)
+        BErr::new(BErrType::NonCallable, source_file, err_token)
     }
     
     pub fn symbol_already_defined(source_file: String, err_token: Token) -> BErr {
@@ -143,7 +165,7 @@ impl BErr {
     pub fn report(&self) {
         if let Some(info) = &self.info {
             println!(
-                "{}:{}:{}: error: {}",
+                "{}:{}:{}: compile error: {}",
                 info.source_file,
                 info.token.pos.line,
                 info.token.pos.column,

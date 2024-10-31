@@ -27,7 +27,7 @@ SOFTWARE.
 use std::collections::HashMap;
 use crate::types::LitTypeVariant;
 
-use super::{StorageClass, SymbolTrait, Symtable};
+use super::{StorageClass, Symbol, SymbolTrait, Symtable};
 
 /// Limit of local variables in a function.
 pub const LOCAL_LIMIT: usize = 1024;
@@ -119,7 +119,7 @@ pub struct FunctionInfo {
     pub stack_size: i32,
     pub return_type: LitTypeVariant,
     /// Contains information about the variables defined locally in 'this' function
-    pub local_syms: LocalSymtable,
+    pub local_syms: Symtable<Symbol>,
     pub storage_class: StorageClass,
     pub params: Symtable<FuncParam>
 }
@@ -131,14 +131,15 @@ impl FunctionInfo {
         stack_size: i32, 
         return_type: LitTypeVariant,
         storage_class: StorageClass,
-        params: Symtable<FuncParam>
+        params: Symtable<FuncParam>,
+        locals: Symtable<Symbol>
     ) -> Self {
         Self {
             name, 
             func_id,
             stack_size, 
             return_type, 
-            local_syms: LocalSymtable::new(),
+            local_syms: locals,
             storage_class,
             params
         }

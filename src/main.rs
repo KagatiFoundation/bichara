@@ -31,67 +31,69 @@ pub mod symbol;
 pub mod tokenizer;
 pub mod types;
 pub mod utils;
+pub mod semantic;
 
 use std::{cell::RefCell, rc::Rc};
 
 use ast::SourceFile;
-use code_gen::{Aarch64CodeGen, RegManager};
+use code_gen::{Aarch64CodeGen, Aarch64RegManager};
 use context::CompilerCtx;
 use parser::*;
+use semantic::analyzer::SemanticAnalyzer;
 use symbol::*;
 use tokenizer::Tokenizer;
 
 fn main() {
+    // tokenizer
     let tokener: Rc<RefCell<Tokenizer>> = Rc::new(RefCell::new(Tokenizer::new()));
+
+    // parser
     let parsr: Rc<RefCell<Parser>> = Rc::new(RefCell::new(Parser::new(false)));
+
+    // main symbol table
     let mut symt: Symtable<Symbol> = Symtable::new();
+
+    // main function table
     let mut funct: FunctionInfoTable = FunctionInfoTable::new();
-    let mut file1: SourceFile =
-        SourceFile::new("/Users/rigelstar/Desktop/KagatiFoundation/bichara/examples/main.bic");
+
+    // example source file
+    let mut file1: SourceFile = SourceFile::new("/Users/rigelstar/Desktop/KagatiFoundation/bichara/examples/main.bic");
     let mut source_files: Vec<&mut SourceFile> = vec![&mut file1];
+
+    // compiler context
     let ctx: Rc<RefCell<CompilerCtx>> = Rc::new(RefCell::new(CompilerCtx::new(&mut symt, &mut funct)));
-    let rm: RefCell<RegManager> = RefCell::new(
-        RegManager::new(
-            {
-                let mut regs: Vec<String> = vec![];
-                for i in 0..=28 {
-                    regs.push(format!("x{}", i));
-                }
-                for i in 29..=56 {
-                    regs.push(format!("w{}", 56 - i));
-                }
-                regs
-            },
-            {
-                let mut regs: Vec<String> = vec![];
-                for i in 0..=7 {
-                    regs.push(format!("x{}", i));
-                }
-                for i in 8..=14 {
-                    regs.push(format!("w{}", 14 - i));
-                }
-                regs
-            }
-        )
-    );
+
+    // semantic analyzer
+    let s_analyzer: SemanticAnalyzer = SemanticAnalyzer::new(Rc::clone(&ctx));
+
+    // register manager
+    let rm: RefCell<Aarch64RegManager> = RefCell::new(Aarch64RegManager::new());
+
+    // aarch64 code generator
     let mut cg: Aarch64CodeGen = Aarch64CodeGen::new(rm);
+
     for sf in &mut source_files {
         let read_res: Result<i32, std::io::Error> = sf.read();
         if let Err(e) = read_res {
             panic!("Error reading a source file: {:?}", e);
         }
     }
+
     for sf in &mut source_files {
         sf.tokenize(Rc::clone(&tokener));
     }
+
     {
         let mut parser_borrow = parsr.borrow_mut();
         for sf in &mut source_files {
             let tokens: Vec<tokenizer::Token> = sf.tokens.clone().unwrap();
             ctx.borrow_mut().current_file = Some(sf);
             let parse_result: Vec<ast::AST> = parser_borrow.parse_with_ctx(Rc::clone(&ctx), tokens);
+
+            s_analyzer.start_analysis(&parse_result);
+
             if !parser_borrow.has_parsing_errors() {
-                cg.gen_with_ctx(Rc::clone(&ctx), parse_result);
+                cg.gen_with_ctx(Rc::clone(&ctx), &parse_result);
             }
         }
         std::mem::drop(parser_borrow);

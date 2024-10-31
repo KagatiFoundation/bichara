@@ -26,7 +26,10 @@ use crate::{error, tokenizer::Token};
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum ParseError {
-    UnexpectedToken(Token), // unexpected token was encountered
+    UnexpectedToken {
+        expected: Token,
+        found: Token
+    }, // unexpected token was encountered
     SymbolNotFound(Token),  // symbol not found; symbol has not been defined before
     NotCallable(Token),     // if a token being called is not callable type
     GlobalInsideFunction(Token),

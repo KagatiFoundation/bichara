@@ -1,4 +1,4 @@
-use crate::{types::LitType, StorageClass};
+use crate::StorageClass;
 
 use super::Expr;
 

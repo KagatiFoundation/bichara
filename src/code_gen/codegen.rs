@@ -40,10 +40,11 @@ use crate::types::LitType;
 use crate::types::LitTypeVariant;
 use crate::StorageClass;
 
-use super::register::RegManager;
+use super::reg::AllocedReg;
+use super::reg::RegManager;
 use super::CodeGenErr;
 
-pub type CodeGenResult = Result<usize, CodeGenErr>;
+pub type CodeGenResult = Result<AllocedReg, CodeGenErr>;
 
 /// Indicating no register was produced from an code generation operation.
 pub const NO_REG: usize = 0xFFFFFFFF;
@@ -69,14 +70,14 @@ pub trait CodeGen {
     /// let ast = AST::new();
     /// generator.start_gen(&ast);
     /// ```
-    fn start_gen(&mut self, nodes: Vec<AST>) where Self: Sized {
+    fn start_gen(&mut self, nodes: &Vec<AST>) where Self: Sized {
         self.gen_global_symbols();
         // .text section starts from here
         println!("\n.text");
-        for node in &nodes {
+        for node in nodes {
             let result: CodeGenResult = self.gen_code_from_ast(node, 0xFFFFFFFF, ASTOperation::AST_NONE);
             if result.is_err() {
-                println!("Error during code generation!");
+                result.err().unwrap().dump();
             }
         }
     }
@@ -141,7 +142,7 @@ pub trait CodeGen {
                 _ = self.gen_code_from_ast(right, reg, parent_ast_kind);
                 self.reg_manager().deallocate_all();
             }
-            Ok(NO_REG)
+            Ok(AllocedReg::no_reg())
         }
         else if ast_node.operation == ASTOperation::AST_FUNC_CALL {
             if ast_node.result_type == LitTypeVariant::Void {
@@ -150,11 +151,11 @@ pub trait CodeGen {
                         Stmt::FuncCall(func_call) => {
                             return self.gen_func_call_stmt(func_call);
                         },
-                        _ => return Ok(NO_REG)
+                        _ => return Ok(AllocedReg::no_reg())
                     }
                 }
             }
-            Ok(NO_REG)
+            Ok(AllocedReg::no_reg())
         }
         else if ast_node.operation == ASTOperation::AST_RETURN {
             let early_return = parent_ast_kind != ASTOperation::AST_FUNCTION;
@@ -167,7 +168,8 @@ pub trait CodeGen {
                     }
                     self.gen_return_stmt(early_return)
                 }
-                _ => Ok(NO_REG)
+                _ => Ok(AllocedReg::no_reg())
+
             };
         }
         else if ast_node.operation == ASTOperation::AST_VAR_DECL {
@@ -175,39 +177,39 @@ pub trait CodeGen {
                 return match var_decl {
                     Stmt::VarDecl(var_decl_stmt) => {
                         if var_decl_stmt.class != StorageClass::LOCAL {
-                            Ok(NO_REG)
+                            Ok(AllocedReg::no_reg())
                         } else {
                             let assign_expr: &ASTKind = &ast_node.left.as_ref().unwrap().kind;
                             if let ASTKind::ExprAST(__expr) = assign_expr {
                                 _ = self.gen_local_var_decl_stmt(var_decl_stmt, __expr);
                             }
-                            Ok(NO_REG)
+                            Ok(AllocedReg::no_reg())
                         }
                     },
-                    _ => Ok(NO_REG)
+                    _ => Ok(AllocedReg::no_reg())
                 };
             }
-            Ok(NO_REG) 
+            Ok(AllocedReg::no_reg())
         } 
         else if ast_node.operation == ASTOperation::AST_ARR_VAR_DECL {
             if let ASTKind::StmtAST(arr_var_decl) = &ast_node.kind {
                 return match arr_var_decl {
                     Stmt::ArrVarDecl(arr_var_decl_stmt) => {
                         if arr_var_decl_stmt.class != StorageClass::LOCAL {
-                            Ok(NO_REG)
+                            Ok(AllocedReg::no_reg())
                         } 
                         else {
                             self.gen_local_arr_var_decl_stmt(arr_var_decl_stmt)
                         }
                     },
-                    _ => Ok(NO_REG)
+                    _ => Ok(AllocedReg::no_reg())
                 }
             }
-            Ok(NO_REG)
+            Ok(AllocedReg::no_reg())
         }
         else if (ast_node.operation == ASTOperation::AST_NONE)
             || (ast_node.operation == ASTOperation::AST_ARR_VAR_DECL) {
-            return Ok(NO_REG);
+            return Ok(AllocedReg::no_reg());
         }  
         else if ast_node.operation == ASTOperation::AST_ASSIGN {
             let possible_assign_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
@@ -217,9 +219,9 @@ pub trait CodeGen {
                     if let ASTKind::ExprAST(__expr) = assign_expr {
                         _ = self.gen_var_assignment_stmt(&assign, __expr);
                     }
-                    Ok(NO_REG)
+                    Ok(AllocedReg::no_reg())
                 },
-                _ => Ok(NO_REG)
+                _ => Ok(AllocedReg::no_reg())
             };
         }
         else if ast_node.operation == ASTOperation::AST_LOOP {
@@ -228,7 +230,7 @@ pub trait CodeGen {
                 Stmt::Loop => {
                     self.gen_loop_stmt(ast_node)
                 },
-                _ => Ok(NO_REG)
+                _ => Ok(AllocedReg::no_reg())
             }
         }
         else {
@@ -254,14 +256,11 @@ pub trait CodeGen {
                     crate::ast::ASTKind::ExprAST(wexpr) => {
                         self.gen_expr(&wexpr, curr_ast_kind, reg, parent_ast_kind)
                     },
-                    crate::ast::ASTKind::Empty => Ok(NO_REG)
+                    crate::ast::ASTKind::Empty => Ok(AllocedReg::no_reg())
                 }
             },
-            Expr::Subscript(subs) => {
-                let index_reg: usize = self.gen_expr(&subs.index, curr_ast_kind, reg, parent_ast_kind)?;
-                self.gen_array_access2(subs.symtbl_pos, index_reg)
-            },
             Expr::FuncCall(func_call) => self.gen_func_call_expr(func_call),
+            _ => Ok(AllocedReg::no_reg())
         }
     }
 
@@ -284,13 +283,13 @@ pub trait CodeGen {
             LitTypeVariant::I64 |
             LitTypeVariant::I32 => self.gen_load_intlit_into_reg(&lit_expr.value),
             LitTypeVariant::Str => self.gen_load_global_strlit(&lit_expr.value),
-            _ => Ok(NO_REG)
+            _ => Ok(AllocedReg::no_reg())
         }
     }
 
     fn gen_bin_expr(&mut self, bin_expr: &BinExpr, curr_ast_kind: ASTOperation, reg: usize, parent_ast_kind: ASTOperation) -> CodeGenResult {
-        let leftreg: usize = self.gen_expr(&bin_expr.left, curr_ast_kind, reg, parent_ast_kind)?;
-        let rightreg: usize = self.gen_expr(&bin_expr.right, curr_ast_kind, reg, parent_ast_kind)?;
+        let leftreg = self.gen_expr(&bin_expr.left, curr_ast_kind, reg, parent_ast_kind)?;
+        let rightreg = self.gen_expr(&bin_expr.right, curr_ast_kind, reg, parent_ast_kind)?;
 
         match bin_expr.operation {
             ASTOperation::AST_ADD => self.gen_add(leftreg, rightreg),
@@ -310,7 +309,7 @@ pub trait CodeGen {
                     self.gen_cmp_and_set(bin_expr.operation, leftreg, rightreg)
                 } 
             },
-            _ => Ok(NO_REG)
+            _ => Ok(AllocedReg::no_reg())
         }
     }
 
@@ -338,9 +337,9 @@ pub trait CodeGen {
 
     fn gen_label(&mut self, label: usize) -> CodeGenResult;
 
-    fn gen_cmp_and_jmp(&self, operation: ASTOperation, r1: usize, r2: usize, label: usize) -> CodeGenResult;
+    fn gen_cmp_and_jmp(&self, operation: ASTOperation, r1: AllocedReg, r2: AllocedReg, label: usize) -> CodeGenResult;
 
-    fn gen_cmp_and_set(&self, operation: ASTOperation, r1: usize, r2: usize) -> CodeGenResult;
+    fn gen_cmp_and_set(&self, operation: ASTOperation, r1: AllocedReg, r2: AllocedReg) -> CodeGenResult;
 
     fn gen_function_stmt(&mut self, ast: &AST) -> CodeGenResult;
 
@@ -357,21 +356,19 @@ pub trait CodeGen {
     /// The register index where the value of the symbol is loaded.
     fn gen_load_id_into_reg(&mut self, id: usize) -> CodeGenResult;
 
-    fn gen_store_reg_value_into_id(&mut self, reg: usize, id: usize) -> CodeGenResult;
+    fn gen_store_reg_value_into_id(&mut self, reg: AllocedReg, id: usize) -> CodeGenResult;
 
-    fn gen_add(&mut self, r1: usize, r2: usize) -> CodeGenResult;
+    fn gen_add(&mut self, r1: AllocedReg, r2: AllocedReg) -> CodeGenResult;
 
-    fn gen_sub(&mut self, r1: usize, r2: usize) -> CodeGenResult;
+    fn gen_sub(&mut self, r1: AllocedReg, r2: AllocedReg) -> CodeGenResult;
     
-    fn gen_mul(&mut self, r1: usize, r2: usize) -> CodeGenResult;
+    fn gen_mul(&mut self, r1: AllocedReg, r2: AllocedReg) -> CodeGenResult;
     
     fn gen_load_intlit_into_reg(&mut self, value: &LitType) -> CodeGenResult;
 
     fn gen_load_global_strlit(&mut self, symbol_id: &LitType) -> CodeGenResult;
 
     fn gen_array_access(&mut self, symbol_id: usize, expr: &AST) -> CodeGenResult;
-    
-    fn gen_array_access2(&mut self, symbol_id: usize, index: usize) -> CodeGenResult;
 
     fn gen_return_stmt(&mut self, early_return: bool) -> CodeGenResult;
 
@@ -389,5 +386,5 @@ pub trait CodeGen {
 
     fn gen_break_stmt(&mut self, break_label: usize) -> CodeGenResult;
 
-    fn reg_manager(&self) -> RefMut<RegManager>;
+    fn reg_manager(&self) -> RefMut<dyn RegManager>;
 }

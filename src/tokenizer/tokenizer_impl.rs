@@ -35,7 +35,7 @@ use lazy_static::lazy_static;
 lazy_static! {
     static ref KEYWORDS: HashMap<&'static str, TokenKind> = {
         let mut _keys: HashMap<&'static str, TokenKind> = HashMap::new();
-        _keys.insert("for", TokenKind::KW_FOR);
+        _keys.insert("foreach", TokenKind::KW_FOR);
         _keys.insert("while", TokenKind::KW_WHILE);
         _keys.insert("loop", TokenKind::KW_LOOP);
         _keys.insert("integer", TokenKind::KW_INT);
@@ -45,29 +45,12 @@ lazy_static! {
         _keys.insert("void", TokenKind::KW_VOID,);
         _keys.insert("const", TokenKind::KW_CONST,);
         _keys.insert("return", TokenKind::KW_RETURN,);
-        _keys.insert("do", TokenKind::KW_DO,);
-        _keys.insert("case", TokenKind::KW_CASE,);
         _keys.insert("break", TokenKind::KW_BREAK,);
         _keys.insert("continue", TokenKind::KW_CONTINUE);
-        _keys.insert("default", TokenKind::KW_DEFAULT);
-        _keys.insert("enum", TokenKind::KW_ENUM);
-        _keys.insert("goto", TokenKind::KW_GOTO);
-        _keys.insert("register", TokenKind::KW_REGISTER);
-        _keys.insert("sizeof", TokenKind::KW_SIZEOF);
-        _keys.insert("typedef", TokenKind::KW_TYPEDEF);
-        _keys.insert("volatile", TokenKind::KW_VOLATILE);
-        _keys.insert("struct", TokenKind::KW_STRUCT);
-        _keys.insert("union", TokenKind::KW_UNION);
-        _keys.insert("static", TokenKind::KW_STATIC);
-        _keys.insert("inline", TokenKind::KW_INLINE);
         _keys.insert("if", TokenKind::KW_IF);
         _keys.insert("else", TokenKind::KW_ELSE);
-        _keys.insert("unsigned", TokenKind::KW_UNSIGNED);
-        _keys.insert("signed", TokenKind::KW_SIGNED);
         _keys.insert("long", TokenKind::KW_LONG);
         _keys.insert("short", TokenKind::KW_SHORT);
-        _keys.insert("auto", TokenKind::KW_AUTO);
-        _keys.insert("switch", TokenKind::KW_SWITCH);
         _keys.insert("extern", TokenKind::KW_EXTERN);
         _keys.insert("let", TokenKind::KW_LET);
         _keys.insert("def", TokenKind::KW_DEF);
@@ -389,7 +372,7 @@ impl Tokenizer {
         } else {
             let _value: i64 = number.parse::<i64>().unwrap();
             token.kind = if (0..256).contains(&_value) { TokenKind::T_CHAR } 
-            else if ((std::i32::MAX as i64)..std::i64::MAX).contains(&_value) { TokenKind::T_LONG_NUM }
+            else if ((i32::MAX as i64)..i64::MAX).contains(&_value) { TokenKind::T_LONG_NUM }
             else { TokenKind::T_INT_NUM }
         }
         token.lexeme = String::from(number);

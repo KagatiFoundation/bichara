@@ -55,15 +55,22 @@ pub enum LitType {
 
     /// First usize: Length of the array, second usize: Size of each 
     /// element in the array
-    Array(usize, usize),
+    Array(LitTypeArray),
 
     Null, // null type
     None, // placeholder
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LitTypeArray {
+    items_count: usize,
+    item_size: usize,
+    items_type: Box<LitTypeVariant>
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum LitTypeVariant {
-    I32 = 1,
+    I32,
     I64,
     I16,
     U8,
@@ -167,7 +174,7 @@ impl LitType {
             Self::F32(_) => LitTypeVariant::F32,
             Self::Str(_, _) => LitTypeVariant::Str,
             Self::Void => LitTypeVariant::Void,
-            Self::Array(_, _) => LitTypeVariant::Array,
+            Self::Array(_) => LitTypeVariant::Array,
             _ => panic!("not a valid type to calculate variant of!"),
         }
     }
@@ -272,7 +279,9 @@ pub fn convert_ast(node: &AST, to: LitTypeVariant) -> TypeConversionResult {
                 result_type: to
             })),
             ASTOperation::AST_WIDEN,
-            to
+            to,
+            None,
+            None
         ));
     }
     Err(TypeConversionError::BigSizeToSmallSize{ 
@@ -283,7 +292,9 @@ pub fn convert_ast(node: &AST, to: LitTypeVariant) -> TypeConversionResult {
 lazy_static! {
     static ref TYPE_PRECEDENCE: std::collections::HashMap<u8, u8> = {
         let mut typ: std::collections::HashMap<u8, u8> = HashMap::new();
+        typ.insert(LitTypeVariant::I64 as u8, 3);
         typ.insert(LitTypeVariant::I32 as u8, 2);
+        typ.insert(LitTypeVariant::I16 as u8, 1);
         typ.insert(LitTypeVariant::U8 as u8, 0);
         typ
     };
@@ -295,6 +306,7 @@ pub fn infer_type_from_expr(expr: &Expr) -> LitTypeVariant {
         Expr::Binary(bin) => {
             let left_type: LitTypeVariant = infer_type_from_expr(&bin.left);
             let right_type: LitTypeVariant = infer_type_from_expr(&bin.right);
+
             if left_type == LitTypeVariant::Str || right_type == LitTypeVariant::Str {
                 if bin.operation == ASTOperation::AST_ADD {
                     return LitTypeVariant::Str;
@@ -332,15 +344,19 @@ pub fn infer_type_from_expr(expr: &Expr) -> LitTypeVariant {
     }
 }
 
-pub fn are_compatible_for_operation<T: BTypeComparable + TypeSized>(left: &T, right: &T, op: ASTOperation) -> (bool, LitTypeVariant) {
-    let ltype = left.variant();
-    let rtype = right.variant();
+pub fn are_compatible_for_operation<T: BTypeComparable + TypeSized>(
+    left: &T, 
+    right: &T, 
+    op: ASTOperation
+) -> (bool, LitTypeVariant) {
+    let ltype: LitTypeVariant = left.variant();
+    let rtype: LitTypeVariant = right.variant();
     if ltype == rtype {
         return (true, ltype);
     }
-    let mut larger_type = ltype;
-    let lsize = left.type_size();
-    let rsize = right.type_size();
+    let mut larger_type: LitTypeVariant = ltype;
+    let lsize: usize = left.type_size();
+    let rsize: usize = right.type_size();
     if rsize > lsize {
         larger_type = rtype;
     }
@@ -389,6 +405,8 @@ pub fn modify_ast_node_type(node: &mut AST, to: LitTypeVariant) -> Option<AST> {
             })),
             ASTOperation::AST_WIDEN,
             to,
+            None,
+            None
         ));
     }
     // if we reach here, then types are incompatible
