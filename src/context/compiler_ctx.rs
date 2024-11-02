@@ -22,7 +22,22 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use crate::{ast::SourceFile, FunctionInfoTable, Symbol, Symtable};
+use crate::{
+    ast::SourceFile, 
+    FunctionInfo, 
+    FunctionInfoTable, 
+    Symbol, 
+    Symtable, 
+    INVALID_FUNC_ID
+};
+
+use super::CtxError;
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum CompilerScope {
+    GLOBAL,
+    FUNCTION
+}
 
 #[derive(Debug)]
 pub struct CompilerCtx<'ctx> {
@@ -38,6 +53,10 @@ pub struct CompilerCtx<'ctx> {
 
     /// Source file that is currently being processed.
     pub current_file: Option<&'ctx SourceFile>,
+
+    pub current_function: usize,
+
+    pub scope: CompilerScope
 }
 
 impl<'ctx> CompilerCtx<'ctx> {
@@ -47,10 +66,85 @@ impl<'ctx> CompilerCtx<'ctx> {
             func_table,
             label_id: 0,
             current_file: None,
+            current_function: INVALID_FUNC_ID,
+            scope: CompilerScope::GLOBAL
         }
     }
 
     pub fn incr_label_count(&mut self) {
         self.label_id += 1;
+    }
+
+    pub fn get_curr_func(&self) -> Option<&FunctionInfo> {
+        if let Some(symbol) = self.sym_table.get_symbol(self.current_function) {
+            if let Some(func_info) = self.func_table.get(&symbol.name) {
+                return Some(func_info);
+            }
+        }
+        None
+    }
+
+    pub fn get_curr_func_mut(&mut self) -> Option<&mut FunctionInfo> {
+        if let Some(symbol) = self.sym_table.get_symbol(self.current_function) {
+            if let Some(func_info) = self.func_table.get_mut(&symbol.name) {
+                return Some(func_info);
+            }
+        }
+        None
+    }
+
+    pub fn switch_to_func_scope(&mut self, func_id: usize) {
+        self.current_function = func_id;
+        self.scope = CompilerScope::FUNCTION;
+    }
+
+    pub fn switch_to_global_scope(&mut self) {
+        self.current_function = INVALID_FUNC_ID;
+        self.scope = CompilerScope::GLOBAL;
+    }
+
+    pub fn find_sym(&self, name: &str) -> Result<&Symbol, CtxError> {
+        if let Some(func_info) = self.get_curr_func() {
+            if let Some(sym_pos) = func_info.local_syms.find_symbol(name) {
+                if let Some(sym) = func_info.local_syms.get_symbol(sym_pos) {
+                    return Ok(sym);
+                }
+            }
+        }
+        return self.find_sym_in_table(name, self.sym_table);
+    }
+
+    fn find_sym_in_table<'a>(&'a self, name: &str, table: &'a Symtable<Symbol>) -> Result<&Symbol, CtxError> {
+        if let Some(sym_pos) = table.find_symbol(name) {
+            return if let Some(sym) = table.get_symbol(sym_pos) {
+                Ok(sym)
+            } else {
+                Err(CtxError::UndefinedSymbol)
+            };
+        }
+        Err(CtxError::UndefinedSymbol)
+    }
+
+    pub fn find_sym_mut(&mut self, name: &str) -> Result<&mut Symbol, CtxError> {
+        if let Some(local_sym_pos) = {
+            if let Some(func_info) = self.get_curr_func_mut() {
+                func_info.local_syms.find_symbol(name)
+            } else {
+                None
+            }
+        } {
+            if let Some(func_mut) = self.get_curr_func_mut() {
+                if let Some(mut_sym) = func_mut.local_syms.get_symbol_mut(local_sym_pos) {
+                    return Ok(mut_sym);
+                }
+            }
+        } else if let Some(sym_pos) = self.sym_table.find_symbol(name) {
+            if let Some(sym) = self.sym_table.get_symbol_mut(sym_pos) {
+                return Ok(sym);
+            } else {
+                return Err(CtxError::UndefinedSymbol);
+            }
+        }
+        Err(CtxError::UndefinedSymbol)
     }
 }

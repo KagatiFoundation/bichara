@@ -27,7 +27,7 @@ use crate::{
     types::{
         is_type_coalescing_possible, LitTypeVariant
     }, 
-    Symbol
+    Symbol, SymbolType
 };
 
 use super::{
@@ -77,6 +77,8 @@ impl TypeChecker {
         Ok(())
     }
 
+    /// this fucktion is bullshit. do not use
+    /// IGNORE
     pub fn type_check_arr_var_decl_stmt(sym: &mut Symbol, vals: &Vec<Expr>) -> SAResult {
         for expr in vals {
             if expr.result_type() != sym.lit_type 
@@ -94,5 +96,13 @@ impl TypeChecker {
             sym.lit_type = array_type;
         }
         Ok(())
+    }
+
+    pub fn is_callable(sym: &Symbol) -> bool {
+        if sym.sym_type != SymbolType::Function {
+            return false;
+            
+        }
+        true
     }
 }

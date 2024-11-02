@@ -34,6 +34,7 @@ pub type RegIdx = usize;
 
 pub const INVALID_REG_IDX: usize = 0xFFFFFFFF;
 
+#[derive(Debug)]
 pub struct AllocedReg {
     pub size: RegSize,
     pub idx: RegIdx

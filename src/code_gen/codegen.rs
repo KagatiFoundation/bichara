@@ -30,7 +30,6 @@ use crate::ast::AssignStmt;
 use crate::ast::BinExpr;
 use crate::ast::Expr;
 use crate::ast::FuncCallExpr;
-use crate::ast::FuncCallStmt;
 use crate::ast::LitValExpr;
 use crate::ast::Stmt;
 use crate::ast::VarDeclStmt;
@@ -135,25 +134,12 @@ pub trait CodeGen {
         }
         else if ast_node.operation == ASTOperation::AST_GLUE {
             if let Some(left) = ast_node.left.as_ref() {
-                _ = self.gen_code_from_ast(left, reg, parent_ast_kind);
+                self.gen_code_from_ast(left, reg, parent_ast_kind)?;
                 self.reg_manager().deallocate_all();
             }
             if let Some(right) = ast_node.right.as_ref() {
-                _ = self.gen_code_from_ast(right, reg, parent_ast_kind);
+                self.gen_code_from_ast(right, reg, parent_ast_kind)?;
                 self.reg_manager().deallocate_all();
-            }
-            Ok(AllocedReg::no_reg())
-        }
-        else if ast_node.operation == ASTOperation::AST_FUNC_CALL {
-            if ast_node.result_type == LitTypeVariant::Void {
-                if let ASTKind::StmtAST(func_call_stmt) = &ast_node.kind {
-                    match func_call_stmt {
-                        Stmt::FuncCall(func_call) => {
-                            return self.gen_func_call_stmt(func_call);
-                        },
-                        _ => return Ok(AllocedReg::no_reg())
-                    }
-                }
             }
             Ok(AllocedReg::no_reg())
         }
@@ -259,7 +245,10 @@ pub trait CodeGen {
                     crate::ast::ASTKind::Empty => Ok(AllocedReg::no_reg())
                 }
             },
-            Expr::FuncCall(func_call) => self.gen_func_call_expr(func_call),
+            Expr::FuncCall(func_call) => {
+                println!("{:?}", expr);
+                self.gen_func_call_expr(func_call)
+            },
             _ => Ok(AllocedReg::no_reg())
         }
     }
@@ -371,8 +360,6 @@ pub trait CodeGen {
     fn gen_array_access(&mut self, symbol_id: usize, expr: &AST) -> CodeGenResult;
 
     fn gen_return_stmt(&mut self, early_return: bool) -> CodeGenResult;
-
-    fn gen_func_call_stmt(&mut self, func_call_stmt: &FuncCallStmt) -> CodeGenResult;
 
     fn gen_func_call_expr(&mut self, func_call_expr: &FuncCallExpr) -> CodeGenResult;
 

@@ -15,24 +15,40 @@ pub struct ReturnStmt {
 #[derive(Clone, Debug)]
 pub struct VarDeclStmt {
     pub symtbl_pos: usize, // position of this symbol in the symbol table
+
+    /// Name of the symbol
+    pub sym_name: String,
+
     pub class: StorageClass
 }
 
 #[derive(Clone, Debug)]
 pub struct ArrVarDeclStmt {
     pub symtbl_pos: usize,
+
+    /// Name of the symbol
+    pub sym_name: String,
+
     pub class: StorageClass,
     pub vals: Vec<Expr>
 }
 
 #[derive(Clone, Debug)]
 pub struct AssignStmt {
-    pub symtbl_pos: usize
+    #[deprecated]
+    pub symtbl_pos: usize,
+
+    /// Name of the symbol
+    pub sym_name: String
 }
 
 #[derive(Clone, Debug)]
 pub struct FuncCallStmt {
+    #[deprecated]
     pub symtbl_pos: usize,
+
+    pub symbol_name: String,
+
     pub args: Vec<Expr>
 }
 
@@ -50,5 +66,8 @@ pub enum Stmt {
     Assignment(AssignStmt),
     VarDecl(VarDeclStmt),
     LValue(usize), // usize for symbol table position of this left value
+    LValue2 {
+        name: String
+    },
     FuncCall(FuncCallStmt),
 }

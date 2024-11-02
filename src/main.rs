@@ -64,7 +64,7 @@ fn main() {
     let ctx: Rc<RefCell<CompilerCtx>> = Rc::new(RefCell::new(CompilerCtx::new(&mut symt, &mut funct)));
 
     // semantic analyzer
-    let s_analyzer: SemanticAnalyzer = SemanticAnalyzer::new(Rc::clone(&ctx));
+    let mut s_analyzer: SemanticAnalyzer = SemanticAnalyzer::new(Rc::clone(&ctx));
 
     // register manager
     let rm: RefCell<Aarch64RegManager> = RefCell::new(Aarch64RegManager::new());
@@ -88,9 +88,9 @@ fn main() {
         for sf in &mut source_files {
             let tokens: Vec<tokenizer::Token> = sf.tokens.clone().unwrap();
             ctx.borrow_mut().current_file = Some(sf);
-            let parse_result: Vec<ast::AST> = parser_borrow.parse_with_ctx(Rc::clone(&ctx), tokens);
+            let mut parse_result: Vec<ast::AST> = parser_borrow.parse_with_ctx(Rc::clone(&ctx), tokens);
 
-            s_analyzer.start_analysis(&parse_result);
+            s_analyzer.start_analysis(&mut parse_result);
 
             if !parser_borrow.has_parsing_errors() {
                 cg.gen_with_ctx(Rc::clone(&ctx), &parse_result);

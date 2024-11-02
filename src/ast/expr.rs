@@ -23,7 +23,13 @@ pub struct WidenExpr {
 
 #[derive(Clone, Debug)]
 pub struct IdentExpr {
+    #[deprecated]
     pub symtbl_pos: usize, // position in the symbol table
+
+    /// Name of the symbol
+    pub sym_name: String,
+
+    /// Result type of the symbol
     pub result_type: LitTypeVariant
 }
 
@@ -42,7 +48,9 @@ pub struct SubscriptExpr {
 
 #[derive(Clone, Debug)]
 pub struct FuncCallExpr {
-    pub symtbl_pos: usize, // position of the function being called in the symbol table,
+    /// Name of the called function
+    pub symbol_name: String,
+
     pub result_type: LitTypeVariant, // function return type
     // args
     pub args: Vec<Expr>

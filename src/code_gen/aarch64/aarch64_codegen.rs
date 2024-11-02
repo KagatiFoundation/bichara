@@ -206,7 +206,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         };
 
         let func_name: String = if let Some(ctx_rc) = &mut self.ctx {
-            let ctx_borrow: std::cell::Ref<CompilerCtx<'aarch64>> = ctx_rc.borrow();
+            let ctx_borrow = ctx_rc.borrow();
             let func_name: String = ctx_borrow.sym_table.get_symbol(index).unwrap().name.clone();
             if let Some(finfo) = ctx_borrow.func_table.get(&func_name) {
                 self.current_function = Some(finfo.clone());
@@ -219,6 +219,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         };
 
         let func_info: FunctionInfo = self.current_function.as_ref().cloned().unwrap();
+        self.ctx.as_ref().unwrap().borrow_mut().switch_to_func_scope(func_info.func_id);
 
         // If the function is declared as extern, print its external linkage
         // declaration and return a placeholder value indicating an unresolved
@@ -250,7 +251,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         }
 
         if let Some(ref body) = ast.left {
-            _ = self.gen_code_from_ast(body, 0xFFFFFFFF, ast.operation)?;
+           self.gen_code_from_ast(body, 0xFFFFFFFF, ast.operation)?;
             if self.early_return_label_id != NO_REG {
                 println!("_L{}:", self.early_return_label_id);
                 self.early_return_label_id = NO_REG; // reset early return label after function code generation
@@ -258,6 +259,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         }
 
         self.current_function = None;
+        self.ctx.as_ref().unwrap().borrow_mut().switch_to_global_scope();
 
         // ldp -> Load Pair of Registers
         // Restore the saved frame pointer (x29) and link register (x30) from the stack.
@@ -490,38 +492,6 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         self.reg_manager.borrow_mut()
     }
     
-    fn gen_func_call_stmt(&mut self, func_call_stmt: &FuncCallStmt) -> CodeGenResult {
-        let func_info: FunctionInfo = if let Some(ctx_rc) = &self.ctx {
-            let ctx_borrow = ctx_rc.borrow();
-            if let Some(symbol) = ctx_borrow.sym_table.get_symbol(func_call_stmt.symtbl_pos) {
-                if let Some(func_info) = ctx_borrow.func_table.get(&symbol.name) {
-                    func_info.clone()
-                } else {
-                    panic!("function info not found");
-                }
-            } else {
-                panic!("undefined symbol");
-            }
-        } else {
-            return Err(CodeGenErr::NoContext);
-        };
-        // Assign the function id whenever generating code for function
-        self.function_id = func_info.func_id;
-        let args: &Vec<crate::ast::Expr> = &func_call_stmt.args;
-        let mut used_regs: Vec<AllocedReg> = Vec::<AllocedReg>::new();
-        for expr in args {
-            let used_reg: AllocedReg = self.gen_expr(expr, ASTOperation::AST_FUNC_CALL, 0xFFFFFFFF, ASTOperation::AST_NONE)?;
-            used_regs.push(used_reg);
-        }
-        let mut _reg_mgr = self.reg_manager.borrow_mut();
-        for ar in used_regs {
-            _reg_mgr.deallocate(ar.idx, &ar.lit_type());
-        }
-        println!("bl _{}", func_info.name);
-        self.function_id = 0xFFFFFFFF;
-        Ok(AllocedReg::no_reg())
-    }
-    
     fn gen_local_var_decl_stmt(&mut self, var_decl_stmt: &crate::ast::VarDeclStmt, expr_ast: &Expr) -> CodeGenResult {
         if self.current_function.is_none() {
             panic!("Parsing a local variable but function is not defined... Weird.");
@@ -572,7 +542,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     fn gen_func_call_expr(&mut self, func_call_expr: &crate::ast::FuncCallExpr) -> CodeGenResult {
         let func_info_res: Option<FunctionInfo> = if let Some(ctx_rc) = &self.ctx {
             let ctx_borrow = ctx_rc.borrow_mut();
-            if let Some(symbol) = ctx_borrow.sym_table.get_symbol(func_call_expr.symtbl_pos) {
+            if let Ok(symbol) = ctx_borrow.find_sym(&func_call_expr.symbol_name) {
                 ctx_borrow.func_table.get(&symbol.name).cloned()
             } else {
                 None
@@ -765,7 +735,6 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
     }
 
     fn __allocate_reg(&mut self, val_type: &LitTypeVariant) -> AllocedReg {
-        println!("{:?}", val_type);
         let alloced_reg: RegAllocResult = self.reg_manager.borrow_mut().allocate(val_type);
         if alloced_reg.is_err() {
             panic!("Couldn't allocate register");

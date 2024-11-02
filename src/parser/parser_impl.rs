@@ -29,7 +29,6 @@ use crate::ast::AssignStmt;
 use crate::ast::BinExpr;
 use crate::ast::Expr;
 use crate::ast::FuncCallExpr;
-use crate::ast::FuncCallStmt;
 use crate::ast::FuncDeclStmt;
 use crate::ast::IdentExpr;
 use crate::ast::LitValExpr;
@@ -200,7 +199,8 @@ impl<'parser> Parser<'parser> {
                 return self.parse_var_decl_stmt();
             }
         }
-        match self.current_token.kind {
+        let curr_tok_kind: TokenKind = self.current_token.kind;
+        let result: ParseResult2 = match curr_tok_kind {
             TokenKind::KW_LET => self.parse_var_decl_stmt(),
             TokenKind::T_IDENTIFIER => self.assign_stmt_or_func_call(),
             TokenKind::KW_IF => self.parse_if_stmt(),
@@ -221,7 +221,17 @@ impl<'parser> Parser<'parser> {
                 }
                 __err
             }
+        };
+        match curr_tok_kind {
+            TokenKind::KW_LET
+            | TokenKind::KW_RETURN
+            | TokenKind::KW_BREAK
+            | TokenKind::T_IDENTIFIER => {
+                _ = self.token_match(TokenKind::T_SEMICOLON)?;
+            },
+            _ => ()
         }
+        result
     }
 
     // parse compound statement(statement starting with '{' and ending with '}')
@@ -334,7 +344,7 @@ impl<'parser> Parser<'parser> {
             } 
         }
 
-        _ = self.token_match(TokenKind::T_RPAREN);
+        self.token_match(TokenKind::T_RPAREN)?;
         let func_return_type: LitTypeVariant = self.__parse_fn_ret_type()?;
         self.skip_to_next_token();
 
@@ -407,7 +417,6 @@ impl<'parser> Parser<'parser> {
 
         // reset temporary symbols holder after the function has been parsed
         self.temp_local_syms = Symtable::new();
-        self.temp_local_params = Symtable::new();
 
         // Return AST for function declaration
         Ok(AST::new(
@@ -517,7 +526,7 @@ impl<'parser> Parser<'parser> {
                 return __err;
             }
             // skip semicolon
-            self.token_match(TokenKind::T_SEMICOLON)?;
+            // self.token_match(TokenKind::T_SEMICOLON)?;
             return Ok(AST::create_leaf(
                 ASTKind::StmtAST(Stmt::Return(ReturnStmt {
                     func_id: self.current_function_id,
@@ -543,7 +552,7 @@ impl<'parser> Parser<'parser> {
                 self.current_token.clone(),
             )));
         }
-        _ = self.token_match(TokenKind::T_SEMICOLON)?; // expect semicolon to end a return statement
+        // _ = self.token_match(TokenKind::T_SEMICOLON)?; // expect semicolon to end a return statement
         Ok(AST::new(
             ASTKind::StmtAST(Stmt::Return(ReturnStmt {
                 func_id: self.current_function_id,
@@ -774,11 +783,12 @@ impl<'parser> Parser<'parser> {
         } else {
             self.add_symbol_global(sym.clone()).unwrap()
         };
-        let return_result: Result<AST, Box<BErr>> = if let Some(assign_ast_node_res) = assignment_parse_res {
+        let return_result: ParseResult2 = if let Some(assign_ast_node_res) = assignment_parse_res {
             Ok(AST::new(
                 ASTKind::StmtAST(Stmt::VarDecl(VarDeclStmt {
                     symtbl_pos: symbol_add_pos,
-                    class: var_class
+                    class: var_class,
+                    sym_name: id_token.lexeme.clone()
                 })),
                 ASTOperation::AST_VAR_DECL,
                 Some(assign_ast_node_res?),
@@ -789,7 +799,8 @@ impl<'parser> Parser<'parser> {
             Ok(AST::new(
                 ASTKind::StmtAST(Stmt::VarDecl(VarDeclStmt {
                     symtbl_pos: symbol_add_pos,
-                    class: var_class
+                    class: var_class,
+                    sym_name: id_token.lexeme.clone()
                 })),
                 ASTOperation::AST_VAR_DECL,
                 None,
@@ -797,13 +808,12 @@ impl<'parser> Parser<'parser> {
                 var_type,
             ))
         };
-        _ = self.token_match(TokenKind::T_SEMICOLON)?;
         return_result
     }
 
     fn gen_next_local_offset(&mut self, var_type: LitTypeVariant) -> i32 {
-        let temp_offset: i32 = if var_type.size() > 4 {
-            var_type.size() as i32
+        let temp_offset: i32 = if var_type.size() <= 4 {
+            4
         } else {
             8
         };
@@ -881,7 +891,8 @@ impl<'parser> Parser<'parser> {
             ASTKind::StmtAST(Stmt::ArrVarDecl(ArrVarDeclStmt {
                 symtbl_pos: symbol_add_pos,
                 vals: array_values,
-                class: sym.class
+                class: sym.class,
+                sym_name: id_token.lexeme.clone()
             })),
             ASTOperation::AST_ARR_VAR_DECL,
             sym.lit_type,
@@ -889,7 +900,7 @@ impl<'parser> Parser<'parser> {
             None
         );
 
-        _ = self.token_match(TokenKind::T_SEMICOLON)?;
+        // _ = self.token_match(TokenKind::T_SEMICOLON)?;
         Ok(array_decl_ast )
     }
 
@@ -952,89 +963,34 @@ impl<'parser> Parser<'parser> {
         if tok_kind_after_id_tok != TokenKind::T_LPAREN {
             self.parse_assignment_stmt(id_token)
         } else {
-            let mut symbol_pos: usize = 0;
-            let symbol: Option<Symbol> = if let Some(ctx_rc) = &mut self.ctx {
-                let ctx_borrow = ctx_rc.borrow_mut();
-                let sym_pos = ctx_borrow.sym_table.find_symbol(&id_token.lexeme);
-                if let Some(sp) = sym_pos {
-                    symbol_pos = sp;
-                    ctx_borrow.sym_table.get_symbol(sp).cloned()
-                } else { None }
-            } else { None };
-            if let Some(sym) = symbol {
-                self.parse_func_call_expr(&sym, symbol_pos, &id_token)
-            } else {
-                Err(Box::new(BErr::undefined_symbol(self.get_current_file_name(), id_token.clone())))
-            }
+            self.parse_func_call_expr(&id_token.lexeme, &id_token)
         }
     }
 
     fn parse_assignment_stmt(&mut self, id_token: Token) -> ParseResult2 {
-        let symbol_search_result: Option<(usize, StorageClass)> = self.find_symbol(&id_token.lexeme);
-        if symbol_search_result.is_none() {
-            self.skip_past(TokenKind::T_SEMICOLON);
-            return Err(Box::new(BErr::undefined_symbol(
-                self.get_current_file_name(),
-                id_token.clone(),
-            )));
-        }
-
-        let id_index_symt: usize = symbol_search_result.unwrap().0;
-        let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
-            let ctx_borrow = ctx_rc.borrow_mut();
-            ctx_borrow
-                .sym_table
-                .get_symbol(id_index_symt)
-                .unwrap()
-                .clone()
-        } else {
-            return Err(Box::new(BErr::new(
-                BErrType::UndefinedSymbol,
-                self.get_current_file_name(),
-                self.current_token.clone(),
-            )));
-        };
-
-        // we are in global scope but trying to assign to a local variable
-        if self.is_scope_global() && symbol.class == StorageClass::LOCAL {
-            self.skip_past(TokenKind::T_SEMICOLON);
-            return Err(Box::new(BErr::undefined_symbol(
-                self.get_current_file_name(),
-                id_token.clone(),
-            )));
-        }
-
-        // Check if we are assigning to a type other than SymbolType::Variable. If yes, panic!
-        if symbol.sym_type != SymbolType::Variable {
-            // self.skip_past(TokenKind::T_SEMICOLON);
-            panic!("Assigning to type '{:?}' is not allowed! '{:?}'", symbol.sym_type, symbol);
-        }
-
         _ = self.token_match(TokenKind::T_EQUAL)?;
 
         let bin_expr_ast_node: AST = self.parse_equality()?;
 
-        // following code is going to break at some point. unwrap()ing an Option type without checking?
-        let _result_type: LitTypeVariant = bin_expr_ast_node.result_type;
-
-        _ = self.token_match(TokenKind::T_SEMICOLON)?;
+        // _ = self.token_match(TokenKind::T_SEMICOLON)?;
 
         let lvalueid: AST = AST::create_leaf(
-            ASTKind::StmtAST(Stmt::LValue(id_index_symt)),
+            ASTKind::StmtAST(Stmt::LValue2{ name: id_token.lexeme.clone() }),
             ASTOperation::AST_LVIDENT,
-            symbol.lit_type,
+            LitTypeVariant::None,
             None,
             None
         );
 
         Ok(AST::new(
             ASTKind::StmtAST(Stmt::Assignment(AssignStmt {
-                symtbl_pos: id_index_symt,
+                symtbl_pos: 0,
+                sym_name: id_token.lexeme.clone()
             })),
             ASTOperation::AST_ASSIGN,
             Some(lvalueid),
             Some(bin_expr_ast_node),
-            _result_type,
+            LitTypeVariant::Void,
         ))
     }
 
@@ -1175,40 +1131,20 @@ impl<'parser> Parser<'parser> {
                         )
                     ));
                 }
-                let sym_find_res: Option<(usize, StorageClass)> = self.find_symbol(&current_token.lexeme);
-                if sym_find_res.is_none() {
-                    return Err(Box::new(BErr::undefined_symbol(
-                        current_file.clone(),
-                        current_token.clone(),
-                    )));
-                }
-                let id_index: usize = sym_find_res.unwrap().0;
-                let mut symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
-                    let ctx_borrow = ctx_rc.borrow_mut();
-                    ctx_borrow.sym_table.get_symbol(id_index).unwrap().clone()
-                } else {
-                    return Err(Box::new(BErr::undefined_symbol(
-                        current_file.clone(),
-                        current_token.clone(),
-                    )));
-                };
-
-                // increment the use count of this symbol
-                symbol.incr_use();
-
+                let symbol_name: String = current_token.lexeme.clone();
                 let curr_tok_kind: TokenKind = self.current_token.kind;
                 if curr_tok_kind == TokenKind::T_LPAREN {
-                    self.parse_func_call_expr(&symbol, id_index, &current_token)
-                } else if curr_tok_kind == TokenKind::T_LBRACKET {
-                    self.parse_array_index_expr(&symbol, id_index, &current_token)
-                } else {
+                    self.parse_func_call_expr(&symbol_name, &current_token)
+                } 
+                else {
                     Ok(AST::create_leaf(
                         ASTKind::ExprAST(Expr::Ident(IdentExpr {
-                            symtbl_pos: id_index,
-                            result_type: symbol.lit_type,
+                            symtbl_pos: 0,
+                            result_type: LitTypeVariant::None,
+                            sym_name: symbol_name
                         })),
                         ASTOperation::AST_IDENT,
-                        symbol.lit_type,
+                        LitTypeVariant::None, // type will be identified at the semantic analysis phases if the symbol is defined
                         None,
                         None
                     ))
@@ -1288,18 +1224,11 @@ impl<'parser> Parser<'parser> {
 
     fn parse_func_call_expr(
         &mut self,
-        called_symbol: &Symbol,
-        sym_index: usize,
+        called_symbol: &str,
         sym_token: &Token,
     ) -> ParseResult2 {
         let current_file: String = self.get_current_file_name();
         _ = self.token_match(TokenKind::T_LPAREN)?;
-        if called_symbol.sym_type != SymbolType::Function {
-            return Err(Box::new(BErr::noncallable_ident(
-                current_file.clone(),
-                sym_token.clone(),
-            )));
-        }
 
         let curr_token_kind: TokenKind = self.current_token.kind;
         let mut func_args: Vec<Expr> = vec![];
@@ -1332,53 +1261,33 @@ impl<'parser> Parser<'parser> {
         // Allocating extra 16 bytes to store x29(Frame Pointer), and x30(Link Register).
         // Storing and then loading them is collectively called a Frame Record.
         // self.local_offset += 16;
-
-        if called_symbol.lit_type == LitTypeVariant::Void {
-            _ = self.token_match(TokenKind::T_SEMICOLON)?;
-            Ok(AST::create_leaf(
-                ASTKind::StmtAST(
-                    Stmt::FuncCall(
-                        FuncCallStmt {
-                            symtbl_pos: sym_index,
+        Ok(AST::create_leaf(
+            ASTKind::ExprAST(
+                    Expr::FuncCall(
+                        FuncCallExpr {
+                            result_type: LitTypeVariant::None,
+                            symbol_name: called_symbol.to_string(),
                             args: func_args
                         }
-                    )),
-                    ASTOperation::AST_FUNC_CALL,
-                    LitTypeVariant::Void,
-                    None,
-                    None
-                )
-            )
-        } 
-        else  {
-            Ok(AST::create_leaf(
-                ASTKind::ExprAST(
-                        Expr::FuncCall(
-                            FuncCallExpr {
-                                symtbl_pos: sym_index,
-                                result_type: called_symbol.lit_type,
-                                args: func_args
-                            }
-                        )
-                    ),
-                ASTOperation::AST_FUNC_CALL,
-                called_symbol.lit_type,
-                None,
-                None
-            ))
-        }
+                    )
+                ),
+            ASTOperation::AST_FUNC_CALL,
+            LitTypeVariant::None,
+            Some(sym_token.clone()),
+            None
+        ))
     }
 
     fn add_symbol_global(&mut self, sym: Symbol) -> Option<usize> {
         let insert_pos: Option<usize> = {
             if let Some(ctx_rc) = &mut self.ctx {
                 let mut ctx_borrow = ctx_rc.borrow_mut();
+                self.next_global_sym_pos += 1;
                 ctx_borrow.sym_table.insert(self.next_global_sym_pos, sym)
             } else {
                 panic!("Can't add a new symbol globally");
             }
         };
-        self.next_global_sym_pos += 1;
         insert_pos
     }
 
@@ -1386,41 +1295,6 @@ impl<'parser> Parser<'parser> {
         let insert_pos: Option<usize> = self.temp_local_syms.insert(self.next_local_sym_pos, sym.clone());
         self.next_local_sym_pos += 1;
         insert_pos
-    }
-
-    fn find_symbol(&self, name: &str) -> Option<(usize, StorageClass)> {
-        // first search in the local scope to determine if the symbol exists in local scope
-        if let Some(local_pos) = self.find_symbol_local(name) {
-            return Some((local_pos, StorageClass::LOCAL));
-        }
-        // then inquire global scope
-        if let Some(global_pos) = self.find_symbol_global(name) {
-            return Some((global_pos, StorageClass::GLOBAL));
-        }
-        None
-    }
-
-    fn find_symbol_global(&self, name: &str) -> Option<usize> {
-        if let Some(ctx_rc) = &self.ctx {
-            let ctx_borrow = ctx_rc.borrow_mut();
-            for index in 0..self.next_global_sym_pos {
-                if let Some(symbol) = ctx_borrow.sym_table.get_symbol(index) {
-                    if symbol.name == name {
-                        return Some(index);
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    fn find_symbol_local(&self, param_name: &str) -> Option<usize> {
-        let has_local_sym: Option<usize> = self.temp_local_syms.find_symbol(param_name);
-        if has_local_sym.is_some() {
-            has_local_sym
-        } else {
-            None
-        }
     }
 
     fn is_scope_global(&self) -> bool {

@@ -22,11 +22,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use crate::{ast::ASTOperation, types::LitTypeVariant};
+use std::fmt;
+
+use crate::{ast::ASTOperation, tokenizer::Token, types::LitTypeVariant};
 
 pub enum SATypeError {
     AssignmentTypeMismatch {
-        expected: LitTypeVariant, found: LitTypeVariant
+        expected: LitTypeVariant, 
+        found: LitTypeVariant
     },
     IncompatibleTypes {
         a: LitTypeVariant, 
@@ -34,12 +37,64 @@ pub enum SATypeError {
         operation: ASTOperation
     },
     TypeMismatch {
-        a: LitTypeVariant, b: LitTypeVariant
+        expected: LitTypeVariant, 
+        found: LitTypeVariant
+    },
+    NonCallable {
+        sym_name: String
     }
 }
 
 pub enum SAError {
     TypeError(SATypeError),
-    ArrayLengthError { expected: usize, found: usize },
+    ArrayLengthError { 
+        expected: usize, 
+        found: usize 
+    },
+    UndefinedSymbol { 
+        sym_name: String, 
+        token: Token
+    },
     None
+}
+
+impl fmt::Display for SATypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::AssignmentTypeMismatch { expected, found } => {
+                write!(f, "Assignment type mismatch: expected type `{}`, found `{}`.", expected, found)
+            }
+            Self::IncompatibleTypes { a, b, operation } => {
+                write!(f, "Incompatible types `{}` and `{}` for operation `{:?}`.", a, b, operation)
+            }
+            Self::TypeMismatch { expected, found } => {
+                write!(f, "Type mismatch: `{}` is not compatible with `{}`.", expected, found)
+            },
+            Self::NonCallable{ sym_name} => {
+                write!(f, "'{}' is not a function.", sym_name)
+            }
+        }
+    }
+}
+
+impl fmt::Display for SAError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SAError::TypeError(type_error) => write!(f, "Type Error: {}", type_error),
+            SAError::ArrayLengthError { expected, found } => {
+                write!(f, "Array length mismatch: expected `{}`, found `{}`.", expected, found)
+            },
+            SAError::UndefinedSymbol{ sym_name, token} => {
+                write!(f, "{}:{}: compile error: Undefined symbol '{}'", token.pos.line, token.pos.column, sym_name)
+            },
+            SAError::None => write!(f, "No error."),
+        }
+    }
+}
+
+impl SAError {
+    pub fn dump(&self) {
+        println!("{}", self);
+        std::process::exit(1);
+    }
 }
