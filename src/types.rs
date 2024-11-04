@@ -114,11 +114,18 @@ impl LitTypeVariant {
             Self::I64 
             | Self::F64
             | Self::Str => 8,
-            Self::F32 | Self::I32 => 4,
+
+            Self::F32 | 
+            Self::I32 => 4,
+
             Self::U8 => 1,
             Self::I16 => 2,
             _ => 0,
         }
+    }
+
+    pub fn is_int_variant(&self) -> bool {
+        matches!(self, LitTypeVariant::I32 | LitTypeVariant::I16 | LitTypeVariant::I64 | LitTypeVariant::U8)
     }
 }
 

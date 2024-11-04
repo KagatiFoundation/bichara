@@ -26,11 +26,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     ast::{
-        ASTKind, 
-        ASTOperation, 
-        Expr, 
-        Stmt, 
-        AST
+        ASTKind, ASTOperation, Expr, Stmt, AST
     }, 
     context::CompilerCtx, 
     types::LitTypeVariant, 
@@ -61,6 +57,10 @@ impl<'sa> SemanticAnalyzer<'sa> {
         }
     }
 
+    /// Start the analysis process
+    /// 
+    /// This starts an analysis process for the given list of nodes. 
+    /// This function panics if it encounters any form of error.
     pub fn start_analysis(&mut self, nodes: &mut Vec<AST>) {
         for node in nodes {
             let result: SAResult = self.analyze_node(node, ASTOperation::AST_NONE);
@@ -117,17 +117,16 @@ impl<'sa> SemanticAnalyzer<'sa> {
         Ok(())
     }
 
-    fn analyze_func_call(&self, node: &AST) -> SAResult {
-        let func_name: String = match &node.kind {
-            ASTKind::ExprAST(expr) => {
-                match expr {
-                    Expr::FuncCall(func_call_expr) => {
-                        func_call_expr.symbol_name.to_string()
-                    },
-                    _ => panic!("Not a function call expression")
-                }
-            },
-            _ => panic!("not a expression")
+    /// Analyze the function call expression
+    /// 
+    /// This analysis is done to check if the arguments to this 
+    /// function call are valid.
+    fn analyze_func_call(&self, node: &mut AST) -> SAResult {
+        let func_name: String = if let ASTKind::ExprAST(Expr::FuncCall(func_call_expr)) = &mut node.kind {
+            func_call_expr.symbol_name.to_string()
+        }
+        else {
+            panic!("Not a function call expression")
         };
         let ctx_borrow = self.ctx.borrow();
         if let Some(func_sym_pos) = ctx_borrow.sym_table.find_symbol(&func_name) {
@@ -141,12 +140,19 @@ impl<'sa> SemanticAnalyzer<'sa> {
                         )
                     );
                 } else {
+                    if let Err(annotation_err) = self.annotate_expr_with_respective_type(node.kind.as_expr_mut().unwrap()) {
+                        return Err(self.construct_sa_err(node, annotation_err));
+                    }
+                    if let Expr::FuncCall(func_call) = node.kind.as_expr_mut().unwrap() {
+                        func_call.result_type = func_sym.lit_type;
+                    } 
                     return Ok(());
                 }
             }
         }
         Err(SAError::UndefinedSymbol { sym_name: func_name, token: node.start_token.clone().unwrap() })
     }
+
 
     fn analyze_var_decl_stmt(&self, node: &mut AST) -> SAResult {
         let mut ctx_borrow = self.ctx.borrow_mut();
@@ -207,6 +213,21 @@ impl<'sa> SemanticAnalyzer<'sa> {
                 }
             },
             Expr::LitVal(_) => Ok(()),
+            Expr::FuncCall(func_call_expr) => {
+                for arg in &mut func_call_expr.args {
+                    self.annotate_expr_with_respective_type(arg)?;
+                }
+                Ok(())
+            },
+            Expr::Binary(bin_expr) => {
+                self.annotate_expr_with_respective_type(&mut bin_expr.left)?;
+                self.annotate_expr_with_respective_type(&mut bin_expr.right)?;
+                if TypeChecker::is_bin_expr_type_compatibile(bin_expr) {
+                    Ok(())
+                } else {
+                    Err(_InternalSAErrType::__ISET_UndefinedSymbol__ { name: "".to_string() })
+                }
+            }
             _ => panic!("Type annotation not supported for {:?} yet!", expr)
         }
     }

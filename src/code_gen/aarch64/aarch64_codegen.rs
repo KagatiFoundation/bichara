@@ -28,7 +28,6 @@ use std::cell::RefMut;
 use std::rc::Rc;
 
 use crate::ast::Expr;
-use crate::ast::FuncCallStmt;
 use crate::ast::Stmt;
 use crate::ast::{
     ASTOperation, 
@@ -306,8 +305,18 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         Ok(AllocedReg::no_reg())
     }
 
-    fn gen_load_id_into_reg(&mut self, id: usize) -> CodeGenResult {
-        let symbol: Symbol = self.find_symbol_glob_or_loc(id)?;
+    fn gen_load_id_into_reg(&mut self, id_name: &str) -> CodeGenResult {
+        let symbol: Symbol = if let Some(__ctx) = &self.ctx {
+            let ctx_borrow = __ctx.borrow();
+            if let Ok(sym) = ctx_borrow.find_sym(id_name) {
+                sym.clone()
+            } else {
+                return Err(CodeGenErr::UndefinedSymbol);
+            }
+        } else {
+            return Err(CodeGenErr::NoContext);
+        };
+
         let val_type: &LitTypeVariant = &symbol.lit_type;
 
         let mut reg: AllocedReg = AllocedReg::no_reg();
@@ -322,7 +331,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         if symbol.class == StorageClass::GLOBAL {
             let value_reg: AllocedReg = self.__allocate_reg(val_type); // self.reg_manager.borrow_mut().allocate();
             let reg_name: String = self.reg_manager.borrow().name(value_reg.idx, &value_reg.lit_type());
-            self.dump_gid_address_load_code_from_name(&reg_name, id);
+            self.dump_gid_address_load_code_from_name(&reg_name, &symbol);
             println!("ldr {}, [{}] // load {}", value_reg_name, reg_name, symbol.name);
             self.reg_manager.borrow_mut().deallocate(value_reg.idx, &value_reg.lit_type());
         } else {
@@ -340,7 +349,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let addr_reg: AllocedReg = if symbol.class == StorageClass::GLOBAL {
             let ar: AllocedReg = self.__allocate_reg(&symbol.lit_type);
             let addr_reg_name: String = self.reg_manager.borrow().name(ar.idx, &ar.lit_type());
-            self.dump_gid_address_load_code_from_name(&addr_reg_name, id);
+            self.dump_gid_address_load_code_from_name(&addr_reg_name, &symbol);
             println!("str {}, [{}] // store into {}", reg_name, addr_reg_name, symbol.name);
             ar
         } else {
@@ -465,7 +474,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let off_addr_reg: AllocedReg = self.__allocate_reg(&LitTypeVariant::I64); // self.reg_manager.borrow_mut().allocate();
         let off_addr_reg_name: String = self.reg_manager.borrow().name(off_addr_reg.idx, &off_addr_reg.lit_type());
 
-        self.dump_gid_address_load_code_from_name(&addr_reg_name, id);
+        self.dump_gid_address_load_code_from_name(&addr_reg_name, &symbol);
 
         println!(
             "ldr {}, [{}, {}, lsl {}]",
@@ -654,15 +663,11 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
         println!("add {}, {}, _L{}@PAGEOFF", reg_name, reg_name, symbol_label_id);
     }
 
-    fn dump_gid_address_load_code_from_name(&mut self, reg_name: &str, id: usize) {
-        if let Some(ctx_rc) = &mut self.ctx {
-            let ctx_borrow = ctx_rc.borrow();
-            let symbol: Symbol = ctx_borrow.sym_table.get_symbol(id).unwrap().clone();
-            if symbol.class == StorageClass::GLOBAL {
-                let sym_name: &str = &symbol.name;
-                println!("adrp {}, {}@PAGE", reg_name, sym_name);
-                println!("add {}, {}, {}@PAGEOFF", reg_name, reg_name, sym_name);
-            }
+    fn dump_gid_address_load_code_from_name(&mut self, reg_name: &str, symbol: &Symbol) {
+        if symbol.class == StorageClass::GLOBAL {
+            let sym_name: &str = &symbol.name;
+            println!("adrp {}, {}@PAGE", reg_name, sym_name);
+            println!("add {}, {}, {}@PAGEOFF", reg_name, reg_name, sym_name);
         }
     }
 

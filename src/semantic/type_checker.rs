@@ -23,7 +23,7 @@ SOFTWARE.
 */
 
 use crate::{
-    ast::Expr, 
+    ast::{ASTOperation, BinExpr, Expr}, 
     types::{
         is_type_coalescing_possible, LitTypeVariant
     }, 
@@ -98,11 +98,33 @@ impl TypeChecker {
         Ok(())
     }
 
-    pub fn is_callable(sym: &Symbol) -> bool {
-        if sym.sym_type != SymbolType::Function {
-            return false;
-            
+    pub fn is_bin_expr_type_compatibile(bin_expr: &BinExpr) -> bool {
+        let left_type: LitTypeVariant = bin_expr.left.result_type();
+        let right_type: LitTypeVariant = bin_expr.right.result_type();
+        match bin_expr.operation {
+            ASTOperation::AST_ADD 
+            | ASTOperation::AST_SUBTRACT
+            | ASTOperation::AST_MULTIPLY => {
+                if left_type.is_int_variant() && right_type.is_int_variant() {
+                    return TypeChecker::is_type_coalesciable(left_type, right_type) 
+                            || TypeChecker::is_type_coalesciable(right_type, left_type);
+                }
+                false
+            },
+            _ => false
         }
-        true
+    }
+
+    pub fn is_type_coalesciable(src: LitTypeVariant, dest: LitTypeVariant) -> bool {
+        match src {
+            LitTypeVariant::U8 => matches!(dest, LitTypeVariant::U8 | LitTypeVariant::I16 | LitTypeVariant::I32 | LitTypeVariant::I64),
+            LitTypeVariant::I16 => matches!(dest, LitTypeVariant::I16 | LitTypeVariant::I32 | LitTypeVariant::I64),
+            LitTypeVariant::I32 => matches!(dest, LitTypeVariant::I32 | LitTypeVariant::I64),
+            _ => false
+        }
+    }
+
+    pub fn is_callable(sym: &Symbol) -> bool {
+        sym.sym_type == SymbolType::Function
     }
 }

@@ -235,7 +235,7 @@ pub trait CodeGen {
         match expr {
             Expr::Binary(bin) => self.gen_bin_expr(bin, curr_ast_kind, reg, parent_ast_kind),
             Expr::LitVal(lit) => self.gen_lit_expr(lit),
-            Expr::Ident(ident) => self.gen_load_id_into_reg(ident.symtbl_pos),
+            Expr::Ident(ident) => self.gen_load_id_into_reg(&ident.sym_name),
             Expr::Widen(widen) => {
                 match widen.from.kind.clone() {
                     crate::ast::ASTKind::StmtAST(_) => todo!(),
@@ -246,7 +246,6 @@ pub trait CodeGen {
                 }
             },
             Expr::FuncCall(func_call) => {
-                println!("{:?}", expr);
                 self.gen_func_call_expr(func_call)
             },
             _ => Ok(AllocedReg::no_reg())
@@ -343,7 +342,7 @@ pub trait CodeGen {
     /// # Returns
     /// 
     /// The register index where the value of the symbol is loaded.
-    fn gen_load_id_into_reg(&mut self, id: usize) -> CodeGenResult;
+    fn gen_load_id_into_reg(&mut self, id_name: &str) -> CodeGenResult;
 
     fn gen_store_reg_value_into_id(&mut self, reg: AllocedReg, id: usize) -> CodeGenResult;
 

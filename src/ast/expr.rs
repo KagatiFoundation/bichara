@@ -1,9 +1,22 @@
-use core::panic;
 use std::collections::HashMap;
 
 use lazy_static::lazy_static;
 
-use crate::{error::BTypeErr, semantic::{sa_errors::{SAError, SATypeError}, type_checker::TypeChecker}, types::{are_compatible_for_operation, LitType, LitTypeVariant}};
+use crate::{
+    error::BTypeErr, 
+    semantic::{
+        sa_errors::{
+            SAError, 
+            SATypeError
+        }, 
+        type_checker::TypeChecker
+    }, 
+    types::{
+        are_compatible_for_operation, 
+        LitType, 
+        LitTypeVariant
+    }
+};
 
 use super::{ASTOperation, AST};
 
