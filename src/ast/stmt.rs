@@ -35,9 +35,6 @@ pub struct ArrVarDeclStmt {
 
 #[derive(Clone, Debug)]
 pub struct AssignStmt {
-    #[deprecated]
-    pub symtbl_pos: usize,
-
     /// Name of the symbol
     pub sym_name: String
 }

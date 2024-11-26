@@ -373,6 +373,7 @@ impl<'parser> Parser<'parser> {
         // Parser has to know the function id if it is going into the 
         // "local" state.
         self.current_function_id = function_id.unwrap();
+
         // And of course the function name as well :)
         self.current_function_name = Some(id_token.lexeme.clone());
 
@@ -395,8 +396,10 @@ impl<'parser> Parser<'parser> {
         Stack offset calculation:
          'x29' and 'x30' has to be preserved. Thus, the extra 15 bytes has to 
          be allocated for them.
+         Also the x0-x3 has to be preserved if they are used during function calls. 
+         So, allocate extra 32 bytes for them as well.
          */
-        let stack_offset: i32 = (self.local_offset + 15) & !15;
+        let stack_offset: i32 = (self.local_offset + 15 + 32) & !15;
 
         let func_info: FunctionInfo = FunctionInfo::new(
             id_token.lexeme.clone(),
@@ -464,20 +467,7 @@ impl<'parser> Parser<'parser> {
         })
     }
 
-    // fn parse_parameter_list(&mut self) -> ParseResult2 {
-        // let curr_tok_kind: TokenKind = self.current_token.kind;
-        // while curr_tok_kind != TokenKind::T_RPAREN {
-            // if let Ok(param_ast) = self.parse_parameter() {
-                
-            // }
-        // }
-    // }
-
-    #[allow(unused_mut)]
-    #[allow(unused_assignments)]
     fn parse_return_stmt(&mut self) -> ParseResult2 {
-        let mut void_ret_type: bool = false;
-        let mut func_symbol: Option<Symbol> = None;
         // check whether parser's parsing a function or not
         if self.current_function_id == INVALID_FUNC_ID {
             let __err: Result<_, Box<BErr>> = Err(Box::new(BErr::unexpected_token(
@@ -489,70 +479,20 @@ impl<'parser> Parser<'parser> {
                 panic!("{:?}", __err);
             }
             return __err;
-        } else {
-            let mut sym: Option<Symbol> = None;
-            if let Some(ctx_rc) = &mut self.ctx {
-                let mut ctx_borrow = ctx_rc.borrow_mut();
-                sym = Some(
-                    ctx_borrow
-                        .sym_table
-                        .get_symbol(self.current_function_id)
-                        .unwrap()
-                        .clone(),
-                );
-            }
-            if sym.is_none() {
-                return Err(Box::new(BErr::undefined_symbol(
-                    self.get_current_file_name(),
-                    self.current_token.clone(),
-                )));
-            }
-            func_symbol = sym;
-            // check if the function's return type is void
-            void_ret_type = func_symbol.as_ref().unwrap().lit_type == LitTypeVariant::Void;
         }
         _ = self.token_match(TokenKind::KW_RETURN)?;
-        if void_ret_type {
-            // if function has void as the return type, panic if any expression follows the keyword 'return'
-            if self.current_token.kind != TokenKind::T_SEMICOLON {
-                let __err: Result<_, Box<BErr>> = Err(Box::new(BErr::unexpected_token(
-                    self.get_current_file_name(), 
-                    vec![TokenKind::T_SEMICOLON],
-                    self.current_token.clone()
-                )));
-                if self.__panic_mode {
-                    panic!("{:?}", __err);
-                }
-                return __err;
-            }
-            // skip semicolon
-            // self.token_match(TokenKind::T_SEMICOLON)?;
+        if self.current_token.kind == TokenKind::T_SEMICOLON {
             return Ok(AST::create_leaf(
                 ASTKind::StmtAST(Stmt::Return(ReturnStmt {
                     func_id: self.current_function_id,
                 })),
                 ASTOperation::AST_RETURN,
-                LitTypeVariant::Void,
+                LitTypeVariant::None,
                 None,
                 None
             ));
         }
         let return_expr: AST = self.parse_equality()?;
-        let return_expr_type: LitTypeVariant = return_expr.result_type;
-        let func_return_type: LitTypeVariant = func_symbol.as_ref().unwrap().lit_type;
-        if (return_expr_type != func_return_type) 
-            && (!is_type_coalescing_possible(return_expr_type, func_return_type)) {
-            let expected_type: LitTypeVariant = func_symbol.as_ref().unwrap().lit_type;
-            return Err(Box::new(BErr::new(
-                BErrType::TypeError(BTypeErr::ReturnTypeMismatch {
-                    expected: expected_type.to_string(),
-                    found: return_expr_type.to_string(),
-                }),
-                self.get_current_file_name(),
-                self.current_token.clone(),
-            )));
-        }
-        // _ = self.token_match(TokenKind::T_SEMICOLON)?; // expect semicolon to end a return statement
         Ok(AST::new(
             ASTKind::StmtAST(Stmt::Return(ReturnStmt {
                 func_id: self.current_function_id,
@@ -560,7 +500,7 @@ impl<'parser> Parser<'parser> {
             ASTOperation::AST_RETURN,
             Some(return_expr),
             None,
-            return_expr_type,
+            LitTypeVariant::None,
         ))
     }
 
@@ -984,7 +924,6 @@ impl<'parser> Parser<'parser> {
 
         Ok(AST::new(
             ASTKind::StmtAST(Stmt::Assignment(AssignStmt {
-                symtbl_pos: 0,
                 sym_name: id_token.lexeme.clone()
             })),
             ASTOperation::AST_ASSIGN,
@@ -1049,19 +988,6 @@ impl<'parser> Parser<'parser> {
             None,
             None
         ))
-    }
-
-    fn get_current_file_name(&self) -> String {
-        if let Some(ctx_rc) = &self.ctx {
-            return ctx_rc
-                .borrow_mut()
-                .current_file
-                .unwrap()
-                .name
-                .clone();
-        } else {
-            panic!("no file is selected");
-        };
     }
 
     fn parse_primary(&mut self) -> ParseResult2 {
@@ -1139,7 +1065,6 @@ impl<'parser> Parser<'parser> {
                 else {
                     Ok(AST::create_leaf(
                         ASTKind::ExprAST(Expr::Ident(IdentExpr {
-                            symtbl_pos: 0,
                             result_type: LitTypeVariant::None,
                             sym_name: symbol_name
                         })),
@@ -1188,7 +1113,7 @@ impl<'parser> Parser<'parser> {
         )
     }
 
-    fn parse_array_index_expr(
+    fn _parse_array_index_expr(
         &mut self,
         indexed_symbol: &Symbol,
         sym_index: usize,
@@ -1278,12 +1203,25 @@ impl<'parser> Parser<'parser> {
         ))
     }
 
+    fn get_current_file_name(&self) -> String {
+        if let Some(ctx_rc) = &self.ctx {
+            return ctx_rc
+                .borrow_mut()
+                .current_file
+                .unwrap()
+                .name
+                .clone();
+        } else {
+            panic!("no file is selected");
+        };
+    }
+
     fn add_symbol_global(&mut self, sym: Symbol) -> Option<usize> {
         let insert_pos: Option<usize> = {
             if let Some(ctx_rc) = &mut self.ctx {
                 let mut ctx_borrow = ctx_rc.borrow_mut();
                 self.next_global_sym_pos += 1;
-                ctx_borrow.sym_table.insert(self.next_global_sym_pos, sym)
+                ctx_borrow.sym_table.add_symbol(sym)
             } else {
                 panic!("Can't add a new symbol globally");
             }
@@ -1292,7 +1230,7 @@ impl<'parser> Parser<'parser> {
     }
 
     fn add_symbol_local(&mut self, sym: Symbol) -> Option<usize> {
-        let insert_pos: Option<usize> = self.temp_local_syms.insert(self.next_local_sym_pos, sym.clone());
+        let insert_pos: Option<usize> = self.temp_local_syms.add_symbol(sym.clone());
         self.next_local_sym_pos += 1;
         insert_pos
     }
@@ -1357,7 +1295,7 @@ impl<'parser> Parser<'parser> {
         }
     }
 
-    fn skip_past(&mut self, kind: TokenKind) {
+    fn _skip_past(&mut self, kind: TokenKind) {
         loop {
             if self.current_token.kind == kind || self.current_token.kind == TokenKind::T_EOF {
                 break;

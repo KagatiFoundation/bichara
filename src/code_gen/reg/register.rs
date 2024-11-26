@@ -51,6 +51,14 @@ impl AllocedReg {
     pub fn is_valid(&self) -> bool {
         self.idx != INVALID_REG_IDX
     }
+
+    pub fn name(&self) -> String {
+        match self.size {
+            32 => format!("w{}", self.idx),
+            64 => format!("x{}", self.idx),
+            _ => String::from("")
+        }
+    }
 }
 
 pub type RegAllocResult = Result<AllocedReg, RegAllocError>;
@@ -61,8 +69,8 @@ pub trait RegManager {
     fn deallocate_all(&mut self);
 
     fn allocate_param_reg(&mut self, var_type: &LitTypeVariant) -> RegAllocResult;
-    fn deallocate_param_reg(&mut self, idx: RegIdx, var_type: &LitTypeVariant);
-    fn deallocate_all_param_regs(&mut self);
+    fn deallocate_param_reg(&mut self, idx: RegIdx);
+    // fn deallocate_all_param_regs(&mut self);
 
     fn name(&self, idx: RegIdx, var_type: &LitTypeVariant) -> String;
 }

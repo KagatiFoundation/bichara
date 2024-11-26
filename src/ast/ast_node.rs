@@ -147,14 +147,14 @@ impl AST {
 
     pub fn new(
         kind: ASTKind, 
-        op: ASTOperation, 
+        operation: ASTOperation, 
         left: Option<AST>, 
         right: Option<AST>, 
         result_type: LitTypeVariant
     ) -> Self {
         Self {
             kind,
-            operation: op,
+            operation,
             left: left.map(Box::new),
             mid: None,
             right: right.map(Box::new),

@@ -103,6 +103,13 @@ impl<'ctx> CompilerCtx<'ctx> {
         self.scope = CompilerScope::GLOBAL;
     }
 
+    /// Searches for a symbol either in the local scope of the current function 
+    /// or in the global context.
+    /// 
+    /// # Returns
+    /// * `Ok(Symbol)` - The symbol found at the specified index.
+    /// * `Err(CodeGenErr::UndefinedSymbol)` - If neither local nor global context is 
+    /// available for the lookup.
     pub fn find_sym(&self, name: &str) -> Result<&Symbol, CtxError> {
         if let Some(func_info) = self.get_curr_func() {
             if let Some(sym_pos) = func_info.local_syms.find_symbol(name) {

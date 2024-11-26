@@ -26,6 +26,17 @@ use std::fmt;
 
 use crate::{ast::ASTOperation, tokenizer::Token, types::LitTypeVariant};
 
+pub enum SAReturnTypeError {
+    /// 
+    ExpectedNoReturnValue {
+        found: LitTypeVariant
+    },
+    TypeMismatch {
+        expected: LitTypeVariant,
+        found: LitTypeVariant
+    }
+}
+
 pub enum SATypeError {
     AssignmentTypeMismatch {
         expected: LitTypeVariant, 
@@ -40,6 +51,7 @@ pub enum SATypeError {
         expected: LitTypeVariant, 
         found: LitTypeVariant
     },
+    ReturnType(SAReturnTypeError),
     NonCallable {
         sym_name: String
     }
@@ -70,6 +82,16 @@ impl fmt::Display for SATypeError {
             Self::TypeMismatch { expected, found } => {
                 write!(f, "Type mismatch: `{}` is not compatible with `{}`.", expected, found)
             },
+            Self::ReturnType(ret_type_err) => {
+                match ret_type_err {
+                    SAReturnTypeError::ExpectedNoReturnValue { found } => {
+                        write!(f, "Type mismatch: expected no return value but found `{}`.", found)
+                    },
+                    SAReturnTypeError::TypeMismatch { expected, found } => {
+                        write!(f, "Type mismatch: expected return type `{}` but found `{}`.", expected, found)
+                    }
+                }
+            },
             Self::NonCallable{ sym_name} => {
                 write!(f, "'{}' is not a function.", sym_name)
             }
@@ -94,7 +116,7 @@ impl fmt::Display for SAError {
 
 impl SAError {
     pub fn dump(&self) {
-        println!("{}", self);
+        eprintln!("{}", self);
         std::process::exit(1);
     }
 }

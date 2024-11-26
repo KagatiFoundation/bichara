@@ -26,15 +26,12 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     ast::{
-        ASTKind, ASTOperation, Expr, Stmt, AST
-    }, 
-    context::CompilerCtx, 
-    types::LitTypeVariant, 
-    Symbol
+        ASTKind, ASTOperation, Expr, FuncCallExpr, Stmt, AST
+    }, context::CompilerCtx, types::LitTypeVariant, FunctionInfo, Symbol
 };
 
 use super::{
-    sa_errors::{SAError, SATypeError}, 
+    sa_errors::{SAError, SAReturnTypeError, SATypeError}, 
     sa_types::SAResult, 
     type_checker::TypeChecker
 };
@@ -43,6 +40,9 @@ use super::{
 enum _InternalSAErrType {
     __ISET_UndefinedSymbol__ {
         name: String // name of the symbol
+    },
+    __ISET__NonCallable {
+        name: String
     }
 }
 
@@ -75,6 +75,7 @@ impl<'sa> SemanticAnalyzer<'sa> {
             ASTOperation::AST_VAR_DECL => self.analyze_var_decl_stmt(node),
             ASTOperation::AST_FUNCTION => self.analyze_func_decl_stmt(node),
             ASTOperation::AST_FUNC_CALL => self.analyze_func_call(node),
+            ASTOperation::AST_RETURN => self.analyze_return_stmt(node),
             ASTOperation::AST_GLUE => {
                 if let Some(left) = &mut node.left {
                     self.analyze_node(left, parent_ast_op)?;
@@ -85,6 +86,59 @@ impl<'sa> SemanticAnalyzer<'sa> {
                 Ok(())
             }
             _ => panic!("'{:?}' is not supported ASTOperation for 'analyze_node' yet!", node.operation)
+        }
+    }
+
+    fn analyze_return_stmt(&self, node: &mut AST) -> SAResult {
+        if !matches!(node.kind, ASTKind::StmtAST(Stmt::Return(_))) {
+            panic!("Not a return statement");
+        };
+        
+        if let Some(ref mut left_node) = node.left {
+            if let Err(annot_err) = self.annotate_expr_with_respective_type(left_node.kind.as_expr_mut().unwrap()) {
+                return Err(self.construct_sa_err(left_node, annot_err));
+            }
+        }
+
+        let found_ret_type: LitTypeVariant = if node.left.is_none() {
+            LitTypeVariant::None
+        } else {
+            node.left.as_ref().unwrap().result_type
+        };
+
+        let ctx_borrow = self.ctx.borrow();
+
+        // The parser makes sure that the return statement isn't written outside 
+        // of a function body. Thus, no need to worry about function's non-existence.
+        let func_info: &FunctionInfo = ctx_borrow.get_curr_func().unwrap();
+        if func_info.return_type == LitTypeVariant::Void && node.left.is_some() {
+            Err(
+                SAError::TypeError(
+                    SATypeError::ReturnType(
+                        SAReturnTypeError::ExpectedNoReturnValue { found: found_ret_type }
+                    )
+                )
+            )
+        }
+        else if 
+            (func_info.return_type != LitTypeVariant::Void && node.left.is_none()) || 
+            ((func_info.return_type != found_ret_type) &&
+                !TypeChecker::is_type_coalesciable(found_ret_type, func_info.return_type)
+            )
+        {
+            Err(
+                SAError::TypeError(
+                    SATypeError::ReturnType(
+                        SAReturnTypeError::TypeMismatch { 
+                            expected: func_info.return_type, 
+                            found: found_ret_type
+                        }
+                    )
+                )
+            )
+        }
+        else {
+            Ok(())
         }
     }
 
@@ -143,9 +197,6 @@ impl<'sa> SemanticAnalyzer<'sa> {
                     if let Err(annotation_err) = self.annotate_expr_with_respective_type(node.kind.as_expr_mut().unwrap()) {
                         return Err(self.construct_sa_err(node, annotation_err));
                     }
-                    if let Expr::FuncCall(func_call) = node.kind.as_expr_mut().unwrap() {
-                        func_call.result_type = func_sym.lit_type;
-                    } 
                     return Ok(());
                 }
             }
@@ -153,27 +204,24 @@ impl<'sa> SemanticAnalyzer<'sa> {
         Err(SAError::UndefinedSymbol { sym_name: func_name, token: node.start_token.clone().unwrap() })
     }
 
-
     fn analyze_var_decl_stmt(&self, node: &mut AST) -> SAResult {
-        let mut ctx_borrow = self.ctx.borrow_mut();
         if let ASTKind::StmtAST(stmt) = &node.kind {
             return match stmt {
                 Stmt::VarDecl(var_decl_stmt) => {
-                    let symbol: Result<&mut Symbol, crate::context::CtxError> = ctx_borrow.find_sym_mut(&var_decl_stmt.sym_name);
-                    if symbol.is_err() {
-                        panic!("not good. how did I end up here? searching for a non-existing symbol while declaring a variable?");
-                    }
                     let assign_expr: &mut Box<AST> = node.left.as_mut().unwrap();
                     if let ASTKind::ExprAST(expr) = &mut assign_expr.kind {
                         if let Err(expr_err) = self.annotate_expr_with_respective_type(expr) {
                             return Err(self.construct_sa_err(assign_expr, expr_err));
                         }
-                        TypeChecker::type_check_var_decl_stmt(symbol.ok().unwrap(), expr)
+                        let mut ctx_borrow = self.ctx.borrow_mut();
+                        let symbol: &mut Symbol = ctx_borrow.find_sym_mut(&var_decl_stmt.sym_name).ok().unwrap();
+                        TypeChecker::type_check_var_decl_stmt(symbol, expr)
                     } else {
                         Ok(())
                     }
                 },
                 Stmt::ArrVarDecl(arr_var_decl_stmt) => {
+                    let mut ctx_borrow = self.ctx.borrow_mut();
                     let symbol_res: Result<&mut Symbol, crate::context::CtxError> = ctx_borrow.find_sym_mut(&arr_var_decl_stmt.sym_name);
                     if symbol_res.is_err() {
                         panic!("not good. how did I end up here? searching for a non-existing symbol while declaring a variable?");
@@ -217,6 +265,7 @@ impl<'sa> SemanticAnalyzer<'sa> {
                 for arg in &mut func_call_expr.args {
                     self.annotate_expr_with_respective_type(arg)?;
                 }
+                self.annotate_func_call_expr(func_call_expr)?;
                 Ok(())
             },
             Expr::Binary(bin_expr) => {
@@ -232,6 +281,23 @@ impl<'sa> SemanticAnalyzer<'sa> {
         }
     }
 
+    fn annotate_func_call_expr(&self, func_call: &mut FuncCallExpr) -> Result<(), _InternalSAErrType> {
+        let ctx_borrow = self.ctx.borrow();
+        if let Some(func_sym_pos) = ctx_borrow.sym_table.find_symbol(&func_call.symbol_name) {
+            if let Some(func_sym) = ctx_borrow.sym_table.get_symbol(func_sym_pos) {
+                if !TypeChecker::is_callable(func_sym) {
+                    return Err(
+                        _InternalSAErrType::__ISET__NonCallable { name: func_call.symbol_name.clone() }
+                    );
+                } else {
+                    func_call.result_type = func_sym.lit_type;
+                    return Ok(());
+                }
+            }
+        } 
+        Ok(())
+    }
+
     /// Retrieves the literal type of a symbol by its name, if available.
     /// This function does not return errors, but may return `None` if the 
     /// symbol cannot be found.
@@ -244,6 +310,9 @@ impl<'sa> SemanticAnalyzer<'sa> {
         match err {
             _InternalSAErrType::__ISET_UndefinedSymbol__ { name } => {
                 SAError::UndefinedSymbol { sym_name: name, token: ast.start_token.clone().unwrap() }
+            },
+            _InternalSAErrType::__ISET__NonCallable { name } => {
+                SAError::TypeError(SATypeError::NonCallable { sym_name: name })
             }
         }
     }

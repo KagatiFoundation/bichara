@@ -244,10 +244,10 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             }
         }
 
-        // deallocate all of the registers after manging function parameters
-        if func_info.params.iter().len() > 0 {
-            self.reg_manager.borrow_mut().deallocate_all_param_regs();
-        }
+        // deallocate all of the registers after managing function parameters
+        // if func_info.params.iter().len() > 0 {
+            // self.reg_manager.borrow_mut().deallocate_all_param_regs();
+        // }
 
         if let Some(ref body) = ast.left {
            self.gen_code_from_ast(body, 0xFFFFFFFF, ast.operation)?;
@@ -263,7 +263,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         // ldp -> Load Pair of Registers
         // Restore the saved frame pointer (x29) and link register (x30) from the stack.
         println!("ldp x29, x30, [sp], 0x10");
-        println!("add sp, sp, #{}\nret", func_info.stack_size + 16);
+        println!("add sp, sp, #{}\nret\n", func_info.stack_size + 16);
         Ok(AllocedReg::no_reg())
     }
 
@@ -341,10 +341,19 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     }
 
     // Refer to this page for explanation on '@PAGE' and '@PAGEOFF': https://stackoverflow.com/questions/65351533/apple-clang12-llvm-unknown-aarch64-fixup-kind
-    fn gen_store_reg_value_into_id(&mut self, reg: AllocedReg, id: usize) -> CodeGenResult {
+    fn gen_store_reg_value_into_id(&mut self, reg: AllocedReg, id_name: &str) -> CodeGenResult {
         let reg_name: String = self.reg_manager.borrow().name(reg.idx, &reg.lit_type());
 
-        let symbol: Symbol = self.find_symbol_glob_or_loc(id)?;
+        let symbol: Symbol = if let Some(__ctx) = &self.ctx {
+            let ctx_borrow = __ctx.borrow();
+            if let Ok(sym) = ctx_borrow.find_sym(id_name) {
+                sym.clone()
+            } else {
+                return Err(CodeGenErr::UndefinedSymbol);
+            }
+        } else {
+            return Err(CodeGenErr::NoContext);
+        };
 
         let addr_reg: AllocedReg = if symbol.class == StorageClass::GLOBAL {
             let ar: AllocedReg = self.__allocate_reg(&symbol.lit_type);
@@ -366,7 +375,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let inside_func: bool = self.function_id != reg.idx;
         if inside_func {
             reg = self.__allocate_reg(&value.variant()); // self.reg_manager.borrow_mut().allocate_param_reg();
-            self.reg_manager.borrow_mut().deallocate_param_reg(reg.idx, &reg.lit_type());
+            self.reg_manager.borrow_mut().deallocate_param_reg(reg.idx);
         } else {
             reg = self.__allocate_param_reg(&value.variant()); // self.reg_manager.borrow_mut().allocate();
             self.reg_manager.borrow_mut().deallocate(reg.idx, &reg.lit_type());
@@ -564,7 +573,25 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             return Err(CodeGenErr::UndefinedSymbol);
         }
 
+        let mut reg_mgr = self.reg_manager.borrow_mut();
+
         let func_info: FunctionInfo = func_info_res.unwrap();
+        let mut spilled_regs: Vec<usize> = vec![];
+
+        for idx in 0..=3 {
+            if !reg_mgr.is_free(idx) {
+                spilled_regs.push(idx);
+                reg_mgr.deallocate_param_reg(idx);
+            }
+        }
+
+        let mut spill_off: usize = 4;
+        for spilled_reg in &spilled_regs {
+            println!("str {}, [sp, #{}]", reg_mgr.name(*spilled_reg, &LitTypeVariant::I64), spill_off);
+            spill_off += 4;
+        }
+
+        drop(reg_mgr);
 
         let args: &Vec<crate::ast::Expr> = &func_call_expr.args;
         for expr in args {
@@ -572,16 +599,31 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         }
 
         println!("bl _{}", func_info.name);
+
+        let mut return_reg: AllocedReg = AllocedReg { size: REG_64BIT, idx: 0 };
+        if spilled_regs.contains(&0) {
+            return_reg = self.__allocate_reg(&LitTypeVariant::I64);
+            
+            println!("mov {}, x0", return_reg.name());
+        }
+
+        let mut reg_mgr = self.reg_manager.borrow_mut();
+
+        // re-assign to 4
+        spill_off = 4;
+        for spilled_reg in &spilled_regs {
+            println!("ldr {}, [sp, #{}]", reg_mgr.name(*spilled_reg, &LitTypeVariant::I64), spill_off);
+            reg_mgr.mark_alloced(*spilled_reg);
+            spill_off += 4;
+        }
+
         self.function_id = 0xFFFFFFFF;
-        Ok(AllocedReg { 
-            size: REG_64BIT, 
-            idx: 0 
-        }) // always return the 'x0' register's index after function calls
+        Ok(return_reg) // always return the 'x0' register's index after function calls
     }
 
     fn gen_var_assignment_stmt(&mut self, assign_stmt: &crate::ast::AssignStmt, expr_ast: &Expr) -> CodeGenResult {
         let expr_reg: AllocedReg = self.gen_expr(expr_ast, ASTOperation::AST_ASSIGN, 0xFFFFFFFF, ASTOperation::AST_NONE)?;
-        _ = self.gen_store_reg_value_into_id(expr_reg, assign_stmt.symtbl_pos)?;
+        _ = self.gen_store_reg_value_into_id(expr_reg, &assign_stmt.sym_name)?;
         Ok(AllocedReg::no_reg())
     }
 }
@@ -610,40 +652,6 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
         let lbl: usize = self.label_id;
         self.label_id += 1;
         lbl
-    }
-
-    /// Searches for a symbol either in the local scope of the current function 
-    /// or in the global context.
-    /// 
-    /// - If `current_function` is defined, attempts to retrieve the symbol from 
-    /// the local symbols of the current function.
-    /// - If `current_function` is `None`, checks for a global context (`ctx`) and 
-    ///     attempts to retrieve the symbol from the global symbol table.
-    /// - Returns an error if neither a local function context nor a global context 
-    ///     is available.
-    ///
-    /// # Arguments
-    /// * `index` - The index of the symbol in the symbol table.
-    ///
-    /// # Returns
-    /// * `Ok(Symbol)` - The symbol found at the specified index.
-    /// * `Err(CodeGenErr::NoContext)` - If neither local nor global context is available 
-    /// for the lookup.
-    fn find_symbol_glob_or_loc(&self, index: usize) -> Result<Symbol, CodeGenErr> {
-        // local context is checked first
-        if self.current_function.is_some() {
-            let func_info: FunctionInfo = self.current_function.as_ref().cloned().unwrap();
-            Ok(func_info.local_syms.get_or_fail(index).clone())
-        } 
-        // then comes the global
-        else if let Some(ctx_rc) = &self.ctx {
-            let ctx_borrow = ctx_rc.borrow();
-            Ok(ctx_borrow.sym_table.get_symbol(index).unwrap().clone())
-        } 
-        // symbol not found
-        else {
-            return Err(CodeGenErr::UndefinedSymbol);
-        }
     }
 
     // ADRP loads the address of the page of given variables. In other words, 

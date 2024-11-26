@@ -81,10 +81,11 @@ pub struct FunctionInfo {
     /// Contains information about the variables defined locally in 'this' function
     pub local_syms: Symtable<Symbol>,
     pub storage_class: StorageClass,
-    pub params: Symtable<FuncParam>
+    pub params: Symtable<FuncParam>,
 }
 
 impl FunctionInfo {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: String, 
         func_id: usize, 
@@ -92,7 +93,7 @@ impl FunctionInfo {
         return_type: LitTypeVariant,
         storage_class: StorageClass,
         params: Symtable<FuncParam>,
-        locals: Symtable<Symbol>
+        locals: Symtable<Symbol>,
     ) -> Self {
         Self {
             name, 
@@ -101,7 +102,7 @@ impl FunctionInfo {
             return_type, 
             local_syms: locals,
             storage_class,
-            params
+            params,
         }
     }
 

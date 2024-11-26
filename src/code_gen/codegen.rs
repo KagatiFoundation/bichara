@@ -144,7 +144,7 @@ pub trait CodeGen {
             Ok(AllocedReg::no_reg())
         }
         else if ast_node.operation == ASTOperation::AST_RETURN {
-            let early_return = parent_ast_kind != ASTOperation::AST_FUNCTION;
+            let early_return: bool = parent_ast_kind != ASTOperation::AST_FUNCTION;
             let possible_ret_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
             return match possible_ret_stmt {
                 Stmt::Return(_) => {
@@ -276,8 +276,8 @@ pub trait CodeGen {
     }
 
     fn gen_bin_expr(&mut self, bin_expr: &BinExpr, curr_ast_kind: ASTOperation, reg: usize, parent_ast_kind: ASTOperation) -> CodeGenResult {
-        let leftreg = self.gen_expr(&bin_expr.left, curr_ast_kind, reg, parent_ast_kind)?;
-        let rightreg = self.gen_expr(&bin_expr.right, curr_ast_kind, reg, parent_ast_kind)?;
+        let leftreg: AllocedReg = self.gen_expr(&bin_expr.left, curr_ast_kind, reg, parent_ast_kind)?;
+        let rightreg: AllocedReg = self.gen_expr(&bin_expr.right, curr_ast_kind, reg, parent_ast_kind)?;
 
         match bin_expr.operation {
             ASTOperation::AST_ADD => self.gen_add(leftreg, rightreg),
@@ -344,7 +344,7 @@ pub trait CodeGen {
     /// The register index where the value of the symbol is loaded.
     fn gen_load_id_into_reg(&mut self, id_name: &str) -> CodeGenResult;
 
-    fn gen_store_reg_value_into_id(&mut self, reg: AllocedReg, id: usize) -> CodeGenResult;
+    fn gen_store_reg_value_into_id(&mut self, reg: AllocedReg, id_name: &str) -> CodeGenResult;
 
     fn gen_add(&mut self, r1: AllocedReg, r2: AllocedReg) -> CodeGenResult;
 

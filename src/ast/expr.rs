@@ -36,9 +36,6 @@ pub struct WidenExpr {
 
 #[derive(Clone, Debug)]
 pub struct IdentExpr {
-    #[deprecated]
-    pub symtbl_pos: usize, // position in the symbol table
-
     /// Name of the symbol
     pub sym_name: String,
 

@@ -17,6 +17,8 @@ pub const REG_32BIT: usize = 32;
 const REG_64BIT_COUNT: usize = 28;
 const REG_32BIT_COUNT: usize = 28;
 
+const CALLER_SAVED_REG_COUNT: usize = 4;
+
 impl AllocedReg {
     pub fn lit_type(&self) -> LitTypeVariant {
         match self.size {
@@ -37,15 +39,6 @@ impl AllocedReg {
 pub struct Aarch64RegManager {
     /// 64-bit registers
     regs64: HashMap<String, u8>,
-
-    /// 64-bit parameter registers
-    param_regs64: HashMap<String, u8>,
-
-    /// 32-bit registers
-    regs32: HashMap<String, u8>,
-
-    /// 32-bit parameter registers
-    param_regs32: HashMap<String, u8>
 }
 
 impl RegManager for Aarch64RegManager {
@@ -60,13 +53,7 @@ impl RegManager for Aarch64RegManager {
     }
     
     fn deallocate(&mut self, idx: RegIdx, val_type: &LitTypeVariant) {
-        match val_type {
-            LitTypeVariant::U8
-            | LitTypeVariant::I16
-            | LitTypeVariant::I32 => self.deallocate_32bit_reg(idx),
-            LitTypeVariant::I64 => self.deallocate_64bit_reg(idx),
-            _ => ()
-        }
+        self.deallocate_64bit_reg(idx);
     }
     
     fn deallocate_all(&mut self) {
@@ -83,18 +70,8 @@ impl RegManager for Aarch64RegManager {
         }
     }
     
-    fn deallocate_param_reg(&mut self, idx: RegIdx, val_type: &LitTypeVariant) {
-        match val_type {
-            LitTypeVariant::U8
-            | LitTypeVariant::I16
-            | LitTypeVariant::I32 => self.deallocate_32bit_param_reg(idx),
-            LitTypeVariant::I64 => self.deallocate_64bit_param_reg(idx),
-            _ => ()
-        }
-    }
-    
-    fn deallocate_all_param_regs(&mut self) {
-        self.deallocate_all_param_regs_();
+    fn deallocate_param_reg(&mut self, idx: RegIdx) {
+        self.deallocate_64bit_param_reg(idx)
     }
     
     fn name(&self, idx: RegIdx, val_type: &LitTypeVariant) -> String {
@@ -121,39 +98,41 @@ impl RegManager for Aarch64RegManager {
 impl Aarch64RegManager {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let mut regs32: HashMap<String, u8> = HashMap::new();
-        let mut param_regs32: HashMap<String, u8> = HashMap::new();
         let mut regs64: HashMap<String, u8> = HashMap::new();
-        let mut param_regs64: HashMap<String, u8> = HashMap::new();
 
         for i in 0..=REG_64BIT_COUNT {
-            regs64.insert(format!("x{}", i), 0);
-            if i < 8 {
-                param_regs64.insert(format!("x{}", i), 0);
-            }
-        }
-
-        for i in 0..=REG_32BIT_COUNT {
-            regs32.insert(format!("w{}", i), 0);
-            if i < 8 {
-                param_regs32.insert(format!("w{}", i), 0);
-            }
+            regs64.insert(format!("x{}", i), 1);
         }
 
         Self {
-            regs32,
-            regs64,
-            param_regs32,
-            param_regs64
+            regs64
         }
     }
 
+    pub fn alloc_reg(&mut self, idx: RegIdx) -> RegAllocResult {
+        for i in 0..=REG_64BIT_COUNT {
+            if i == idx {
+                let reg_name: String = format!("x{}", i);
+                if let Some(free_reg) = self.regs64.get(reg_name.clone().as_str()) {
+                    if *free_reg == 1 {
+                        self.regs64.insert(format!("x{i}"), 0);
+                        return Ok(AllocedReg {
+                            idx: i,
+                            size: REG_32BIT
+                        });
+                    }
+                }
+            }
+        }
+        Err(RegAllocError) 
+    }
+
     fn alllocate_32bit_reg(&mut self) -> RegAllocResult {
-        for i in 0..=REG_32BIT_COUNT {
-            let reg_name: String = format!("w{}", i);
-            if let Some(free_reg) = self.regs32.get(reg_name.clone().as_str()) {
+        for i in 0..=REG_64BIT_COUNT {
+            let reg_name: String = format!("x{}", i);
+            if let Some(free_reg) = self.regs64.get(reg_name.clone().as_str()) {
                 if *free_reg == 1 {
-                    self.regs32.insert(reg_name, 0);
+                    self.regs64.insert(format!("x{i}"), 0);
                     return Ok(AllocedReg {
                         idx: i,
                         size: REG_32BIT
@@ -169,7 +148,7 @@ impl Aarch64RegManager {
             let reg_name: String = format!("x{}", i);
             if let Some(free_reg) = self.regs64.get(reg_name.clone().as_str()) {
                 if *free_reg == 1 {
-                    self.regs64.insert(reg_name, 0);
+                    self.regs64.insert(format!("x{i}"), 0);
                     return Ok(AllocedReg {
                         idx: i,
                         size: REG_64BIT
@@ -180,15 +159,36 @@ impl Aarch64RegManager {
         Err(RegAllocError)
     }
 
+    pub fn alloc_param_reg(&mut self, idx: RegIdx) -> RegAllocResult {
+        if idx > 3 {
+            panic!("index is greater than 3!");
+        }
+        for i in 0..=CALLER_SAVED_REG_COUNT {
+            if i == idx {
+                let reg_name: String = format!("x{}", i);
+                if let Some(free_reg) = self.regs64.get(reg_name.clone().as_str()) {
+                    if *free_reg == 1 {
+                        self.regs64.insert(format!("x{i}"), 0);
+                        return Ok(AllocedReg {
+                            idx: i,
+                            size: REG_32BIT
+                        });
+                    }
+                }
+            }
+        }
+        Err(RegAllocError) 
+    }
+
     fn alllocate_32bit_param_reg(&mut self) -> RegAllocResult {
-        for i in 0..=REG_32BIT_COUNT {
-            let reg_name: String = format!("w{}", i);
-            if let Some(free_reg) = self.param_regs32.get(reg_name.clone().as_str()) {
+        for i in 0..=CALLER_SAVED_REG_COUNT {
+            let reg_name: String = format!("x{}", i);
+            if let Some(free_reg) = self.regs64.get(reg_name.clone().as_str()) {
                 if *free_reg == 1 {
-                    self.regs32.insert(reg_name, 0);
+                    self.regs64.insert(format!("x{i}"), 0);
                     return Ok(AllocedReg {
                         idx: i,
-                        size: REG_32BIT
+                        size: REG_64BIT
                     });
                 }
             }
@@ -197,31 +197,20 @@ impl Aarch64RegManager {
     } 
 
     fn alllocate_64bit_param_reg(&mut self) -> RegAllocResult {
-        for i in 0..=REG_64BIT_COUNT {
+        for i in 0..=CALLER_SAVED_REG_COUNT {
             let reg_name: String = format!("x{}", i);
-            if let Some(free_reg) = self.param_regs64.get(reg_name.clone().as_str()) {
+            if let Some(free_reg) = self.regs64.get(reg_name.clone().as_str()) {
                 if *free_reg == 1 {
-                    self.regs64.insert(reg_name, 0);
+                    self.regs64.insert(format!("x{i}"), 0);
                     return Ok(AllocedReg {
                         idx: i,
-                        size: REG_32BIT
+                        size: REG_64BIT
                     });
                 }
             }
         }
         Err(RegAllocError)
     } 
-
-    fn deallocate_32bit_reg(&mut self, index: RegIdx) {
-        let mut dealloc_name: String = String::from("");
-        for (dindex, (reg_name, _)) in self.regs32.iter().enumerate() {
-            if dindex == index {
-                dealloc_name.push_str(reg_name);
-                break;
-            }
-        }
-        self.regs32.insert(dealloc_name, 1);
-    }
 
     fn deallocate_64bit_reg(&mut self, index: RegIdx) {
         let mut dealloc_name: String = String::from("");
@@ -236,28 +225,28 @@ impl Aarch64RegManager {
 
     pub fn deallocate_32bit_param_reg(&mut self, index: usize) {
         let mut dealloc_name: String = String::from("");
-        for (dindex, (reg_name, _)) in self.param_regs32.iter().enumerate() {
+        for (dindex, (reg_name, _)) in self.regs64.iter().enumerate() {
             if dindex == index {
                 dealloc_name.push_str(reg_name);
                 break;
             }
         }
-        self.param_regs32.insert(dealloc_name, 1);
+        self.regs64.insert(dealloc_name, 1);
     } 
 
     pub fn deallocate_64bit_param_reg(&mut self, index: usize) {
         let mut dealloc_name: String = String::from("");
-        for (dindex, (reg_name, _)) in self.param_regs64.iter().enumerate() {
+        for (dindex, (reg_name, _)) in self.regs64.iter().enumerate() {
             if dindex == index {
                 dealloc_name.push_str(reg_name);
                 break;
             }
         }
-        self.param_regs64.insert(dealloc_name, 1);
+        self.regs64.insert(dealloc_name, 1);
     } 
 
     fn deallocate_all_regs(&mut self) {
-        for (_, reg_status) in self.regs32.iter_mut() {
+        for (_, reg_status) in self.regs64.iter_mut() {
             *reg_status = 1;
         }
         for (_, reg_status) in self.regs64.iter_mut() {
@@ -265,12 +254,11 @@ impl Aarch64RegManager {
         }
     }
 
-    fn deallocate_all_param_regs_(&mut self) {
-        for (_, reg_status) in self.param_regs32.iter_mut() {
-            *reg_status = 1;
-        }
-        for (_, reg_status) in self.param_regs64.iter_mut() {
-            *reg_status = 1;
-        } 
+    pub fn mark_alloced(&mut self, idx: usize) {
+        self.regs64.insert(format!("x{}", idx), 0);
+    }
+    
+    pub fn is_free(&self, idx: RegIdx) -> bool {
+        matches!(self.regs64.get(&format!("x{}", idx)), Some(1))
     }
 }

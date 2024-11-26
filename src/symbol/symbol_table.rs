@@ -38,7 +38,7 @@ impl<T: SymbolTrait + Clone> Symtable<T> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
-            syms: vec![T::uninit(); NSYMBOLS],
+            syms: vec![],
             counter: 0,
         }
     }
@@ -117,6 +117,10 @@ impl<T: SymbolTrait + Clone> Symtable<T> {
 
     pub fn iter(&self) -> Iter<'_, T> {
         self.syms.iter()
+    }
+
+    pub fn count(&self) -> usize {
+        self.syms.len()
     }
 }
 
