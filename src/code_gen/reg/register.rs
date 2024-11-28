@@ -61,18 +61,43 @@ impl AllocedReg {
     }
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
+pub enum RegStatus {
+    Alloced,
+    Free
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
+pub struct RegState {
+    pub idx: usize,
+    pub curr_alloced_size: usize,
+    pub status: RegStatus
+}
+
+impl RegState {
+    pub fn new(idx: usize, size: usize, status: RegStatus) -> Self {
+        Self {
+            idx,
+            curr_alloced_size: size,
+            status
+        }
+    }
+}
+
 pub type RegAllocResult = Result<AllocedReg, RegAllocError>;
 
 pub trait RegManager {
     fn allocate(&mut self, var_type: &LitTypeVariant) -> RegAllocResult;
-    fn deallocate(&mut self, index: RegIdx, var_type: &LitTypeVariant);
+    fn deallocate(&mut self, index: RegIdx);
     fn deallocate_all(&mut self);
 
     fn allocate_param_reg(&mut self, var_type: &LitTypeVariant) -> RegAllocResult;
     fn deallocate_param_reg(&mut self, idx: RegIdx);
     // fn deallocate_all_param_regs(&mut self);
 
-    fn name(&self, idx: RegIdx, var_type: &LitTypeVariant) -> String;
+    fn name(&self, idx: RegIdx) -> String;
+
+    fn get(&self, idx: RegIdx) -> Option<&RegState>;
 }
 
 #[cfg(test)]

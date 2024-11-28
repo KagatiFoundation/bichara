@@ -101,7 +101,6 @@ impl TypeChecker {
     pub fn is_bin_expr_type_compatibile(bin_expr: &BinExpr) -> bool {
         let left_type: LitTypeVariant = bin_expr.left.result_type();
         let right_type: LitTypeVariant = bin_expr.right.result_type();
-        println!("{} and {}", left_type, right_type);
         match bin_expr.operation {
             ASTOperation::AST_ADD 
             | ASTOperation::AST_SUBTRACT
