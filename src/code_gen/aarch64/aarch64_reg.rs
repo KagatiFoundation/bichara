@@ -77,9 +77,7 @@ impl RegManager for Aarch64RegManager {
     fn name(&self, idx: RegIdx) -> String {
         if let Some(reg) = self.regs64.get(&format!("x{}", idx)) {
             return match reg.curr_alloced_size {
-                8
-                | 16
-                | 32 => format!("w{}", reg.idx),
+                8 | 16 | 32 => format!("w{}", reg.idx),
                 64 => format!("x{}", reg.idx),
                 _ => panic!("Not a valid 64-bit register")
             };
@@ -238,10 +236,12 @@ impl Aarch64RegManager {
         }
     }
 
-    pub fn mark_alloced(&mut self, idx: usize) {
+    /// Make sure the `alloc_size` is `8`, `16` , `32`, or `64`. This function will 
+    /// fail otherwise.
+    pub fn mark_alloced(&mut self, idx: usize, alloc_size: usize) {
         self.regs64.insert(
             format!("x{}", idx), 
-            RegState::new(idx, REG_64BIT, RegStatus::Alloced)
+            RegState::new(idx, alloc_size, RegStatus::Alloced)
         );
     }
     

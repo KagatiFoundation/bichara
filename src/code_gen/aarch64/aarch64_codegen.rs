@@ -322,9 +322,11 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let val_type: &LitTypeVariant = &symbol.lit_type;
 
         let mut reg: AllocedReg = AllocedReg::no_reg();
+        
         let calling_func: bool = self.function_id != reg.idx;
+
         if calling_func {
-            reg = self.__allocate_reg(val_type); // self.reg_manager.borrow_mut().allocate_param_reg(val_type);
+            reg = self.__allocate_param_reg(val_type); // self.reg_manager.borrow_mut().allocate_param_reg(val_type);
         } else {
             reg = self.__allocate_reg(val_type); // self.reg_manager.borrow_mut().allocate(val_type);
         }
@@ -332,12 +334,12 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
 
         if symbol.class == StorageClass::GLOBAL {
             let value_reg: AllocedReg = self.__allocate_reg(val_type); // self.reg_manager.borrow_mut().allocate();
-            let reg_name: String = self.reg_manager.borrow().name(value_reg.idx);
+            let reg_name: String = value_reg.name();
             self.dump_gid_address_load_code_from_name(&reg_name, &symbol);
-            println!("ldr {}, [{}] // load {}", value_reg_name, reg_name, symbol.name);
+            println!("ldr {}, [{}]", value_reg_name, reg_name);
             self.reg_manager.borrow_mut().deallocate(value_reg.idx);
         } else {
-            println!("ldr {}, [x29, #-{}] // load {}", value_reg_name, symbol.local_offset, symbol.name);
+            println!("ldr {}, [x29, #-{}]", value_reg_name, symbol.local_offset);
         } 
         Ok(reg)
     }
@@ -359,12 +361,12 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
 
         let addr_reg: AllocedReg = if symbol.class == StorageClass::GLOBAL {
             let ar: AllocedReg = self.__allocate_reg(&symbol.lit_type);
-            let addr_reg_name: String = self.reg_manager.borrow().name(ar.idx);
+            let addr_reg_name: String = ar.name();
             self.dump_gid_address_load_code_from_name(&addr_reg_name, &symbol);
-            println!("str {}, [{}] // store into {}", reg_name, addr_reg_name, symbol.name);
+            println!("str {}, [{}]", reg_name, addr_reg_name);
             ar
         } else {
-            println!("str {}, [x29, #-{}] // store into {}", reg_name, symbol.local_offset, symbol.name);
+            println!("str {}, [x29, #-{}]", reg_name, symbol.local_offset);
             AllocedReg::no_reg()
         };
         self.reg_manager.borrow_mut().deallocate(reg.idx);
@@ -377,10 +379,8 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let inside_func: bool = self.function_id != reg.idx;
         if inside_func {
             reg = self.__allocate_reg(&value.variant()); // self.reg_manager.borrow_mut().allocate_param_reg();
-            self.reg_manager.borrow_mut().deallocate_param_reg(reg.idx);
         } else {
             reg = self.__allocate_param_reg(&value.variant()); // self.reg_manager.borrow_mut().allocate();
-            self.reg_manager.borrow_mut().deallocate(reg.idx);
         }
         let result: Result<String, ()> = Aarch64CodeGen::gen_int_value_load_code(value, &reg.name());
         if let Ok(code) = result {
@@ -406,12 +406,11 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     }
 
     fn gen_add(&mut self, r1: AllocedReg, r2: AllocedReg) -> CodeGenResult {
-        // println!("{:?}, {:?}", self.reg_manager.borrow().get(r1.idx), self.reg_manager.borrow().get(r2.idx));
         println!(
             "add {}, {}, {}",
-            self.reg_manager.borrow().name(r1.idx),
-            self.reg_manager.borrow().name(r1.idx),
-            self.reg_manager.borrow().name(r2.idx)
+            r1.name(),
+            r1.name(),
+            r2.name()
         );
         self.reg_manager.borrow_mut().deallocate(r2.idx);
         Ok(r1)
@@ -420,9 +419,9 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     fn gen_sub(&mut self, r1: AllocedReg, r2: AllocedReg) -> CodeGenResult {
         println!(
             "sub {}, {}, {}",
-            self.reg_manager.borrow().name(r1.idx),
-            self.reg_manager.borrow().name(r1.idx),
-            self.reg_manager.borrow().name(r2.idx)
+            r1.name(),
+            r1.name(),
+            r2.name()
         );
         self.reg_manager.borrow_mut().deallocate(r2.idx);
         Ok(r1)
@@ -431,9 +430,9 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
    fn gen_mul(&mut self, r1: AllocedReg, r2: AllocedReg) -> CodeGenResult {
         println!(
             "mul {}, {}, {}",
-            self.reg_manager.borrow().name(r1.idx),
-            self.reg_manager.borrow().name(r1.idx),
-            self.reg_manager.borrow().name(r2.idx)
+            r1.name(),
+            r1.name(),
+            r2.name()
         );
         self.reg_manager.borrow_mut().deallocate(r2.idx);
         Ok(r1)
@@ -520,9 +519,14 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let func_info: &FunctionInfo = self.current_function.as_ref().unwrap();
         let symbol: Symbol = func_info.local_syms.get_or_fail(var_decl_stmt.symtbl_pos).clone();
 
-        let expr_reg_res: AllocedReg = self.gen_expr(expr_ast, ASTOperation::AST_VAR_DECL, 0xFFFFFFFF, ASTOperation::AST_NONE)?;
+        let expr_reg_res: AllocedReg = self.gen_expr(
+            expr_ast, 
+            ASTOperation::AST_VAR_DECL, 
+            0xFFFFFFFF, 
+            ASTOperation::AST_NONE
+        )?;
         let reg_name: String = self.reg_manager.borrow().name(expr_reg_res.idx);
-        println!("str {}, [x29, #-{}] // store into {}", reg_name, symbol.local_offset, symbol.name);
+        println!("str {}, [x29, #-{}]", reg_name, symbol.local_offset);
         self.reg_manager.borrow_mut().deallocate(expr_reg_res.idx);
         Ok(AllocedReg::no_reg())
     }
@@ -589,7 +593,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             }
         }
 
-        let mut spill_off: usize = 4;
+        let mut spill_off: usize = 0;
         for spilled_reg in &spilled_regs {
             println!("str {}, [sp, #{}]", reg_mgr.name(spilled_reg.0), spill_off);
             spill_off += 4;
@@ -610,8 +614,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         println!("bl _{}", func_info.name);
 
         let mut reg_mgr = self.reg_manager.borrow_mut();
-        let mut return_reg: AllocedReg = AllocedReg { size: REG_64BIT, idx: 0 };
-        if spilled_regs.iter().any(|&(idx, _)| idx == 0) {
+        let return_reg: AllocedReg = if spilled_regs.iter().any(|&(idx, _)| idx == 0) {
             let x0_reg: RegState = if let Some(x0_reg) = reg_mgr.get(0) {
                 x0_reg.clone()
             } else {
@@ -622,24 +625,44 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             } else {
                 LitTypeVariant::I32
             };
-            return_reg = if let Ok(alloced) = reg_mgr.allocate(&x0_reg_type) {
+            let __ret_reg: AllocedReg = if let Ok(alloced) = reg_mgr.allocate(&x0_reg_type) {
                 alloced
             } else {
                 panic!();
             };
-            let x0_reg_type_name = if x0_reg.curr_alloced_size == REG_64BIT {
+            let x0_reg_type_name: &str = if x0_reg.curr_alloced_size == REG_64BIT {
                 "x0"
             } else {
                 "w0"
             };
-            println!("mov {}, {}", return_reg.name(), x0_reg_type_name);
-        }
+            println!("mov {}, {}", __ret_reg.name(), x0_reg_type_name);
+            __ret_reg
+        } 
+        else if func_info.return_type == LitTypeVariant::Void {
+            AllocedReg::no_reg()
+        } 
+        else {
+            let __ret_reg: AllocedReg = if let Ok(alloced) = reg_mgr.allocate(&func_info.return_type) {
+                alloced
+            } else {
+                panic!();
+            };
+            if __ret_reg.idx != 0 {
+                let x0_reg_type_name: &str = if func_info.return_type.size() == REG_64BIT {
+                    "x0"
+                } else {
+                    "w0"
+                };
+                println!("mov {}, {}", __ret_reg.name(), x0_reg_type_name);
+            }
+            __ret_reg
+        };
 
-        // re-assign to 8
-        spill_off = 4;
+        // re-assign to 4
+        spill_off = 0;
         for spilled_reg in &spilled_regs {
             println!("ldr {}, [sp, #{}]", reg_mgr.name(spilled_reg.0), spill_off);
-            reg_mgr.mark_alloced(spilled_reg.0);
+            reg_mgr.mark_alloced(spilled_reg.0, spilled_reg.1);
             spill_off += 4;
         }
 

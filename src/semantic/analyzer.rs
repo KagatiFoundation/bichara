@@ -272,8 +272,10 @@ impl<'sa> SemanticAnalyzer<'sa> {
                 self.annotate_expr_with_respective_type(&mut bin_expr.left)?;
                 self.annotate_expr_with_respective_type(&mut bin_expr.right)?;
                 if TypeChecker::is_bin_expr_type_compatibile(bin_expr) {
+                    bin_expr.result_type = bin_expr.right.result_type();
                     Ok(())
                 } else {
+                    println!("non-compatible: {:?}", bin_expr);
                     Err(_InternalSAErrType::__ISET_UndefinedSymbol__ { name: "".to_string() })
                 }
             }
@@ -309,7 +311,8 @@ impl<'sa> SemanticAnalyzer<'sa> {
     fn construct_sa_err(&self, ast: &AST, err: _InternalSAErrType) -> SAError {
         match err {
             _InternalSAErrType::__ISET_UndefinedSymbol__ { name } => {
-                SAError::UndefinedSymbol { sym_name: name, token: ast.start_token.clone().unwrap() }
+                SAError::TypeError(SATypeError::NonCallable { sym_name: name })
+                // SAError::UndefinedSymbol { sym_name: name, token: ast.start_token.clone().unwrap() }
             },
             _InternalSAErrType::__ISET__NonCallable { name } => {
                 SAError::TypeError(SATypeError::NonCallable { sym_name: name })
