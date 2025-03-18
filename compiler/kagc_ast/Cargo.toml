@@ -1,0 +1,14 @@
+[package]
+name = "kagc_ast"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+itertools = "0.13.0"
+lazy_static = "1.4.0"
+
+kagc_types = { path = "../kagc_types" }
+kagc_lexer = { path = "../kagc_lexer" }
+kagc_token = { path = "../kagc_token" }
+kagc_errors = { path = "../kagc_errors" }
+kagc_symbol = { path = "../kagc_symbol" }

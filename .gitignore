@@ -19,6 +19,12 @@ Cargo.lock
 /target
 .vscode/
 
+# Stupid files
 *.S
 *.so
 out
+std.c
+examples/
+
+# MacOS files
+.DS_Store

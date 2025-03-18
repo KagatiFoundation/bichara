@@ -1,10 +1,16 @@
-[package]
-name = "bichara"
-version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-itertools = "0.13.0"
-lazy_static = "1.4.0"
+[workspace]
+members = [
+    "compiler/kagc_codegen",
+    "compiler/kagc_target",
+    "compiler/kagc_ast",
+    "compiler/kagc_symbol",
+    "compiler/kagc_types",
+    "compiler/kagc_lexer",
+    "compiler/kagc_errors",
+    "compiler/kagc_token",
+    "compiler/kagc_sema",
+    "compiler/kagc_ctx",
+    "compiler/kagc_parser",
+    "compiler/kagc_utils",
+    "kagc"
+]

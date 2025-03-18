@@ -1,0 +1,15 @@
+[package]
+name = "kagc_codegen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+itertools = "0.13.0"
+lazy_static = "1.4.0"
+
+kagc_target = { path = "../kagc_target" }
+kagc_ast = { path = "../kagc_ast" }
+kagc_symbol = { path = "../kagc_symbol" }
+kagc_types = { path = "../kagc_types" }
+kagc_ctx = { path = "../kagc_ctx" }
+kagc_utils = { path = "../kagc_utils" }

@@ -11,6 +11,8 @@ typedef int32_t Bich_Int;
 struct sockaddr_in address;
 socklen_t addrlen;
 
+typedef void thisptr;
+
 void __BICH_POSIX__close_socket(Bich_Int fd) {
     close(fd);
 }

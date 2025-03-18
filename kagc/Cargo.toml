@@ -1,0 +1,23 @@
+[package]
+name = "kagc"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "kagc"
+path = "src/main.rs"
+
+[dependencies]
+itertools = "0.13.0"
+lazy_static = "1.4.0"
+
+kagc_target = { path = "../compiler/kagc_target" }
+kagc_ast = { path = "../compiler/kagc_ast" }
+kagc_symbol = { path = "../compiler/kagc_symbol" }
+kagc_types = { path = "../compiler/kagc_types" }
+kagc_ctx = { path = "../compiler/kagc_ctx" }
+kagc_token = { path = "../compiler/kagc_token" }
+kagc_parser = { path = "../compiler/kagc_parser" }
+kagc_sema = { path = "../compiler/kagc_sema" }
+kagc_lexer = { path = "../compiler/kagc_lexer" }
+kagc_codegen = { path = "../compiler/kagc_codegen" }
