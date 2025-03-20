@@ -22,8 +22,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use kagc_types::LitTypeVariant;
-
 pub struct RegAllocError;
 
 /// Register size
@@ -59,9 +57,8 @@ impl AllocedReg {
 
     pub fn name(&self) -> String {
         match self.size {
-            32 => format!("w{}", self.idx),
-            64 => format!("x{}", self.idx),
-            _ => String::from("")
+            8 => format!("x{}", self.idx),
+            _ => format!("w{}", self.idx),
         }
     }
 }
@@ -91,24 +88,20 @@ impl RegState {
 
 pub type RegAllocResult = Result<AllocedReg, RegAllocError>;
 
-pub trait RegManager {
-    fn allocate(&mut self, var_type: &LitTypeVariant, offset: usize) -> RegAllocResult;
-    fn deallocate(&mut self, index: RegIdx);
-    fn deallocate_all(&mut self);
+pub trait RegManager2 {
+    fn allocate_register(&mut self, alloc_size: usize) -> AllocedReg;
 
-    fn allocate_param_reg(&mut self, var_type: &LitTypeVariant) -> RegAllocResult;
-    fn deallocate_param_reg(&mut self, idx: RegIdx);
-    // fn deallocate_all_param_regs(&mut self);
+    fn allocate_param_register(&mut self, alloc_size: usize) -> AllocedReg;
 
-    fn name(&self, idx: RegIdx) -> String;
+    fn free_register(&mut self, reg: usize);
 
-    fn get(&self, idx: RegIdx) -> Option<&RegState>;
-}
+    fn spill_register(&mut self, alloc_size: usize) -> AllocedReg;
+    
+    fn spill_param_register(&mut self, alloc_size: usize) -> AllocedReg;
+    
+    fn restore_register(&mut self) -> usize;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_allocation_of_one_register() {
-        
-    }
+    fn reset(&mut self);
+
+    fn name(&self, idx: usize, alloc_size: usize) -> String;
 }

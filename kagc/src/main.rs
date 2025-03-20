@@ -58,10 +58,10 @@ fn main() {
     let mut s_analyzer: SemanticAnalyzer = SemanticAnalyzer::new(Rc::clone(&ctx));
 
     // register manager
-    let rm: RefCell<Aarch64RegManager> = RefCell::new(Aarch64RegManager::new());
+    let rm: RefCell<Aarch64RegManager2> = RefCell::new(Aarch64RegManager2::new());
 
     // aarch64 code generator
-    let mut cg: Aarch64CodeGen = Aarch64CodeGen::new(rm);
+    let mut cg: Aarch64CodeGen = Aarch64CodeGen::new(rm, Rc::clone(&ctx));
 
     for sf in &mut source_files {
         let read_res: Result<i32, std::io::Error> = sf.read();
@@ -84,7 +84,7 @@ fn main() {
             s_analyzer.start_analysis(&mut parse_result);
 
             if !parser_borrow.has_parsing_errors() {
-                cg.gen_with_ctx(Rc::clone(&ctx), &parse_result);
+                cg.gen_with_ctx(&parse_result);
             }
         }
         std::mem::drop(parser_borrow);

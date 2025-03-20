@@ -24,13 +24,14 @@ SOFTWARE.
 
 pub mod aarch64;
 pub mod errors;
+pub mod x86;
 
 use std::cell::RefMut;
 
 use errors::CodeGenErr;
-use kagc_ast::{ASTKind, ASTOperation, ArrVarDeclStmt, AssignStmt, BinExpr, Expr, FuncCallExpr, LitValExpr, Stmt, VarDeclStmt, AST};
+use kagc_ast::*;
 use kagc_symbol::StorageClass;
-use kagc_target::reg::{AllocedReg, RegManager};
+use kagc_target::reg::{AllocedReg, RegManager2};
 use kagc_types::{LitType, LitTypeVariant};
 
 pub type CodeGenResult = Result<AllocedReg, CodeGenErr>;
@@ -120,23 +121,26 @@ pub trait CodeGen {
         else if ast_node.operation == ASTOperation::AST_GLUE {
             if let Some(left) = ast_node.left.as_ref() {
                 self.gen_code_from_ast(left, reg, parent_ast_kind)?;
-                self.reg_manager().deallocate_all();
+                // self.reg_manager().deallocate_all();
             }
             if let Some(right) = ast_node.right.as_ref() {
                 self.gen_code_from_ast(right, reg, parent_ast_kind)?;
-                self.reg_manager().deallocate_all();
+                // self.reg_manager().deallocate_all();
             }
             Ok(AllocedReg::no_reg())
         }
         else if ast_node.operation == ASTOperation::AST_RETURN {
-            let early_return: bool = parent_ast_kind != ASTOperation::AST_FUNCTION;
-            let possible_ret_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
+            let possible_ret_stmt: &Stmt = ast_node.kind.as_stmt().unwrap_or_else(|| panic!("How can it be? No Expr? Are you serious?"));
+
             return match possible_ret_stmt {
                 Stmt::Return(_) => {
+                    let early_return: bool = parent_ast_kind != ASTOperation::AST_FUNCTION;
+
                     if ast_node.left.is_some() {
-                        let return_expr: &AST = ast_node.left.as_ref().unwrap();
-                        _ = self.gen_expr(&return_expr.kind.clone().unwrap_expr(), ast_node.operation, reg, parent_ast_kind)?;
+                        let return_expr: &Expr = ast_node.left.as_ref().unwrap().kind.as_expr().unwrap_or_else(|| panic!("How can it be? No Expr? Are you serious?"));
+                        _ = self.gen_expr(return_expr, ast_node.operation, reg, parent_ast_kind)?;
                     }
+
                     self.gen_return_stmt(early_return)
                 }
                 _ => Ok(AllocedReg::no_reg())
@@ -183,12 +187,12 @@ pub trait CodeGen {
             return Ok(AllocedReg::no_reg());
         }  
         else if ast_node.operation == ASTOperation::AST_ASSIGN {
-            let possible_assign_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
+            let possible_assign_stmt: &Stmt = ast_node.kind.as_stmt().unwrap_or_else(|| panic!("How can it be? No Stmt? Are you serious?"));
             return match possible_assign_stmt {
                 Stmt::Assignment(assign) => {
                     let assign_expr = &ast_node.right.as_ref().unwrap().kind;
                     if let ASTKind::ExprAST(__expr) = assign_expr {
-                        _ = self.gen_var_assignment_stmt(&assign, __expr);
+                        _ = self.gen_var_assignment_stmt(assign, __expr);
                     }
                     Ok(AllocedReg::no_reg())
                 },
@@ -196,7 +200,7 @@ pub trait CodeGen {
             };
         }
         else if ast_node.operation == ASTOperation::AST_LOOP {
-            let possible_loop_stmt: Stmt = ast_node.kind.clone().unwrap_stmt();
+            let possible_loop_stmt: &Stmt = ast_node.kind.as_stmt().unwrap_or_else(|| panic!("How can it be? No Stmt? Are you serious?"));
             return match possible_loop_stmt {
                 Stmt::Loop => {
                     self.gen_loop_stmt(ast_node)
@@ -205,8 +209,8 @@ pub trait CodeGen {
             }
         }
         else {
-            let expr_ast: Expr = ast_node.kind.clone().unwrap_expr();
-            self.gen_expr(&expr_ast, ast_node.operation, reg, parent_ast_kind)
+            let expr_ast: &Expr = ast_node.kind.as_expr().unwrap_or_else(|| panic!("How can it be? No Expr? Are you serious?"));
+            self.gen_expr(expr_ast, ast_node.operation, reg, parent_ast_kind)
         }
     }
 
@@ -356,6 +360,18 @@ pub trait CodeGen {
     fn gen_loop_stmt(&mut self, ast: &AST) -> CodeGenResult;
 
     fn gen_break_stmt(&mut self, break_label: usize) -> CodeGenResult;
+    
+    fn reg_manager(&self) -> RefMut<dyn RegManager2>;
 
-    fn reg_manager(&self) -> RefMut<dyn RegManager>;
+    fn emit_leaf_fn_prol(&self, fn_label: &str, stack_size: usize);
+
+    fn emit_non_leaf_fn_prol(&self, fn_label: &str, stack_size: usize);
+
+    fn emit_leaf_fn_epl(&self, stack_size: usize);
+
+    fn emit_non_leaf_fn_epl(&self, stack_size: usize);
+ 
+    fn emit(&self, code: &str) {
+        println!("{code}");
+    }   
 }

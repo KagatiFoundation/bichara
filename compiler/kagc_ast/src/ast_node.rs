@@ -206,33 +206,24 @@ impl AST {
         }
     }
 
-    /// Modify the given node's type into the 'to' type.
-    pub fn modify_node_type(node: &mut AST, to: LitTypeVariant) -> Option<AST> {
-        let ltype = node.result_type;
-        let lsize: usize = node.result_type.size();
-        let rsize: usize = to.size();
-        if ltype == to {
-            return Some(node.clone());
+    #[allow(unused_parens)]
+    pub fn contains_operation(&self, op: ASTOperation) -> bool {
+        fn check_node_for_operation(node: &Option<Box<AST>>, op: ASTOperation) -> bool {
+            if let Some(n) = node {
+                if n.operation == op {
+                    return true;
+                }
+                return (
+                    check_node_for_operation(&n.left, op) || 
+                    check_node_for_operation(&n.right, op)
+                );
+            }
+            false
         }
-        if lsize > rsize {
-            // the type we are trying to convert is too big for the target type
-            panic!("Can't convert type {:?} into {:?}. Size too large.", ltype, to);
-        }
-        if rsize > lsize {
-            return Some(AST::create_leaf(
-                ASTKind::ExprAST(Expr::Widen(WidenExpr{
-                    from: Box::new(node.clone()),
-                    result_type: to
-                })),
-                ASTOperation::AST_WIDEN,
-                to,
-                None,
-                None
-            ));
-        }
-        // if we reach here, then types are incompatible
-        None
+        check_node_for_operation(&self.left, op) || 
+        check_node_for_operation(&self.right, op)
     }
+    
 }
 
 impl BTypeComparable for AST {

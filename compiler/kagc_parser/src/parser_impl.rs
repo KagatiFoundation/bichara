@@ -402,7 +402,7 @@ impl<'parser> Parser<'parser> {
             let mut ctx_borrow = ctx_rc.borrow_mut();
             ctx_borrow.func_table.add(func_info);
         }
-        // reset offset counter after parsing a function
+        // reset offset counter after parsing function
         self.local_offset = 0;
 
         // reset temporary symbols holder after the function has been parsed
@@ -739,13 +739,9 @@ impl<'parser> Parser<'parser> {
     }
 
     fn gen_next_local_offset(&mut self, var_type: LitTypeVariant) -> i32 {
-        let temp_offset: i32 = if var_type.size() <= 4 {
-            4
-        } else {
-            8
-        };
-        self.local_offset += temp_offset;
-        self.local_offset
+        let tmp_off: i32 = self.local_offset;
+        self.local_offset += 1;
+        tmp_off
     }
 
     // TODO: Write comments

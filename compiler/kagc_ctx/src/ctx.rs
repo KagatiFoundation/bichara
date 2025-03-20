@@ -148,4 +148,9 @@ impl<'ctx> CompilerCtx<'ctx> {
         }
         Err(CtxError::UndefinedSymbol)
     }
+
+    pub fn get_func_name(&self, index: usize) -> Option<String> {
+        let func_name: String = self.sym_table.get_symbol(index).unwrap().name.clone();
+        self.func_table.get(&func_name).map(|_| func_name)
+    }
 }

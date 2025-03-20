@@ -39,14 +39,18 @@ use crate::errors::CodeGenErr;
 use crate::CodeGen;
 use crate::CodeGenResult;
 
+use super::stackframe::compute_stack_size;
+
+pub(crate) const AARCH64_ALIGN_SIZE: usize = 8;
+
 lazy_static::lazy_static! {
     static ref CMP_CONDS_LIST: Vec<&'static str> = vec!["ne", "eq", "ge", "le", "lt", "gt"];
 }
 
 pub struct Aarch64CodeGen<'aarch64> {
-    reg_manager: RefCell<Aarch64RegManager>,
+    reg_manager: RefCell<Aarch64RegManager2>,
 
-    ctx: Option<Rc<RefCell<CompilerCtx<'aarch64>>>>,
+    ctx: Rc<RefCell<CompilerCtx<'aarch64>>>,
 
     // label ID tracker
     label_id: usize,
@@ -62,37 +66,32 @@ pub struct Aarch64CodeGen<'aarch64> {
 
 impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     fn gen_global_symbols(&self) {
-        if self.ctx.is_none() {
-            panic!("Error dumping global variables. Make sure the context is set for this CodeGen.");
-        }
-        if let Some(ctx_rc) = &self.ctx {
-            let ctx_borrow = ctx_rc.borrow();
-            for symbol in ctx_borrow.sym_table.iter() {
-                // symbol information is not generated if any of the following conditions matches
-                if 
-                    symbol.lit_type == LitTypeVariant::None 
-                    || symbol.sym_type == SymbolType::Function 
-                    || symbol.class != StorageClass::GLOBAL 
-                {
-                    continue;
-                }
-                if symbol.lit_type == LitTypeVariant::Str && symbol.sym_type == SymbolType::Constant {
-                    let str_const_name_and_val: Vec<&str> = symbol.name.split("---").collect::<Vec<&str>>();
-                    let str_const_name: String = String::from(str_const_name_and_val[0]);
-                    println!(".data\n.global {str_const_name}");
-                    println!("{str_const_name}:\n\t.asciz \"{}\"", str_const_name_and_val[1]);
-                    continue;
-                }
-                println!(".data\n.global {}", symbol.name);
-                if symbol.sym_type == SymbolType::Variable {
-                    Aarch64CodeGen::dump_global_with_alignment(symbol);
-                } else if symbol.sym_type == SymbolType::Array {
-                    let array_data_size: usize = symbol.lit_type.size();
-                    println!("here i come");
-                    println!("{}:", symbol.name);
-                    for _ in 0..symbol.size {
-                        Aarch64CodeGen::alloc_data_space(array_data_size);
-                    }
+        let ctx_borrow = self.ctx.borrow();
+        for symbol in ctx_borrow.sym_table.iter() {
+            // symbol information is not generated if any of the following conditions matches
+            if 
+                symbol.lit_type == LitTypeVariant::None 
+                || symbol.sym_type == SymbolType::Function 
+                || symbol.class != StorageClass::GLOBAL 
+            {
+                continue;
+            }
+            if symbol.lit_type == LitTypeVariant::Str && symbol.sym_type == SymbolType::Constant {
+                let str_const_name_and_val: Vec<&str> = symbol.name.split("---").collect::<Vec<&str>>();
+                let str_const_name: String = String::from(str_const_name_and_val[0]);
+                println!(".data\n.global {str_const_name}");
+                println!("{str_const_name}:\n\t.asciz \"{}\"", str_const_name_and_val[1]);
+                continue;
+            }
+            println!(".data\n.global {}", symbol.name);
+            if symbol.sym_type == SymbolType::Variable {
+                Aarch64CodeGen::dump_global_with_alignment(symbol);
+            } else if symbol.sym_type == SymbolType::Array {
+                let array_data_size: usize = symbol.lit_type.size();
+                println!("here i come");
+                println!("{}:", symbol.name);
+                for _ in 0..symbol.size {
+                    Aarch64CodeGen::alloc_data_space(array_data_size);
                 }
             }
         }
@@ -109,13 +108,13 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let _cond_result_reg: AllocedReg = self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_if_false, ASTOperation::AST_IF)?;
     
         // Free registers to allow usage within the if-else body
-        self.reg_manager.borrow_mut().deallocate_all();
+        // self.reg_manager.borrow_mut().deallocate_all();
     
         // Generate code for the 'if-true' block
         _ = self.gen_code_from_ast(ast.mid.as_ref().unwrap(), reg, ASTOperation::AST_IF)?;
     
         // Free registers again to prepare for any subsequent operations
-        self.reg_manager.borrow_mut().deallocate_all();
+        // self.reg_manager.borrow_mut().deallocate_all();
     
         // Jump to the end of the if-else block to skip the 'else' block if present
         if ast.right.is_some() {
@@ -128,15 +127,15 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         // Generate code for the 'else' block, if it exists
         if let Some(ref right_ast) = ast.right {
             _ = self.gen_code_from_ast(right_ast, reg, ASTOperation::AST_IF)?;
-            self.reg_manager.borrow_mut().deallocate_all();
+            // self.reg_manager.borrow_mut().deallocate_all();
             _ = self.gen_label(label_end)?; // Mark the end of the if-else block
         }
         Ok(AllocedReg::no_reg())
     }
     
     fn gen_cmp_and_set(&self, operation: ASTOperation, r1: AllocedReg, r2: AllocedReg) -> CodeGenResult {
-        let r1name: String = self.reg_manager.borrow().name(r1.idx);
-        let r2name: String = self.reg_manager.borrow().name(r2.idx);
+        let r1name: String = self.reg_manager.borrow().name(r1.idx, r1.size);
+        let r2name: String = self.reg_manager.borrow().name(r2.idx, r2.size);
         println!("cmp {}, {}", r1name, r2name);
         let compare_operator: &str = match operation {
             ASTOperation::AST_LTHAN => "bge",
@@ -157,8 +156,8 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     }
 
     fn gen_cmp_and_jmp(&self, operation: ASTOperation, r1: AllocedReg, r2: AllocedReg, label: usize) -> CodeGenResult {
-        let r1name: String = self.reg_manager.borrow().name(r1.idx);
-        let r2name: String = self.reg_manager.borrow().name(r2.idx);
+        let r1name: String = self.reg_manager.borrow().name(r1.idx, r1.size);
+        let r2name: String = self.reg_manager.borrow().name(r2.idx, r2.size);
         println!("cmp {}, {}", r1name, r2name);
         let compare_operator: &str = match operation {
             ASTOperation::AST_LTHAN => "bhs",
@@ -174,64 +173,72 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             compare_operator,
             label
         );
-        self.reg_manager.borrow_mut().deallocate_all();
+        // self.reg_manager.borrow_mut().deallocate_all();
         Ok(AllocedReg::no_reg())
     }
 
     fn gen_function_stmt(&mut self, ast: &AST) -> CodeGenResult {
-        let possible_func_decl: Stmt = ast.kind.clone().unwrap_stmt();
-        let index: usize = match possible_func_decl {
-            Stmt::FuncDecl(func_decl) => func_decl.func_id,
-            _ => panic!("Not a valid symbol table indexing method"),
+        self.reg_manager.borrow_mut().reset();
+
+        let index: usize = if let Some(Stmt::FuncDecl(func_decl)) = &ast.kind.as_stmt() {
+            func_decl.func_id
+        } else {
+            panic!("Not a valid symbol table indexing method");
         };
 
-        let func_name: String = if let Some(ctx_rc) = &mut self.ctx {
-            let ctx_borrow = ctx_rc.borrow();
-            let func_name: String = ctx_borrow.sym_table.get_symbol(index).unwrap().name.clone();
-            if let Some(finfo) = ctx_borrow.func_table.get(&func_name) {
-                self.current_function = Some(finfo.clone());
-                func_name
-            } else {
-                panic!("Function not found");
-            }
-        } else {
-            return Err(CodeGenErr::NoContext);
-        };
+        let func_name: String = self.get_func_name(index).expect("Function name error!");
+
+        if let Some(finfo) = self.ctx.borrow().func_table.get(&func_name) {
+            self.current_function = Some(finfo.clone());
+        }
 
         let func_info: FunctionInfo = self.current_function.as_ref().cloned().unwrap();
-        self.ctx.as_ref().unwrap().borrow_mut().switch_to_func_scope(func_info.func_id);
 
         // If the function is declared as extern, print its external linkage
         // declaration and return a placeholder value indicating an unresolved
         // address (0xFFFFFFFF).
         if func_info.storage_class == StorageClass::EXTERN {
-            println!(".extern _{}", func_name);
+            self.emit(&format!(".extern _{func_name}"));
             return Ok(AllocedReg::no_reg());
         }
 
-        // Function preamble
-        println!(".global _{}\n_{}:", func_name, func_name);
-        println!("sub sp, sp, #{}", func_info.stack_size + 16);
+        self.ctx.borrow_mut().switch_to_func_scope(func_info.func_id);
 
-        // STP -> Store Pair of Registers
-        // Save the current frame pointer (x29) and link register (x30) onto the stack.
-        println!("stp x29, x30, [sp, #{}]\nadd x29, sp, #{}", func_info.stack_size, func_info.stack_size);
+        // check if this function calls other functions
+        let calls_fns: bool = ast.left.as_ref()
+            .map_or(
+                false, 
+                |body| body.contains_operation(ASTOperation::AST_FUNC_CALL)
+            );
+
+        let stack_size: usize = compute_stack_size(&self.ctx.borrow(), ast, &func_name).ok().unwrap();
+        
+        if calls_fns {
+            self.emit_non_leaf_fn_prol(&func_name, stack_size as usize);
+        } 
+        else {
+            self.emit_leaf_fn_prol(&func_name, stack_size as usize);
+        }
+
+        let mut leaf_fn_stack_off: i32 = stack_size as i32 - AARCH64_ALIGN_SIZE as i32;
 
         // generating code for function parameters
         for param_sym in func_info.params.iter() {
             if param_sym.lit_type != LitTypeVariant::None {
-                let param_reg: AllocedReg = self.__allocate_reg(&param_sym.lit_type); // .reg_manager.borrow_mut().allocate_param_reg(&param_sym.lit_type);
-                println!("str {}, [x29, #-{}]", self.reg_manager.borrow().name(param_reg.idx), param_sym.offset);
+                let param_reg: AllocedReg = self.__allocate_reg(param_sym.lit_type.size());
+                if !calls_fns {
+                    self.emit(&format!("str {}, [sp, #{}]", param_reg.name(), leaf_fn_stack_off));
+                    leaf_fn_stack_off -= AARCH64_ALIGN_SIZE as i32;
+                }
+                else {
+                    println!("str {}, [x29, #-{}]", self.reg_manager.borrow().name(param_reg.idx, param_reg.size), (param_sym.offset * 8) + 8);
+                }
+                self.reg_manager.borrow_mut().free_register(param_reg.idx);
             }
         }
 
-        // deallocate all of the registers after managing function parameters
-        // if func_info.params.iter().len() > 0 {
-            // self.reg_manager.borrow_mut().deallocate_all_param_regs();
-        // }
-
         if let Some(ref body) = ast.left {
-           self.gen_code_from_ast(body, 0xFFFFFFFF, ast.operation)?;
+            self.gen_code_from_ast(body, 0xFFFFFFFF, ast.operation)?;
             if self.early_return_label_id != NO_REG {
                 println!("_L{}:", self.early_return_label_id);
                 self.early_return_label_id = NO_REG; // reset early return label after function code generation
@@ -239,12 +246,18 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         }
 
         self.current_function = None;
-        self.ctx.as_ref().unwrap().borrow_mut().switch_to_global_scope();
+        self.ctx.borrow_mut().switch_to_global_scope();
 
-        // ldp -> Load Pair of Registers
-        // Restore the saved frame pointer (x29) and link register (x30) from the stack.
-        println!("ldp x29, x30, [sp, #{}]", func_info.stack_size);
-        println!("add sp, sp, #{}\nret\n", func_info.stack_size + 16);
+        if calls_fns {
+            self.emit_non_leaf_fn_epl(stack_size);
+        }
+        else if stack_size != 0 {
+            self.emit_leaf_fn_epl(stack_size);
+        }
+        else {
+            self.emit("ret\n");
+        }
+
         Ok(AllocedReg::no_reg())
     }
 
@@ -254,10 +267,10 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         _ = self.gen_label(label_start)?; // start of loop body
 
         let cond_res_reg: AllocedReg = self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_end, ast.operation)?;
-        self.reg_manager.borrow_mut().deallocate(cond_res_reg.idx);
+        self.reg_manager.borrow_mut().free_register(cond_res_reg.idx);
 
         let body_reg: AllocedReg = self.gen_code_from_ast(ast.right.as_ref().unwrap(), label_end, ast.operation)?;
-        self.reg_manager.borrow_mut().deallocate(body_reg.idx);
+        self.reg_manager.borrow_mut().free_register(body_reg.idx);
 
         _ = self.gen_jump(label_start)?;
         _ = self.gen_label(label_end)?;
@@ -274,7 +287,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         _ = self.gen_label(label_start)?;
         
         let body_reg: AllocedReg = self.gen_code_from_ast(ast.left.as_ref().unwrap(), label_end, ast.operation)?;
-        self.reg_manager.borrow_mut().deallocate(body_reg.idx);
+        self.reg_manager.borrow_mut().free_register(body_reg.idx);
 
         _ = self.gen_jump(label_start)?;
         _ = self.gen_label(label_end)?;
@@ -287,16 +300,14 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     }
 
     fn gen_load_id_into_reg(&mut self, id_name: &str) -> CodeGenResult {
-        let symbol: Symbol = if let Some(__ctx) = &self.ctx {
-            let ctx_borrow = __ctx.borrow();
-            if let Ok(sym) = ctx_borrow.find_sym(id_name) {
-                sym.clone()
-            } else {
-                return Err(CodeGenErr::UndefinedSymbol);
-            }
+        let ctx_borrow = self.ctx.borrow();
+        let symbol: Symbol = if let Ok(sym) = ctx_borrow.find_sym(id_name) {
+            sym.clone()
         } else {
-            return Err(CodeGenErr::NoContext);
+            return Err(CodeGenErr::UndefinedSymbol);
         };
+
+        drop(ctx_borrow);
 
         let val_type: &LitTypeVariant = &symbol.lit_type;
 
@@ -305,41 +316,40 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let calling_func: bool = self.function_id != reg.idx;
 
         if calling_func {
-            reg = self.__allocate_param_reg(val_type); // self.reg_manager.borrow_mut().allocate_param_reg(val_type);
+            reg = self.__allocate_param_reg(val_type.size()); // self.reg_manager.borrow_mut().allocate_param_reg(val_type);
         } else {
-            reg = self.__allocate_reg(val_type); // self.reg_manager.borrow_mut().allocate(val_type);
+            reg = self.__allocate_reg(val_type.size()); // self.reg_manager.borrow_mut().allocate(val_type);
         }
-        let value_reg_name: String = self.reg_manager.borrow().name(reg.idx);
+        let value_reg_name: String = self.reg_manager.borrow().name(reg.idx, reg.size);
 
         if symbol.class == StorageClass::GLOBAL {
-            let value_reg: AllocedReg = self.__allocate_reg(val_type); // self.reg_manager.borrow_mut().allocate();
+            let value_reg: AllocedReg = self.__allocate_reg(val_type.size()); // self.reg_manager.borrow_mut().allocate();
             let reg_name: String = value_reg.name();
             self.dump_gid_address_load_code_from_name(&reg_name, &symbol);
             println!("ldr {}, [{}]", value_reg_name, reg_name);
-            self.reg_manager.borrow_mut().deallocate(value_reg.idx);
+            self.reg_manager.borrow_mut().free_register(value_reg.idx);
         } else {
-            println!("ldr {}, [x29, #-{}]", value_reg_name, symbol.local_offset);
+            println!("ldr {}, [x29, #-{}]", value_reg_name, 8);
         } 
         Ok(reg)
     }
 
     // Refer to this page for explanation on '@PAGE' and '@PAGEOFF': https://stackoverflow.com/questions/65351533/apple-clang12-llvm-unknown-aarch64-fixup-kind
     fn gen_store_reg_value_into_id(&mut self, reg: AllocedReg, id_name: &str) -> CodeGenResult {
-        let reg_name: String = self.reg_manager.borrow().name(reg.idx);
+        let reg_name: String = self.reg_manager.borrow().name(reg.idx, reg.size);
 
-        let symbol: Symbol = if let Some(__ctx) = &self.ctx {
-            let ctx_borrow = __ctx.borrow();
-            if let Ok(sym) = ctx_borrow.find_sym(id_name) {
-                sym.clone()
-            } else {
-                return Err(CodeGenErr::UndefinedSymbol);
-            }
+        let ctx_borrow = self.ctx.borrow();
+
+        let symbol: Symbol = if let Ok(sym) = ctx_borrow.find_sym(id_name) {
+            sym.clone()
         } else {
-            return Err(CodeGenErr::NoContext);
+            return Err(CodeGenErr::UndefinedSymbol);
         };
 
+        drop(ctx_borrow);
+
         let addr_reg: AllocedReg = if symbol.class == StorageClass::GLOBAL {
-            let ar: AllocedReg = self.__allocate_reg(&symbol.lit_type);
+            let ar: AllocedReg = self.__allocate_reg(symbol.lit_type.size());
             let addr_reg_name: String = ar.name();
             self.dump_gid_address_load_code_from_name(&addr_reg_name, &symbol);
             println!("str {}, [{}]", reg_name, addr_reg_name);
@@ -348,7 +358,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             println!("str {}, [x29, #-{}]", reg_name, symbol.local_offset);
             AllocedReg::no_reg()
         };
-        self.reg_manager.borrow_mut().deallocate(reg.idx);
+        self.reg_manager.borrow_mut().free_register(reg.idx);
         Ok(addr_reg)
     }
 
@@ -357,9 +367,9 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let mut reg: AllocedReg = AllocedReg::no_reg();
         let inside_func: bool = self.function_id != reg.idx;
         if inside_func {
-            reg = self.__allocate_reg(&value.variant()); // self.reg_manager.borrow_mut().allocate_param_reg();
+            reg = self.__allocate_reg(value.variant().size()); // self.reg_manager.borrow_mut().allocate_param_reg();
         } else {
-            reg = self.__allocate_param_reg(&value.variant()); // self.reg_manager.borrow_mut().allocate();
+            reg = self.__allocate_param_reg(value.variant().size()); // self.reg_manager.borrow_mut().allocate();
         }
         let result: Result<String, ()> = Aarch64CodeGen::gen_int_value_load_code(value, &reg.name());
         if let Ok(code) = result {
@@ -375,11 +385,11 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let mut reg: AllocedReg = AllocedReg::no_reg();
         let inside_func: bool = self.function_id != reg.idx;
         if inside_func {
-            reg = self.__allocate_param_reg(&id.variant()); // self.reg_manager.borrow_mut().allocate_param_reg();
+            reg = self.__allocate_param_reg(id.variant().size()); // self.reg_manager.borrow_mut().allocate_param_reg();
         } else {
-            reg = self.__allocate_reg(&id.variant()); // self.reg_manager.borrow_mut().allocate();
+            reg = self.__allocate_reg(id.variant().size()); // self.reg_manager.borrow_mut().allocate();
         }
-        let str_addr_name: String = self.reg_manager.borrow().name(reg.idx);
+        let str_addr_name: String = self.reg_manager.borrow().name(reg.idx, reg.size);
         self.dump_gid_address_load_code_from_label_id(&str_addr_name, id);
         Ok(reg)
     }
@@ -391,7 +401,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             r1.name(),
             r2.name()
         );
-        self.reg_manager.borrow_mut().deallocate(r2.idx);
+        self.reg_manager.borrow_mut().free_register(r2.idx);
         Ok(r1)
     }
 
@@ -402,7 +412,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             r1.name(),
             r2.name()
         );
-        self.reg_manager.borrow_mut().deallocate(r2.idx);
+        self.reg_manager.borrow_mut().free_register(r2.idx);
         Ok(r1)
     }
 
@@ -413,7 +423,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             r1.name(),
             r2.name()
         );
-        self.reg_manager.borrow_mut().deallocate(r2.idx);
+        self.reg_manager.borrow_mut().free_register(r2.idx);
         Ok(r1)
     }
 
@@ -421,34 +431,25 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         // NOTE: Generate code depending on the function's type. i.e. use w0 for i32, x0 for i64 etc.
         // let func_ret_type: LitTypeVariant = self.sym_table.get_symbol(func_id).lit_type;
         // is it an early return? 
-        if self.early_return_label_id == NO_REG {
+        if early_return {
             self.early_return_label_id = self.get_next_label();
+            
+            self.emit(&format!("b _L{}", self.early_return_label_id));
+            
+            return Ok(AllocedReg::early_return());
         }
-
-        if early_return {
-            println!("b _L{}", self.early_return_label_id);
-        }
-
-        if early_return {
-            Ok(AllocedReg::early_return())
-        } else {
-            Ok(AllocedReg::no_reg())
-        }
+        Ok(AllocedReg::no_reg())
     }
 
     fn gen_array_access(&mut self, id: usize, expr: &AST) -> CodeGenResult {
         let expr_res_reg: AllocedReg = self.gen_code_from_ast(expr, 0xFFFFFFFF, ASTOperation::AST_ARRAY_ACCESS)?;
-        let expr_res_reg_name: String = self.reg_manager.borrow().name(expr_res_reg.idx);
+        let expr_res_reg_name: String = self.reg_manager.borrow().name(expr_res_reg.idx, expr_res_reg.size);
 
         // dealloc the expr register
-        self.reg_manager.borrow_mut().deallocate(expr_res_reg.idx);
+        self.reg_manager.borrow_mut().free_register(expr_res_reg.idx);
 
-        let symbol: Symbol = if let Some(ctx_rc) = &mut self.ctx {
-            let ctx_borrow = ctx_rc.borrow();
-            ctx_borrow.sym_table.get_symbol(id).unwrap().clone()
-        } else {
-            panic!("Please provide to retrieve symbol from!");
-        };
+        let symbol: Symbol = self.ctx.borrow().sym_table.get_symbol(id).unwrap().clone();
+
         let offset_shift: usize = match symbol.lit_type {
             LitTypeVariant::I32 | // as of now, this compiler does not know how to index 32-bit int array
             LitTypeVariant::I64 => 3, // so I am using offset of 8 bytes to calculate array indexes even though
@@ -457,11 +458,11 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         };
 
         // this will contain the address + offset of an array
-        let addr_reg: AllocedReg = self.__allocate_reg(&LitTypeVariant::I64); // self.reg_manager.borrow_mut().allocate(&LitTypeVariant::I64);
-        let addr_reg_name: String = self.reg_manager.borrow().name(addr_reg.idx); // self.reg_manager.borrow().name(addr_reg, 0);
+        let addr_reg: AllocedReg = self.__allocate_reg(64); // self.reg_manager.borrow_mut().allocate(&LitTypeVariant::I64);
+        let addr_reg_name: String = self.reg_manager.borrow().name(addr_reg.idx, addr_reg.size); // self.reg_manager.borrow().name(addr_reg, 0);
 
-        let off_addr_reg: AllocedReg = self.__allocate_reg(&LitTypeVariant::I64); // self.reg_manager.borrow_mut().allocate();
-        let off_addr_reg_name: String = self.reg_manager.borrow().name(off_addr_reg.idx);
+        let off_addr_reg: AllocedReg = self.__allocate_reg(64); // self.reg_manager.borrow_mut().allocate();
+        let off_addr_reg_name: String = self.reg_manager.borrow().name(off_addr_reg.idx, off_addr_reg.size);
 
         self.dump_gid_address_load_code_from_name(&addr_reg_name, &symbol);
 
@@ -470,7 +471,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             off_addr_reg_name, addr_reg_name, expr_res_reg_name, offset_shift
         );
 
-        self.reg_manager.borrow_mut().deallocate(addr_reg.idx);
+        self.reg_manager.borrow_mut().free_register(addr_reg.idx);
         Ok(off_addr_reg)
     }
     
@@ -486,7 +487,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         Ok(AllocedReg::no_reg())
     }
     
-    fn reg_manager(&self) -> RefMut<dyn RegManager> {
+    fn reg_manager(&self) -> RefMut<dyn RegManager2> {
         self.reg_manager.borrow_mut()
     }
     
@@ -495,18 +496,18 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             panic!("Parsing a local variable but function is not defined... Weird.");
         }
 
-        let func_info: &FunctionInfo = self.current_function.as_ref().unwrap();
-        let symbol: Symbol = func_info.local_syms.get_or_fail(var_decl_stmt.symtbl_pos).clone();
-
         let expr_reg_res: AllocedReg = self.gen_expr(
             expr_ast, 
             ASTOperation::AST_VAR_DECL, 
             0xFFFFFFFF, 
             ASTOperation::AST_NONE
         )?;
+
         let reg_name: String = expr_reg_res.name();
-        println!("str {}, [x29, #-{}]", reg_name, symbol.local_offset);
-        self.reg_manager.borrow_mut().deallocate(expr_reg_res.idx);
+        self.emit(&format!("str {}, [x29, #-{}]", reg_name, (var_decl_stmt.symtbl_pos * 8) + 8));
+
+        self.reg_manager.borrow_mut().free_register(expr_reg_res.idx);
+        
         Ok(AllocedReg::no_reg())
     }
     
@@ -537,157 +538,21 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
                     _ => panic!("cannot create offset for type: '{:?}'", symbol.lit_type)
                 }
             };
-            self.reg_manager.borrow_mut().deallocate_all();
+            // self.reg_manager.borrow_mut().deallocate_all();
         }
         Ok(AllocedReg::no_reg())
     }
     
     fn gen_func_call_expr(&mut self, func_call_expr: &FuncCallExpr) -> CodeGenResult {
-        let func_info_res: Option<FunctionInfo> = if let Some(ctx_rc) = &self.ctx {
-            let ctx_borrow = ctx_rc.borrow_mut();
-            if let Ok(symbol) = ctx_borrow.find_sym(&func_call_expr.symbol_name) {
-                ctx_borrow.func_table.get(&symbol.name).cloned()
-            } else {
-                None
-            }
+        let ctx_borrow = self.ctx.borrow_mut();
+        let func_info = if let Ok(symbol) = ctx_borrow.find_sym(&func_call_expr.symbol_name) {
+            ctx_borrow.func_table.get(&symbol.name).unwrap()
         } else {
-            return Err(CodeGenErr::NoContext);
-        };
-
-        if func_info_res.is_none() {
             return Err(CodeGenErr::UndefinedSymbol);
-        }
-
-        let mut reg_mgr = self.reg_manager.borrow_mut();
-
-        let func_info: FunctionInfo = func_info_res.unwrap();
-
-        // index and the size allocated
-        let mut spilled_regs: Vec<(usize, usize)> = vec![];
-
-        let mut restore_x0_reg: bool = false;
-        let mut x0_restore_name: &str = "w0";
-        let mut temp_x0_holder: AllocedReg = AllocedReg::no_reg();
-
-        // if the function returns some value (it is a void return type)
-        // then the x0 must be kept safe
-        if func_info.return_type != LitTypeVariant::Void && !reg_mgr.is_free(0) {
-            let x0_reg: RegState = if let Some(x0_reg) = reg_mgr.get(0) {
-                x0_reg.clone()
-            } else {
-                panic!("Shouldn't get here")
-            };
-            let x0_reg_type: LitTypeVariant = if x0_reg.curr_alloced_size == 64 {
-                LitTypeVariant::I64
-            } else {
-                LitTypeVariant::I32
-            };
-            temp_x0_holder = if let Ok(alloced) = reg_mgr.allocate(&x0_reg_type, 8) {
-                alloced
-            } else {
-                panic!();
-            };
-            let x0_reg_type_name: &str = if x0_reg.curr_alloced_size == REG_64BIT {
-                x0_restore_name = "x0";
-                "x0"
-            } else {
-                "w0"
-            };
-            println!("mov {}, {}", temp_x0_holder.name(), x0_reg_type_name);
-            reg_mgr.deallocate(0); // now the x0 is free for use
-            restore_x0_reg = true;
-        }
-        
-        if func_info.params.count() > 0 {
-            for idx in 0..=3 {
-                if !reg_mgr.is_free(idx) {
-                    if let Some(sreg) = reg_mgr.get(idx) {
-                        spilled_regs.push((idx, sreg.curr_alloced_size));
-                        reg_mgr.deallocate_param_reg(idx);
-                    }
-                }
-            }
-        }
-
-        let mut spill_off: usize = 0;
-        for spilled_reg in &spilled_regs {
-            println!("str {}, [sp, #{}]", reg_mgr.name(spilled_reg.0), spill_off);
-            spill_off += 4;
-        }
-
-        drop(reg_mgr);
-
-        let args: &Vec<Expr> = &func_call_expr.args;
-        for expr in args {
-            _ = self.gen_expr(
-                expr, 
-                ASTOperation::AST_FUNC_CALL, 
-                0xFFFFFFFF, 
-                ASTOperation::AST_NONE
-            )?;
-        }
+        };
 
         println!("bl _{}", func_info.name);
-
-        let mut reg_mgr = self.reg_manager.borrow_mut();
-        let return_reg: AllocedReg = if spilled_regs.iter().any(|&(idx, _)| idx == 0) {
-            let x0_reg: RegState = if let Some(x0_reg) = reg_mgr.get(0) {
-                x0_reg.clone()
-            } else {
-                panic!("Cannot get here")
-            };
-            let x0_reg_type: LitTypeVariant = if x0_reg.curr_alloced_size == 64 {
-                LitTypeVariant::I64
-            } else {
-                LitTypeVariant::I32
-            };
-            let __ret_reg: AllocedReg = if let Ok(alloced) = reg_mgr.allocate(&x0_reg_type, 8) {
-                alloced
-            } else {
-                panic!();
-            };
-            let x0_reg_type_name: &str = if x0_reg.curr_alloced_size == REG_64BIT {
-                "x0"
-            } else {
-                "w0"
-            };
-            println!("mov {}, {}", __ret_reg.name(), x0_reg_type_name);
-            __ret_reg
-        } 
-        else if func_info.return_type == LitTypeVariant::Void {
-            AllocedReg::no_reg()
-        } 
-        else {
-            let __ret_reg: AllocedReg = if let Ok(alloced) = reg_mgr.allocate(&func_info.return_type, 8) {
-                alloced
-            } else {
-                panic!();
-            };
-            if __ret_reg.idx != 0 {
-                let x0_reg_type_name: &str = if func_info.return_type.size() == REG_64BIT {
-                    "x0"
-                } else {
-                    "w0"
-                };
-                println!("mov {}, {}", __ret_reg.name(), x0_reg_type_name);
-            }
-            __ret_reg
-        };
-
-        if restore_x0_reg {
-            println!("mov {}, {}", x0_restore_name, temp_x0_holder.name());
-        }
-
-        // re-assign to 4
-        spill_off = 0;
-        for spilled_reg in &spilled_regs {
-            println!("ldr {}, [sp, #{}]", reg_mgr.name(spilled_reg.0), spill_off);
-            reg_mgr.mark_alloced(spilled_reg.0, spilled_reg.1);
-            spill_off += 4;
-        }
-
-        self.function_id = 0xFFFFFFFF;
-        Ok(return_reg) // always return the 'x0' register's index after function calls
+        Ok(AllocedReg::no_reg()) 
     }
 
     fn gen_var_assignment_stmt(&mut self, assign_stmt: &AssignStmt, expr_ast: &Expr) -> CodeGenResult {
@@ -700,15 +565,40 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         _ = self.gen_store_reg_value_into_id(expr_reg, &assign_stmt.sym_name)?;
         Ok(AllocedReg::no_reg())
     }
+
+    fn emit_leaf_fn_prol(&self, fn_label: &str, stack_size: usize) {
+        self.emit(&format!("\n.global _{fn_label}\n_{fn_label}:"));
+
+        if stack_size != 0 {
+            self.emit(&format!("sub sp, sp, #{stack_size}"));
+        }
+    }
+
+    fn emit_non_leaf_fn_prol(&self, fn_label: &str, stack_size: usize) {
+        self.emit(&format!("\n.global _{fn_label}\n_{fn_label}:"));
+        self.emit(&format!("sub sp, sp, #{stack_size}"));
+        self.emit(&format!("stp x29, x30, [sp, #{}]", stack_size - 16));
+        self.emit(&format!("add x29, sp, #{}", stack_size - 16));
+    }
+
+    fn emit_leaf_fn_epl(&self, stack_size: usize) {
+        self.emit(&format!("add sp, sp, #{stack_size}\nret\n"));
+    }
+
+    fn emit_non_leaf_fn_epl(&self, stack_size: usize) {
+        self.emit(&format!("ldp x29, x30, [sp, #{}]", stack_size - 16));
+        self.emit(&format!("add sp, sp, #{}\nret\n", stack_size));
+    }
 }
 
 impl<'aarch64> Aarch64CodeGen<'aarch64> {
     pub fn new(
-        reg_manager: RefCell<Aarch64RegManager>,
+        reg_manager: RefCell<Aarch64RegManager2>,
+        ctx: Rc<RefCell<CompilerCtx<'aarch64>>>
     ) -> Self {
         Self {
             reg_manager,
-            ctx: None,
+            ctx,
             label_id: 0,
             function_id: NO_REG,
             early_return_label_id: NO_REG,
@@ -716,9 +606,8 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
         }
     }
 
-    pub fn gen_with_ctx(&mut self, ctx: Rc<RefCell<CompilerCtx<'aarch64>>>, nodes: &Vec<AST>) {
-        self.label_id = ctx.borrow().label_id + 10;
-        self.ctx = Some(ctx);
+    pub fn gen_with_ctx(&mut self, nodes: &Vec<AST>) {
+        self.label_id = self.ctx.borrow().label_id + 10;
         self.start_gen(nodes);
     }
 
@@ -821,20 +710,17 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
         Ok(result)
     }
 
-    fn __allocate_reg(&mut self, val_type: &LitTypeVariant) -> AllocedReg {
-        let alloced_reg: RegAllocResult = self.reg_manager.borrow_mut().allocate(val_type, 0);
-        if alloced_reg.is_err() {
-            panic!("Couldn't allocate register");
-        }
-        alloced_reg.ok().unwrap()
+    fn __allocate_reg(&mut self, alloc_size: usize) -> AllocedReg {
+        self.reg_manager.borrow_mut().allocate_register(alloc_size)
     }
 
-    fn __allocate_param_reg(&mut self, val_type: &LitTypeVariant) -> AllocedReg {
-        let alloced_reg: RegAllocResult = self.reg_manager.borrow_mut().allocate_param_reg(val_type);
-        if alloced_reg.is_err() {
-            panic!("Couldn't allocate parameter register");
-        }
-        alloced_reg.ok().unwrap()
+    fn __allocate_param_reg(&mut self, alloc_size: usize) -> AllocedReg {
+        self.reg_manager.borrow_mut().allocate_param_register(alloc_size)
+    }
+
+    fn get_func_name(&mut self, index: usize) -> Option<String> {
+        let ctx_borrow = self.ctx.borrow();
+        ctx_borrow.get_func_name(index)
     }
 }
 
