@@ -12,5 +12,6 @@ members = [
     "compiler/kagc_ctx",
     "compiler/kagc_parser",
     "compiler/kagc_utils",
+    "compiler/kagc_ir",
     "kagc"
 ]

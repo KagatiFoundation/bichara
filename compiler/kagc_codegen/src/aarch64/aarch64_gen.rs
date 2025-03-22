@@ -29,6 +29,9 @@ use std::rc::Rc;
 
 use kagc_ast::*;
 use kagc_ctx::*;
+use kagc_ir::ir_instr::*;
+use kagc_ir::ir_instr::IR;
+use kagc_ir::ir_types::IRLitType;
 use kagc_symbol::*;
 use kagc_target::asm::aarch64::*;
 use kagc_target::reg::*;
@@ -36,6 +39,7 @@ use kagc_types::*;
 use kagc_utils::integer::*;
 
 use crate::errors::CodeGenErr;
+use crate::typedefs::CGRes;
 use crate::CodeGen;
 use crate::CodeGenResult;
 
@@ -551,6 +555,17 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             return Err(CodeGenErr::UndefinedSymbol);
         };
 
+        let mut reg_mgr = self.reg_manager.borrow_mut();
+
+        let mut spilled_regs: Vec<usize> = vec![];
+
+        for i in 0..func_call_expr.args.len() {
+            if !reg_mgr.is_free(i) {
+                spilled_regs.push(i);
+                reg_mgr.free_register(i);
+            }
+        }
+
         println!("bl _{}", func_info.name);
         Ok(AllocedReg::no_reg()) 
     }
@@ -589,6 +604,109 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         self.emit(&format!("ldp x29, x30, [sp, #{}]", stack_size - 16));
         self.emit(&format!("add sp, sp, #{}\nret\n", stack_size));
     }
+
+    fn gen_ir_fn(&mut self, ast: &AST) -> CGRes {
+        self.reg_manager.borrow_mut().reset();
+
+        let func_id: usize = if let Some(Stmt::FuncDecl(func_decl)) = &ast.kind.as_stmt() {
+            func_decl.func_id
+        } else {
+            panic!("Not a valid symbol table indexing method");
+        };
+
+        let func_name: String = self.get_func_name(func_id).expect("Function name error!");
+
+        if let Some(finfo) = self.ctx.borrow().func_table.get(&func_name) {
+            self.current_function = Some(finfo.clone());
+        }
+
+        let func_info = self.current_function.as_ref().unwrap();
+
+        if func_info.storage_class == StorageClass::EXTERN {
+            return Ok(
+                IR::Func(
+                    IRFunc { 
+                        name: func_name, 
+                        params: vec![], 
+                        body: vec![],
+                        class: func_info.storage_class,
+                        is_leaf: true
+                    }
+                )
+            );
+        }
+
+        self.ctx.borrow_mut().switch_to_func_scope(func_id);
+
+        let store_class: StorageClass = func_info.storage_class;
+
+        let mut virtual_reg: usize = 0;
+
+        let params: Vec<IRLitType> = func_info.params.iter().map(|_| {
+            let reg: IRLitType = IRLitType::Reg(virtual_reg);
+            virtual_reg += 1;
+            reg
+        }).collect();
+
+        // generating code for function parameters
+        let mut reg_mgr = self.reg_manager();
+
+        drop(reg_mgr);
+
+        let mut fn_body: Vec<IR> = vec![];
+
+        for body_ast in ast.left.as_ref().unwrap().linearize() {
+            let body_ir: IR = self.gen_ir_from_node(body_ast, NO_REG)?;
+            fn_body.push(body_ir);
+        }
+
+        self.current_function = None;
+        self.ctx.borrow_mut().switch_to_global_scope();
+
+        let calls_fns: bool = ast.contains_operation(ASTOperation::AST_FUNC_CALL);
+
+        Ok(
+            IR::Func(
+                IRFunc { 
+                    name: func_name, 
+                    params, 
+                    body: fn_body,
+                    class: store_class,
+                    is_leaf: !calls_fns
+                }
+            )
+        )
+    }
+
+    fn gen_ir_var_decl(&mut self, ast: &AST) -> CGRes {
+        let ctx_borrow = self.ctx.borrow();
+
+        if let Some(Stmt::VarDecl(var_decl)) = ast.kind.as_stmt() {
+            let var_sym: &Symbol = if self.current_function.is_none() {
+                ctx_borrow.sym_table.get_symbol(var_decl.symtbl_pos).unwrap_or_else(|| panic!("Symbol not found with the index: {}", var_decl.symtbl_pos))
+            }
+            else {
+                let func_info: &FunctionInfo = self.current_function.as_ref().unwrap();
+                func_info.local_syms.get_symbol(var_decl.symtbl_pos).unwrap_or_else(|| panic!("Symbol not defined inside the function!"))
+            };
+
+            if ast.left.is_none() {
+                panic!("Variable is not assigned a value!");
+            }
+
+            let decl_ir: IR = IR::VarDecl(
+                IRVarDecl {
+                    sym_name: var_decl.sym_name.clone(),
+                    class: var_sym.class,
+                    offset: Some(var_sym.local_offset as usize),
+                    value: self.gen_ir_expr(ast.left.as_ref().unwrap()).ok().unwrap()
+                }
+            );
+            
+            return Ok(decl_ir);
+        }
+        panic!()
+    }
 }
 
 impl<'aarch64> Aarch64CodeGen<'aarch64> {
@@ -606,7 +724,7 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
         }
     }
 
-    pub fn gen_with_ctx(&mut self, nodes: &Vec<AST>) {
+    pub fn gen_with_ctx(&mut self, nodes: &[AST]) {
         self.label_id = self.ctx.borrow().label_id + 10;
         self.start_gen(nodes);
     }

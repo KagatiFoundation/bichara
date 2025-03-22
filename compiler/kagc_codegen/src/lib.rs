@@ -25,18 +25,48 @@ SOFTWARE.
 pub mod aarch64;
 pub mod errors;
 pub mod x86;
+pub mod typedefs;
 
 use std::cell::RefMut;
 
 use errors::CodeGenErr;
 use kagc_ast::*;
+use kagc_ir::{ir_instr::*, ir_types::*};
 use kagc_symbol::StorageClass;
-use kagc_target::reg::{AllocedReg, RegManager2};
-use kagc_types::{LitType, LitTypeVariant};
-
-pub type CodeGenResult = Result<AllocedReg, CodeGenErr>;
+use kagc_target::reg::*;
+use kagc_types::*;
+use typedefs::*;
 
 pub trait CodeGen {
+    fn gen_ir(&mut self, nodes: &[AST]) -> Vec<IR> {
+        let mut output: Vec<IR> = vec![];
+        for node in nodes {
+            let node_ir = self.gen_ir_from_node(node, NO_REG);
+            if node_ir.is_ok() {
+                output.push(node_ir.ok().unwrap());
+            }
+        }
+        output
+    }
+
+    fn gen_ir_from_node(&mut self, node: &AST, _reg: usize) -> CGRes {
+        if node.operation == ASTOperation::AST_GLUE {
+            if let Some(left) = node.left.as_ref() {
+                self.gen_ir_from_node(left, _reg)?;
+            }
+            if let Some(right) = node.right.as_ref() {
+                self.gen_ir_from_node(right, _reg)?;
+            }
+        }
+        else if node.operation == ASTOperation::AST_FUNCTION {
+            return self.gen_ir_fn(node);
+        }
+        else if node.operation == ASTOperation::AST_VAR_DECL {
+            return self.gen_ir_var_decl(node);
+        }
+        Err(CodeGenErr::NoContext)
+    }
+
     /// Starts the code generation process.
     ///
     /// This method initializes code generation by generating global symbols and marking the start of the `.text` section.
@@ -55,7 +85,7 @@ pub trait CodeGen {
     /// let ast = AST::new();
     /// generator.start_gen(&ast);
     /// ```
-    fn start_gen(&mut self, nodes: &Vec<AST>) where Self: Sized {
+    fn start_gen(&mut self, nodes: &[AST]) where Self: Sized {
         self.gen_global_symbols();
         // .text section starts from here
         println!("\n.text");
@@ -182,8 +212,7 @@ pub trait CodeGen {
             }
             Ok(AllocedReg::no_reg())
         }
-        else if (ast_node.operation == ASTOperation::AST_NONE)
-            || (ast_node.operation == ASTOperation::AST_ARR_VAR_DECL) {
+        else if ast_node.operation == ASTOperation::AST_NONE {
             return Ok(AllocedReg::no_reg());
         }  
         else if ast_node.operation == ASTOperation::AST_ASSIGN {
@@ -319,6 +348,59 @@ pub trait CodeGen {
     fn gen_cmp_and_set(&self, operation: ASTOperation, r1: AllocedReg, r2: AllocedReg) -> CodeGenResult;
 
     fn gen_function_stmt(&mut self, ast: &AST) -> CodeGenResult;
+
+    // *** IR CODE GENERATION *** //
+    fn gen_ir_fn(&mut self, ast: &AST) -> CGRes;
+
+    fn gen_ir_var_decl(&mut self, ast: &AST) -> CGRes;
+
+
+
+    fn gen_ir_expr(&self, ast: &AST) -> CGInstrRes {
+        if !ast.kind.is_expr() {
+            panic!("Needed an Expr--but found {:#?}", ast);
+        }
+        
+        if let ASTKind::ExprAST(expr) = &ast.kind {
+            let mut reg_mgr = self.reg_manager();
+
+            return match expr {
+                Expr::LitVal(lit_val) => {
+                    match &lit_val.value {
+                        LitType::I32(i32_value) => {
+                            let ir_reg = reg_mgr.allocate_register(64);
+                            Ok(
+                                IRInstr::Mov(
+                                    IRLitType::Reg(ir_reg.idx), 
+                                    IRLitType::Const(
+                                        IRLitVal::Int32(
+                                            *i32_value
+                                        )
+                                    )
+                                )
+                            )
+                        },
+                        LitType::I64(_) => todo!(),
+                        LitType::I16(_) => todo!(),
+                        LitType::U8(_) => todo!(),
+                        LitType::F64(_) => todo!(),
+                        LitType::F32(_) => todo!(),
+                        LitType::Void => todo!(),
+                        LitType::Str(_, _) => todo!(),
+                        LitType::Array(_) => todo!(),
+                        LitType::Null => todo!(),
+                        LitType::None => todo!(),
+                    }
+                },
+                _ => panic!("Oh no!!!")
+            };
+        }
+
+        CGInstrRes::Err(CodeGenErr::NoContext)
+    }
+
+
+    // *** IR CODE GENERATION *** //
 
     fn gen_while_stmt(&mut self, ast: &AST) -> CodeGenResult;
 

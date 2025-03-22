@@ -104,4 +104,6 @@ pub trait RegManager2 {
     fn reset(&mut self);
 
     fn name(&self, idx: usize, alloc_size: usize) -> String;
+
+    fn is_free(&self, idx: usize) -> bool;
 }

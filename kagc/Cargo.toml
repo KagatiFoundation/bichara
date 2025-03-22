@@ -21,3 +21,4 @@ kagc_parser = { path = "../compiler/kagc_parser" }
 kagc_sema = { path = "../compiler/kagc_sema" }
 kagc_lexer = { path = "../compiler/kagc_lexer" }
 kagc_codegen = { path = "../compiler/kagc_codegen" }
+kagc_ir = { path = "../compiler/kagc_ir" }

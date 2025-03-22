@@ -84,6 +84,9 @@ pub struct Symbol {
     /// is used to locate the symbol in the stack frame.
     pub local_offset: i32,
 
+    /// Function ID if the `class` is `LOCAL`
+    pub func_id: Option<usize>,
+
     /// The default value of the symbol, applicable only for global 
     /// symbols.
     pub default_value: Option<LitType>,
@@ -101,6 +104,7 @@ impl SymbolTrait for Symbol {
             name: "".to_string(),
             size: 0,
             sym_type: SymbolType::Variable,
+            func_id: None,
             __use_count: 0
         }
     }
@@ -124,7 +128,8 @@ impl Symbol {
             class,
             local_offset: 0,
             default_value: None,
-            __use_count: 0
+            __use_count: 0,
+            func_id: None
         }
     }
 
@@ -136,6 +141,7 @@ impl Symbol {
         class: StorageClass,
         local_offset: i32,
         default_value: Option<LitType>,
+        func_id: usize
     ) -> Self {
         Self {
             name,
@@ -146,6 +152,7 @@ impl Symbol {
             local_offset,
             default_value,
             __use_count: 0,  // Ignored or initialized to 0
+            func_id: Some(func_id)
         }
     }
 

@@ -25,8 +25,10 @@ SOFTWARE.
 use std::{cell::RefCell, rc::Rc};
 
 use kagc_ast::*;
-use kagc_codegen::aarch64::aarch64_gen::Aarch64CodeGen;
+use kagc_codegen::{aarch64::aarch64_gen::*, CodeGen};
 use kagc_ctx::CompilerCtx;
+use kagc_ir::ir_asm::aarch64::Aarch64IRToASM;
+use kagc_ir::ir_asm::ir_asm_gen::IRToASM;
 use kagc_lexer::Tokenizer;
 use kagc_parser::Parser;
 use kagc_sema::SemanticAnalyzer;
@@ -84,7 +86,11 @@ fn main() {
             s_analyzer.start_analysis(&mut parse_result);
 
             if !parser_borrow.has_parsing_errors() {
-                cg.gen_with_ctx(&parse_result);
+                // cg.gen_with_ctx(&parse_result);
+                let node_irs = cg.gen_ir(&parse_result);
+                let mut asm_gen = Aarch64IRToASM::new(Rc::clone(&ctx));
+                let output = asm_gen.gen_asm(&node_irs);
+                output.iter().for_each(|op| println!("{op}"));
             }
         }
         std::mem::drop(parser_borrow);

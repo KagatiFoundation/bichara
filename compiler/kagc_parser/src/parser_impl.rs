@@ -307,6 +307,7 @@ impl<'parser> Parser<'parser> {
                         StorageClass::PARAM, 
                         self.local_offset, 
                         None,
+                        self.current_function_id
                     ));
                     func_params.add_symbol(param.clone());
                     self.temp_local_params.add_symbol(param);
@@ -703,6 +704,7 @@ impl<'parser> Parser<'parser> {
         // calculate offset here
         if inside_func {
             sym.local_offset = self.gen_next_local_offset(var_type);
+            sym.func_id = Some(self.current_function_id);
         }
 
         let symbol_add_pos: usize = if inside_func {
@@ -797,7 +799,8 @@ impl<'parser> Parser<'parser> {
             array_size,
             self.ident_var_class(),
             self.gen_next_local_offset(array_type),
-            None
+            None,
+            self.current_function_id
         );
 
         self.local_offset += (array_size * array_type.size()) as i32 + 4; // allocate '4' extra bytes for size information

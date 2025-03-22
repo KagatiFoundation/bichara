@@ -27,8 +27,6 @@ SOFTWARE.
 use kagc_token::{FromTokenKind, Token, TokenKind};
 use kagc_types::{BTypeComparable, LitTypeVariant, TypeSized};
 
-use crate::{Expr, WidenExpr};
-
 use super::ASTKind;
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Debug)]
@@ -206,6 +204,24 @@ impl AST {
         }
     }
 
+    pub fn linearize(&self) -> Vec<&AST> {
+        let mut output: Vec<&AST> = vec![];
+
+        if self.operation == ASTOperation::AST_GLUE {
+            if let Some(left) = &self.left {
+                output.extend(left.linearize());
+            }
+
+            if let Some(right) = &self.right {
+                output.extend(right.linearize());
+            }
+        }
+        else {
+            output.push(self);
+        }
+        output
+    }
+
     #[allow(unused_parens)]
     pub fn contains_operation(&self, op: ASTOperation) -> bool {
         fn check_node_for_operation(node: &Option<Box<AST>>, op: ASTOperation) -> bool {
@@ -223,7 +239,6 @@ impl AST {
         check_node_for_operation(&self.left, op) || 
         check_node_for_operation(&self.right, op)
     }
-    
 }
 
 impl BTypeComparable for AST {

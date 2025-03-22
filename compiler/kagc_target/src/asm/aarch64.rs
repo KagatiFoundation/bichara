@@ -143,4 +143,8 @@ impl RegManager2 for Aarch64RegManager2 {
             format!("w{}", idx)
         }
     }
+
+    fn is_free(&self, idx: usize) -> bool {
+        !self.register_map.contains_key(&idx)
+    }
 }
