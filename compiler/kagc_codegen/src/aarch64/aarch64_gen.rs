@@ -33,13 +33,15 @@ use kagc_ir::ir_instr::*;
 use kagc_ir::ir_instr::IR;
 use kagc_ir::ir_types::IRLitType;
 use kagc_symbol::*;
-use kagc_target::asm::aarch64::*;
 use kagc_target::reg::*;
+use kagc_target::asm::aarch64::Aarch64RegManager2;
 use kagc_types::*;
 use kagc_utils::integer::*;
 
 use crate::errors::CodeGenErr;
 use crate::typedefs::CGRes;
+use crate::typedefs::StackOffset;
+use crate::typedefs::TempCounter;
 use crate::CodeGen;
 use crate::CodeGenResult;
 
@@ -52,7 +54,7 @@ lazy_static::lazy_static! {
 }
 
 pub struct Aarch64CodeGen<'aarch64> {
-    reg_manager: RefCell<Aarch64RegManager2>,
+    reg_manager: Rc<RefCell<Aarch64RegManager2>>,
 
     ctx: Rc<RefCell<CompilerCtx<'aarch64>>>,
 
@@ -65,7 +67,9 @@ pub struct Aarch64CodeGen<'aarch64> {
     /// Current function that is being parsed
     current_function: Option<FunctionInfo>,
     
-    early_return_label_id: usize
+    early_return_label_id: usize,
+
+    temp_counter: usize
 }
 
 impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
@@ -624,7 +628,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
 
         if func_info.storage_class == StorageClass::EXTERN {
             return Ok(
-                IR::Func(
+                vec![IR::Func(
                     IRFunc { 
                         name: func_name, 
                         params: vec![], 
@@ -632,7 +636,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
                         class: func_info.storage_class,
                         is_leaf: true
                     }
-                )
+                )]
             );
         }
 
@@ -640,24 +644,24 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
 
         let store_class: StorageClass = func_info.storage_class;
 
+        let mut stack_off: usize = 0;
+
+        let mut local_temp_counter: TempCounter = 0;
+
         let mut virtual_reg: usize = 0;
 
         let params: Vec<IRLitType> = func_info.params.iter().map(|_| {
-            let reg: IRLitType = IRLitType::Reg(virtual_reg);
+            let reg: IRLitType = IRLitType::Reg(AllocedReg { size: 64, idx: virtual_reg });
             virtual_reg += 1;
+            stack_off += 1;
             reg
         }).collect();
-
-        // generating code for function parameters
-        let mut reg_mgr = self.reg_manager();
-
-        drop(reg_mgr);
 
         let mut fn_body: Vec<IR> = vec![];
 
         for body_ast in ast.left.as_ref().unwrap().linearize() {
-            let body_ir: IR = self.gen_ir_from_node(body_ast, NO_REG)?;
-            fn_body.push(body_ir);
+            let body_ir: Vec<IR> = self.gen_ir_from_node(body_ast, &mut stack_off, &mut local_temp_counter)?;
+            fn_body.extend(body_ir);
         }
 
         self.current_function = None;
@@ -666,7 +670,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         let calls_fns: bool = ast.contains_operation(ASTOperation::AST_FUNC_CALL);
 
         Ok(
-            IR::Func(
+            vec![IR::Func(
                 IRFunc { 
                     name: func_name, 
                     params, 
@@ -674,36 +678,54 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
                     class: store_class,
                     is_leaf: !calls_fns
                 }
-            )
+            )]
         )
     }
 
-    fn gen_ir_var_decl(&mut self, ast: &AST) -> CGRes {
+    fn gen_ir_var_decl(&mut self, ast: &AST, stack_offset: &mut StackOffset, tmp_counter: &mut TempCounter) -> CGRes {
         let ctx_borrow = self.ctx.borrow();
 
         if let Some(Stmt::VarDecl(var_decl)) = ast.kind.as_stmt() {
-            let var_sym: &Symbol = if self.current_function.is_none() {
-                ctx_borrow.sym_table.get_symbol(var_decl.symtbl_pos).unwrap_or_else(|| panic!("Symbol not found with the index: {}", var_decl.symtbl_pos))
+            let var_sym: Symbol = if self.current_function.is_none() {
+                ctx_borrow.sym_table.get_symbol(var_decl.symtbl_pos).unwrap_or_else(|| panic!("Symbol not found with the index: {}", var_decl.symtbl_pos)).clone()
             }
             else {
                 let func_info: &FunctionInfo = self.current_function.as_ref().unwrap();
-                func_info.local_syms.get_symbol(var_decl.symtbl_pos).unwrap_or_else(|| panic!("Symbol not defined inside the function!"))
+                func_info.local_syms.get_symbol(var_decl.symtbl_pos).unwrap_or_else(|| panic!("Symbol not defined inside the function!")).clone()
             };
+
+            drop(ctx_borrow);
 
             if ast.left.is_none() {
                 panic!("Variable is not assigned a value!");
             }
 
+            let var_decl_val: Vec<IRInstr> = self.gen_ir_expr(ast.left.as_ref().unwrap(), tmp_counter)?;
+
             let decl_ir: IR = IR::VarDecl(
                 IRVarDecl {
                     sym_name: var_decl.sym_name.clone(),
                     class: var_sym.class,
-                    offset: Some(var_sym.local_offset as usize),
-                    value: self.gen_ir_expr(ast.left.as_ref().unwrap()).ok().unwrap()
+                    offset: Some(*stack_offset),
+                    value: var_decl_val.last().unwrap().clone().dest().unwrap()
                 }
             );
+
+            // increment the stack offset after use
+            *stack_offset += 1;
+
+            // increment the temporary counter after use
+            *tmp_counter += 1;
+
+            let mut result: Vec<IR> = vec![];
+
+            for instr in var_decl_val {
+                result.push(IR::Instr(instr));
+            }
+
+            result.push(decl_ir);
             
-            return Ok(decl_ir);
+            return Ok(result);
         }
         panic!()
     }
@@ -711,7 +733,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
 
 impl<'aarch64> Aarch64CodeGen<'aarch64> {
     pub fn new(
-        reg_manager: RefCell<Aarch64RegManager2>,
+        reg_manager: Rc<RefCell<Aarch64RegManager2>>,
         ctx: Rc<RefCell<CompilerCtx<'aarch64>>>
     ) -> Self {
         Self {
@@ -720,7 +742,8 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
             label_id: 0,
             function_id: NO_REG,
             early_return_label_id: NO_REG,
-            current_function: None
+            current_function: None,
+            temp_counter: 0
         }
     }
 

@@ -5,6 +5,10 @@ use crate::errors::CodeGenErr;
 
 pub type CodeGenResult = Result<AllocedReg, CodeGenErr>;
 
-pub type CGRes = Result<IR, CodeGenErr>;
+pub type CGRes = Result<Vec<IR>, CodeGenErr>;
 
-pub type CGInstrRes = Result<IRInstr, CodeGenErr>;
+pub type CGExprEvalRes = Result<Vec<IRInstr>, CodeGenErr>;
+
+pub type TempCounter = usize;
+
+pub type StackOffset = usize;

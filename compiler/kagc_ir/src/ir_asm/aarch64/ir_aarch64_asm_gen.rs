@@ -1,45 +1,79 @@
 use std::{cell::RefCell, rc::Rc};
 
 use kagc_ctx::CompilerCtx;
-use kagc_symbol::{FunctionInfo, StorageClass};
-use kagc_target::reg::RegIdx;
+use kagc_symbol::StorageClass;
+use kagc_target::{asm::aarch64::*, reg::*};
 
 use crate::{ir_asm::ir_asm_gen::*, ir_instr::*, ir_types::*};
 
+#[derive(Debug, Clone, Copy)]
+struct ComptFnProps {
+    pub is_leaf: bool,
+    pub stack_size: usize
+}
+
 pub struct Aarch64IRToASM<'irgen> {
-    pub ctx: Rc<RefCell<CompilerCtx<'irgen>>>
+    pub ctx: Rc<RefCell<CompilerCtx<'irgen>>>,
+    pub reg_manager: Rc<RefCell<Aarch64RegManager2>>,
+    compt_fn_props: Option<ComptFnProps>
 }
 
 impl<'irgen> Aarch64IRToASM<'irgen> {
     #[allow(clippy::new_without_default)]
-    pub fn new(ctx: Rc<RefCell<CompilerCtx<'irgen>>>) -> Self {
+    pub fn new(ctx: Rc<RefCell<CompilerCtx<'irgen>>>, rm: Rc<RefCell<Aarch64RegManager2>>) -> Self {
         Self {
-            ctx
+            ctx,
+            reg_manager: rm,
+            compt_fn_props: None
         }
     }
 
-    fn compute_stack_size(&self, func_name: &str, is_leaf: bool) -> usize {
-        let ctx_borrow = self.ctx.borrow();
+    fn switch_to_func_scope(&mut self, func_props: ComptFnProps) {
+        self.compt_fn_props = Some(func_props);
+    }
 
-        let func_info: &FunctionInfo = ctx_borrow.func_table.get(func_name)
-                .unwrap_or_else(|| panic!("Function '{}' not found in function table", func_name));
+    fn switch_to_global_scope(&mut self) {
+        self.compt_fn_props = None;
+    }
 
-        let mut stack_size: usize = func_info.local_syms.count() * 16;
+    pub fn compute_stack_size_fn_ir(&self, func_ir: &IRFunc) -> Option<usize> {
+        let mut stack_size: usize = func_ir.params.len() * 8; // each address is 8-bytes long
 
-        if !is_leaf {
-            stack_size += 2 * 16 * 2;
+        if !func_ir.is_leaf {
+            stack_size += 16;
         }
 
-        Aarch64IRToASM::align_to_16(stack_size)
+        for ir in &func_ir.body {
+            if let IR::VarDecl(_) = ir {
+                stack_size += 8;
+            }
+        }
+
+        Some(Aarch64IRToASM::align_to_16(stack_size))
     }
 
     fn align_to_16(value: usize) -> usize {
         (value + 16 - 1) & !15
     }
+
+    fn gen_fn_param_asm(&self, param: &IRLitType, stack_size: usize, is_leaf_fn: bool) -> String {
+        match param {
+            IRLitType::Reg(alloced_reg) => {
+                let stack_off: usize = (alloced_reg.idx * 8) + 8;
+                if is_leaf_fn {
+                    format!("str x{}, [sp, #{}]", alloced_reg.idx, stack_size - stack_off)
+                }
+                else {
+                    format!("str x{}, [x29, #-{}]", alloced_reg.idx, stack_off)
+                }
+            },
+            _ => unimplemented!()
+        }
+    }
 }
 
 impl<'irgen> IRToASM for Aarch64IRToASM<'irgen> {
-    fn gen_ir_fn_asm(&mut self, fn_ir: &IRFunc, reg: usize) -> String {
+    fn gen_ir_fn_asm(&mut self, fn_ir: &IRFunc) -> String {
         let mut output_str: String = "".to_string();
 
         if fn_ir.class == StorageClass::EXTERN {
@@ -47,53 +81,61 @@ impl<'irgen> IRToASM for Aarch64IRToASM<'irgen> {
             return  output_str;
         }
 
-        let stack_size: usize = self.compute_stack_size(&fn_ir.name, fn_ir.is_leaf);
+        let stack_size: usize = self.compute_stack_size_fn_ir(fn_ir).unwrap();
 
         if fn_ir.is_leaf {
             output_str.push_str(&format!("{}\n", self.gen_leaf_fn_prol(&fn_ir.name, stack_size)));
         }
+        else {
+            output_str.push_str(&format!("{}\n", self.gen_non_leaf_fn_prol(&fn_ir.name, stack_size)));
+        }
+
+        for param in &fn_ir.params {
+            output_str.push_str(&format!("{}\n", self.gen_fn_param_asm(param, stack_size, fn_ir.is_leaf)));
+        }
+
+        // generate the code for function body
+        self.switch_to_func_scope(
+            ComptFnProps { 
+                is_leaf: fn_ir.is_leaf, 
+                stack_size
+            }
+        );
 
         for body_ir in &fn_ir.body {
-            let body_asm: String = self.gen_asm_from_ir_node(body_ir, reg);
+            let body_asm: String = self.gen_asm_from_ir_node(body_ir);
             output_str.push_str(&format!("{}\n", &body_asm));
         }
 
+        // revert back to global scope
+        self.switch_to_global_scope();
+
         if fn_ir.is_leaf {
             output_str.push_str(&self.gen_leaf_fn_epl(stack_size));
+        }
+        else {
+            output_str.push_str(&self.gen_non_leaf_fn_epl(stack_size));
         }
 
         output_str
     }
     
-    fn gen_ir_local_var_decl_asm(&mut self, vdecl_ir: &IRVarDecl, reg: usize) -> String {
+    fn gen_ir_local_var_decl_asm(&mut self, vdecl_ir: &IRVarDecl) -> String {
         let mut output_str: String = "".to_string();
 
-        let (reg, code): (usize, String) = self.gen_ir_instr(&vdecl_ir.value, reg);
-
-        output_str.push_str(&format!("{code}\n"));
-
-        let stack_off: usize = vdecl_ir.offset.unwrap_or_else(|| panic!("Local variables must have stack offset!"));
+        // since we are parsing a local variable, then compile-time function props is not None
+        let fn_props: ComptFnProps = self.compt_fn_props.unwrap();
         
-        output_str.push_str(&format!("str x{reg}, [x29, #-{}]", (stack_off * 8) + 8));
+        let stack_off: usize = vdecl_ir.offset.unwrap_or_else(|| panic!("Local variables must have stack offset!"));
+
+        if !fn_props.is_leaf {
+            output_str.push_str(&format!("str x0, [x29, #-{}]", (stack_off * 8) + 8));
+        }
+        else {
+            output_str.push_str(&format!("str x0, [sp, #{}]", fn_props.stack_size - ((stack_off * 8) + 8)));
+        }
 
         output_str
-    }
-
-    fn gen_ir_instr(&mut self, instr: &IRInstr, reg: usize) -> (RegIdx, String) {
-        match instr {
-            IRInstr::Mov(reg, value) => {
-                let idx = if let IRLitType::Reg(reg_idx) = reg {
-                    *reg_idx
-                } 
-                else {
-                    panic!("MOV only accepts register index as the first literal type!")
-                };
-                
-                (idx, format!("mov x{}, {}", idx, value.into_str()))
-            },
-            IRInstr::Add(irlit_type, irlit_type1, irlit_type2) => todo!(),
-            IRInstr::Call(_, irlit_types, irlit_type) => todo!(),
-        }
     }
     
     fn gen_leaf_fn_prol(&self, fn_label: &str, stack_size: usize) -> String {
@@ -116,5 +158,22 @@ impl<'irgen> IRToASM for Aarch64IRToASM<'irgen> {
     
     fn gen_non_leaf_fn_epl(&self, stack_size: usize) -> String {
         todo!()
+    }
+    
+    fn gen_asm_store(&mut self, idx: RegIdx, stack_off: usize) -> String {
+        println!("spill {}", idx);
+        "".to_string()
+    }
+    
+    fn gen_asm_load(&mut self, idx: RegIdx, stack_off: usize) -> String {
+        todo!()
+    }
+    
+    fn gen_ir_mov_asm(&mut self, dest: &IRLitType, src: &IRLitType) -> String {
+        format!("mov {}, {}", dest.into_str(), src.into_str())
+    }
+    
+    fn gen_ir_add_asm(&mut self, dest: &IRLitType, op1: &IRLitType, op2: &IRLitType) -> String {
+        format!("add {}, {}, {}", dest.into_str(), op1.into_str(), op2.into_str())
     }
 }

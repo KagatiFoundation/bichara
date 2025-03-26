@@ -37,7 +37,7 @@ pub const NO_REG: usize = 0xFFFFFFFF;
 
 pub const EARLY_RETURN: usize = 0xEEEEEEEE;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AllocedReg {
     pub size: RegSize,
     pub idx: RegIdx

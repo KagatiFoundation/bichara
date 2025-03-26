@@ -1,4 +1,6 @@
-#[derive(Debug)]
+use kagc_target::reg::AllocedReg;
+
+#[derive(Debug, Clone)]
 pub enum IRLitVal {
     Str(String),
     Int64(i64),
@@ -15,19 +17,21 @@ impl IRLitVal {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IRLitType {
     Var(String),
     Const(IRLitVal),
-    Reg(usize)
+    Reg(AllocedReg),
+    Temp(usize)
 }
 
 impl IRLitType {
     pub fn into_str(&self) -> String {
         match self {
-            IRLitType::Var(var) => var.clone(),
-            IRLitType::Const(irlit_val) => irlit_val.into_str(),
-            IRLitType::Reg(reg) => format!("x{}", reg),
+            Self::Var(var) => var.clone(),
+            Self::Const(irlit_val) => irlit_val.into_str(),
+            Self::Reg(reg) => reg.idx.to_string(),
+            Self::Temp(tmp) => tmp.to_string()
         }
     }
 }

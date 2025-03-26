@@ -22,37 +22,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use kagc_ast::{ASTOperation, AST};
-use kagc_ctx::CompilerCtx;
-use kagc_symbol::FunctionInfo;
-
-pub fn compute_stack_size(kctx: &CompilerCtx, func_ast: &AST, func_name: &str) -> Result<usize, ()> {
-    // check if this function calls other functions
-    let calls_fns: bool = func_ast.left.as_ref()
-        .map_or(
-            false, 
-            |body| body.contains_operation(ASTOperation::AST_FUNC_CALL)
-        );
-    
-    let func_info: &FunctionInfo = kctx.func_table.get(func_name)
-            .unwrap_or_else(|| panic!("Function '{}' not found in function table", func_name));
-
-    let mut stack_size: usize = func_info.local_syms.count() * 16;
-    if calls_fns {
-        stack_size += 2 * 16 * 2;
-    }
-    Ok(align_to_16(stack_size))
-}
-
-// align values to addresses divisible by 8
-fn _align_to_8(value: usize) -> usize {
-    (value + 8 - 1) & !7
-}
-
-fn align_to_16(value: usize) -> usize {
-    (value + 16 - 1) & !15
-}
-
 #[cfg(test)]
 mod tests {
 

@@ -76,6 +76,24 @@ pub enum LitType {
     None, // placeholder
 }
 
+impl From<LitType> for String {
+    fn from(value: LitType) -> Self {
+        match value {
+            LitType::I64(_) => todo!(),
+            LitType::I32(val) => val.to_string(),
+            LitType::I16(_) => todo!(),
+            LitType::U8(_) => todo!(),
+            LitType::F64(_) => todo!(),
+            LitType::F32(_) => todo!(),
+            LitType::Void => todo!(),
+            LitType::Str(_, _) => todo!(),
+            LitType::Array(_) => todo!(),
+            LitType::Null => todo!(),
+            LitType::None => todo!(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LitTypeArray {
     items_count: usize,
@@ -146,21 +164,37 @@ impl PartialEq for LitType {
     }
 }
 
-impl LitType {
-    pub fn is_i32(&self) -> bool {
-        matches!(self, Self::I32(_))
-    }
-
-    pub fn unwrap_i32(&self) -> i32 {
-        match self {
-            Self::I32(value) => *value,
-            _ => panic!("Can't unwrap i32 value from type: '{:?}'", self),
+macro_rules! impl_ltype_unwrap {
+    ($fn_name:ident, $variant:ident, $ty:ty) => {
+        pub fn $fn_name(&self) -> Option<&$ty> {
+            if let LitType::$variant(val) = self {
+                Some(val)
+            } else {
+                None
+            }
         }
-    }
+    };
+}
 
-    pub fn is_char(&self) -> bool {
-        matches!(self, Self::U8(_))
-    }
+macro_rules! impl_ltype_tychk {
+    ($fn_name:ident, $variant:ident) => {
+        pub fn $fn_name(&self) -> bool {
+            matches!(self, Self::$variant(_))
+        }
+    };
+}
+
+impl LitType {
+    impl_ltype_tychk!(is_i32, I32);
+    impl_ltype_tychk!(is_i64, I64);
+    impl_ltype_tychk!(is_char, U8);
+
+    impl_ltype_unwrap!(unwrap_i64, I64, i64);
+    impl_ltype_unwrap!(unwrap_i32, I32, i32);
+    impl_ltype_unwrap!(unwrap_i16, I16, i16);
+    impl_ltype_unwrap!(unwrap_u8, U8, u8);
+    impl_ltype_unwrap!(unwrap_f64, F64, f64);
+    impl_ltype_unwrap!(unwrap_f32, F32, f32);
 
     pub fn variant(&self) -> LitTypeVariant {
         match self {

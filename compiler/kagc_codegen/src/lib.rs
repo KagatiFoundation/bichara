@@ -41,28 +41,28 @@ pub trait CodeGen {
     fn gen_ir(&mut self, nodes: &[AST]) -> Vec<IR> {
         let mut output: Vec<IR> = vec![];
         for node in nodes {
-            let node_ir = self.gen_ir_from_node(node, NO_REG);
+            let node_ir: Result<Vec<IR>, CodeGenErr> = self.gen_ir_from_node(node, &mut 0xFFFFFFFF, &mut 0xFFFFFFFF);
             if node_ir.is_ok() {
-                output.push(node_ir.ok().unwrap());
+                output.extend(node_ir.ok().unwrap());
             }
         }
         output
     }
 
-    fn gen_ir_from_node(&mut self, node: &AST, _reg: usize) -> CGRes {
+    fn gen_ir_from_node(&mut self, node: &AST, stack_offset: &mut StackOffset, tmp_counter: &mut TempCounter) -> CGRes {
         if node.operation == ASTOperation::AST_GLUE {
             if let Some(left) = node.left.as_ref() {
-                self.gen_ir_from_node(left, _reg)?;
+                self.gen_ir_from_node(left, stack_offset, tmp_counter)?;
             }
             if let Some(right) = node.right.as_ref() {
-                self.gen_ir_from_node(right, _reg)?;
+                self.gen_ir_from_node(right, stack_offset, tmp_counter)?;
             }
         }
         else if node.operation == ASTOperation::AST_FUNCTION {
             return self.gen_ir_fn(node);
         }
         else if node.operation == ASTOperation::AST_VAR_DECL {
-            return self.gen_ir_var_decl(node);
+            return self.gen_ir_var_decl(node, stack_offset, tmp_counter);
         }
         Err(CodeGenErr::NoContext)
     }
@@ -352,51 +352,88 @@ pub trait CodeGen {
     // *** IR CODE GENERATION *** //
     fn gen_ir_fn(&mut self, ast: &AST) -> CGRes;
 
-    fn gen_ir_var_decl(&mut self, ast: &AST) -> CGRes;
+    fn gen_ir_var_decl(&mut self, ast: &AST, stack_offset: &mut usize, tmp_counter: &mut TempCounter) -> CGRes;
 
 
 
-    fn gen_ir_expr(&self, ast: &AST) -> CGInstrRes {
+    fn gen_ir_expr(&mut self, ast: &AST, tmp_counter: &mut TempCounter) -> CGExprEvalRes {
         if !ast.kind.is_expr() {
             panic!("Needed an Expr--but found {:#?}", ast);
         }
         
         if let ASTKind::ExprAST(expr) = &ast.kind {
-            let mut reg_mgr = self.reg_manager();
+            return self.__gen_expr(expr, tmp_counter)
+        }
 
-            return match expr {
-                Expr::LitVal(lit_val) => {
-                    match &lit_val.value {
-                        LitType::I32(i32_value) => {
-                            let ir_reg = reg_mgr.allocate_register(64);
-                            Ok(
-                                IRInstr::Mov(
-                                    IRLitType::Reg(ir_reg.idx), 
-                                    IRLitType::Const(
-                                        IRLitVal::Int32(
-                                            *i32_value
-                                        )
+        Err(CodeGenErr::NoContext)
+    }
+
+    fn __gen_expr(
+        &mut self,
+        expr: &Expr,
+        tmp_counter: &mut TempCounter
+    ) -> CGExprEvalRes {
+        match expr {
+            Expr::LitVal(litexpr) => self.gen_lit_ir_expr(litexpr, tmp_counter),
+            Expr::Binary(binexpr) => self.gen_bin_ir_expr(binexpr, tmp_counter),
+            _ => todo!()
+        }
+    }
+
+    fn gen_lit_ir_expr(&mut self, lit_expr: &LitValExpr, tmp_counter: &mut TempCounter) -> CGExprEvalRes {
+        let lit_val_tmp: usize = *tmp_counter;
+        *tmp_counter += 1;
+        
+        return match lit_expr.result_type {
+            LitTypeVariant::I32 => {
+                let i32_value = lit_expr.value.unwrap_i32().unwrap_or_else(|| panic!("No i32 value!"));
+                Ok(
+                        vec![
+                            IRInstr::Mov(
+                                IRLitType::Temp(lit_val_tmp), 
+                                IRLitType::Const(
+                                    IRLitVal::Int32(
+                                        *i32_value
                                     )
                                 )
                             )
-                        },
-                        LitType::I64(_) => todo!(),
-                        LitType::I16(_) => todo!(),
-                        LitType::U8(_) => todo!(),
-                        LitType::F64(_) => todo!(),
-                        LitType::F32(_) => todo!(),
-                        LitType::Void => todo!(),
-                        LitType::Str(_, _) => todo!(),
-                        LitType::Array(_) => todo!(),
-                        LitType::Null => todo!(),
-                        LitType::None => todo!(),
-                    }
-                },
-                _ => panic!("Oh no!!!")
-            };
+                        ]
+                )
+            },
+            _ => todo!()
         }
+    }
 
-        CGInstrRes::Err(CodeGenErr::NoContext)
+    fn gen_bin_ir_expr(&mut self, bin_expr: &BinExpr, tmp_counter: &mut TempCounter) -> CGExprEvalRes {
+        let mut irs: Vec<IRInstr> = vec![];
+
+        let left_expr = self.__gen_expr(&bin_expr.left, tmp_counter)?;
+        let right_expr = self.__gen_expr(&bin_expr.right, tmp_counter)?;
+
+        let left_dest = left_expr.last().unwrap_or_else(|| panic!("No left destination found! Abort!"));
+        let right_dest = right_expr.last().unwrap_or_else(|| panic!("No left destination found! Abort!"));
+
+        let bin_expr_type: IRInstr = match bin_expr.operation {
+            ASTOperation::AST_ADD => {
+                let dest: usize = *tmp_counter;
+                *tmp_counter += 1;
+
+                self.gen_ir_add(IRLitType::Temp(dest), left_dest.dest().unwrap(), right_dest.dest().unwrap())
+            }
+            _ => todo!()
+        };
+
+        irs.extend(left_expr);
+        irs.extend(right_expr);
+        irs.push(bin_expr_type);
+
+        Ok(
+            irs
+        )
+    }
+
+    fn gen_ir_add(&mut self, dest: IRLitType, op1: IRLitType, op2: IRLitType) -> IRInstr {
+       IRInstr::Add(dest, op1, op2)
     }
 
 

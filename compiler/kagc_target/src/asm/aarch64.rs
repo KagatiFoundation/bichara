@@ -27,7 +27,7 @@ impl AllocedReg {
 pub struct Aarch64RegManager2 {
     available_registers: Vec<bool>,
     register_map: HashMap<usize, RegState>,
-    spilled_stack: VecDeque<usize>,
+    pub spilled_stack: VecDeque<usize>,
 }
 
 impl Aarch64RegManager2 {

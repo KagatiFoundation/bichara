@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+use core::panic;
 use std::{cell::RefCell, rc::Rc};
 
 use kagc_ast::*;
@@ -35,6 +36,58 @@ use kagc_sema::SemanticAnalyzer;
 use kagc_symbol::*;
 use kagc_target::asm::aarch64::*;
 use kagc_token::Token;
+use kagc_types::{LitType, LitTypeVariant};
+
+fn main2() {
+    let mut tmp_counter: usize = 0;
+
+    let bin_op = AST::new(
+        ASTKind::ExprAST(
+            Expr::Binary(
+                BinExpr { 
+                    operation: ASTOperation::AST_ADD, 
+                    left: Box::new(
+                        Expr::LitVal(
+                            LitValExpr { 
+                                result_type: LitTypeVariant::I32, 
+                                value: LitType::I32(12)
+                            }
+                        )
+                    ), 
+                    right: Box::new(
+                        Expr::LitVal(
+                            LitValExpr { 
+                                result_type: LitTypeVariant::I32, 
+                                value: LitType::I32(3)
+                            }
+                        )
+                    ), 
+                    result_type: LitTypeVariant::I32
+                }
+            )
+        ), 
+        ASTOperation::AST_ADD,
+        None, 
+        None, 
+        LitTypeVariant::I32
+    );
+
+    let var_decl = AST::new(
+        ASTKind::StmtAST(
+            Stmt::VarDecl(
+                VarDeclStmt { 
+                    symtbl_pos: 0, 
+                    sym_name: "number".to_string(), 
+                    class: StorageClass::LOCAL 
+                }
+            )
+        ), 
+        ASTOperation::AST_VAR_DECL, 
+        Some(bin_op), 
+        None, 
+        LitTypeVariant::None
+    );
+}
 
 fn main() {
     // tokenizer
@@ -60,10 +113,10 @@ fn main() {
     let mut s_analyzer: SemanticAnalyzer = SemanticAnalyzer::new(Rc::clone(&ctx));
 
     // register manager
-    let rm: RefCell<Aarch64RegManager2> = RefCell::new(Aarch64RegManager2::new());
+    let rm: Rc<RefCell<Aarch64RegManager2>> = Rc::new(RefCell::new(Aarch64RegManager2::new()));
 
     // aarch64 code generator
-    let mut cg: Aarch64CodeGen = Aarch64CodeGen::new(rm, Rc::clone(&ctx));
+    let mut cg: Aarch64CodeGen = Aarch64CodeGen::new(Rc::clone(&rm), Rc::clone(&ctx));
 
     for sf in &mut source_files {
         let read_res: Result<i32, std::io::Error> = sf.read();
@@ -88,7 +141,7 @@ fn main() {
             if !parser_borrow.has_parsing_errors() {
                 // cg.gen_with_ctx(&parse_result);
                 let node_irs = cg.gen_ir(&parse_result);
-                let mut asm_gen = Aarch64IRToASM::new(Rc::clone(&ctx));
+                let mut asm_gen = Aarch64IRToASM::new(Rc::clone(&ctx), Rc::clone(&rm));
                 let output = asm_gen.gen_asm(&node_irs);
                 output.iter().for_each(|op| println!("{op}"));
             }

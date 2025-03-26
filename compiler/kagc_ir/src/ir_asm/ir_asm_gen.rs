@@ -23,42 +23,61 @@ SOFTWARE.
 */
 
 use kagc_symbol::StorageClass;
-use kagc_target::reg::{RegIdx, NO_REG};
+use kagc_target::reg::*;
 
-use crate::ir_instr::*;
+use crate::{ir_instr::*, ir_types::IRLitType};
 
 pub trait IRToASM { 
     fn gen_asm(&mut self, irs: &Vec<IR>) -> Vec<String> {
         let mut output: Vec<String> = vec![];
         for ir in irs {
-            output.push(self.gen_asm_from_ir_node(ir, NO_REG));
+            output.push(self.gen_asm_from_ir_node(ir));
         }
         output
     }
 
-    fn gen_asm_from_ir_node(&mut self, ir: &IR, reg: usize) -> String {
+    fn gen_asm_from_ir_node(&mut self, ir: &IR) -> String {
         match ir {
             IR::Func(irfunc) => {
-                let fn_asm: String = self.gen_ir_fn_asm(irfunc, reg);
+                let fn_asm: String = self.gen_ir_fn_asm(irfunc);
                 fn_asm
             },
             IR::VarDecl(irassign) => {
                 if irassign.class == StorageClass::LOCAL {
-                    let assign_asm: String = self.gen_ir_local_var_decl_asm(irassign, reg);
+                    let assign_asm: String = self.gen_ir_local_var_decl_asm(irassign);
                     assign_asm
                 } 
                 else {
                     "".to_string()
                 }
             }
+            IR::Instr(irinstr) => {
+                match irinstr {
+                    IRInstr::Store { source_reg, stack_off } => self.gen_asm_store(*source_reg, *stack_off),
+
+                    IRInstr::Load { target_reg, stack_off } => self.gen_asm_load(*target_reg, *stack_off),
+                    
+                    IRInstr::Mov(irlit_type, irlit_type1) => self.gen_ir_mov_asm(irlit_type, irlit_type1),
+                    
+                    IRInstr::Add(dest, op1, op2) => self.gen_ir_add_asm(dest, op1, op2),
+                    
+                    IRInstr::Call(_, params, return_val) => todo!(),
+                }
+            },
         }
     }
 
-    fn gen_ir_fn_asm(&mut self, fn_ir: &IRFunc, reg: usize) -> String;
-    
-    fn gen_ir_local_var_decl_asm(&mut self, vdecl_ir: &IRVarDecl, reg: usize) -> String;
+    fn gen_ir_add_asm(&mut self, dest: &IRLitType, op1: &IRLitType, op2: &IRLitType) -> String;
 
-    fn gen_ir_instr(&mut self, instr: &IRInstr, reg: usize) -> (RegIdx, String);
+    fn gen_ir_mov_asm(&mut self, dest: &IRLitType, src: &IRLitType) -> String;
+
+    fn gen_ir_fn_asm(&mut self, fn_ir: &IRFunc) -> String;
+    
+    fn gen_ir_local_var_decl_asm(&mut self, vdecl_ir: &IRVarDecl) -> String;
+
+    fn gen_asm_store(&mut self, idx: RegIdx, stack_off: usize) -> String;
+    
+    fn gen_asm_load(&mut self, idx: RegIdx, stack_off: usize) -> String;
 
     fn gen_leaf_fn_prol(&self, fn_label: &str, stack_size: usize) -> String;
 
