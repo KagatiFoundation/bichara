@@ -23,7 +23,7 @@ SOFTWARE.
 */
 
 use std::slice::Iter;
-use crate::sym::SymbolTrait;
+use crate::{sym::SymbolTrait, Symbol};
 
 // Maximum number of symbols in program
 pub const NSYMBOLS: usize = 1024;
@@ -41,6 +41,10 @@ impl<T: SymbolTrait + Clone> Symtable<T> {
             syms: vec![],
             counter: 0,
         }
+    }
+
+    pub fn find(&self, name: &str) -> Option<&T> {
+        self.syms.iter().find(|sym| sym.name() == name)
     }
 
     pub fn find_symbol(&self, name: &str) -> Option<usize> {

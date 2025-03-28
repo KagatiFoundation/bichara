@@ -86,8 +86,23 @@ impl LivenessAnalyzer {
 
     fn is_temp_used(ir: &IR, temp_lookup: usize) -> bool {
         match ir {
-            IR::Instr(IRInstr::Mov(dest, src)) => {
-                dest.as_temp() == Some(temp_lookup) || src.as_temp() == Some(temp_lookup)
+            IR::Instr(instr) => {
+                match instr {
+                    IRInstr::Mov(dest, src) => {
+                        dest.as_temp() == Some(temp_lookup) || src.as_temp() == Some(temp_lookup)
+                    },
+
+                    IRInstr::Add(dest, op1, op2) => {
+                        dest.as_temp() == Some(temp_lookup) ||
+                        op1.as_temp() == Some(temp_lookup) ||
+                        op2.as_temp() == Some(temp_lookup)
+                    },
+
+                    IRInstr::Load { dest, .. } => {
+                        dest.as_temp() == Some(temp_lookup)
+                    },
+                    _ => todo!()
+                }
             },
             IR::VarDecl(vardecl) => matches!(vardecl.value, IRLitType::Temp(t) if t == temp_lookup),
             _ => false,

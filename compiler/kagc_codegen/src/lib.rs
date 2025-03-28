@@ -41,7 +41,7 @@ pub trait CodeGen {
     fn gen_ir(&mut self, nodes: &[AST]) -> Vec<IR> {
         let mut output: Vec<IR> = vec![];
         for node in nodes {
-            let node_ir: Result<Vec<IR>, CodeGenErr> = self.gen_ir_from_node(node, &mut 0xFFFFFFFF, &mut 0xFFFFFFFF);
+            let node_ir: Result<Vec<IR>, CodeGenErr> = self.gen_ir_from_node(node, &mut FnCtx { stack_offset: 0, temp_counter: 0 });
             if node_ir.is_ok() {
                 output.extend(node_ir.ok().unwrap());
             }
@@ -49,20 +49,20 @@ pub trait CodeGen {
         output
     }
 
-    fn gen_ir_from_node(&mut self, node: &AST, stack_offset: &mut StackOffset, tmp_counter: &mut TempCounter) -> CGRes {
+    fn gen_ir_from_node(&mut self, node: &AST, fn_ctx: &mut FnCtx) -> CGRes {
         if node.operation == ASTOperation::AST_GLUE {
             if let Some(left) = node.left.as_ref() {
-                self.gen_ir_from_node(left, stack_offset, tmp_counter)?;
+                self.gen_ir_from_node(left, fn_ctx)?;
             }
             if let Some(right) = node.right.as_ref() {
-                self.gen_ir_from_node(right, stack_offset, tmp_counter)?;
+                self.gen_ir_from_node(right, fn_ctx)?;
             }
         }
         else if node.operation == ASTOperation::AST_FUNCTION {
             return self.gen_ir_fn(node);
         }
         else if node.operation == ASTOperation::AST_VAR_DECL {
-            return self.gen_ir_var_decl(node, stack_offset, tmp_counter);
+            return self.gen_ir_var_decl(node, fn_ctx);
         }
         Err(CodeGenErr::NoContext)
     }
@@ -352,17 +352,16 @@ pub trait CodeGen {
     // *** IR CODE GENERATION *** //
     fn gen_ir_fn(&mut self, ast: &AST) -> CGRes;
 
-    fn gen_ir_var_decl(&mut self, ast: &AST, stack_offset: &mut usize, tmp_counter: &mut TempCounter) -> CGRes;
+    fn gen_ir_var_decl(&mut self, ast: &AST, fn_ctx: &mut FnCtx) -> CGRes;
 
-
-
-    fn gen_ir_expr(&mut self, ast: &AST, tmp_counter: &mut TempCounter) -> CGExprEvalRes {
+    /// Generate IR nodes from an AST expression node.
+    fn gen_ir_expr(&mut self, ast: &AST, fn_ctx: &mut FnCtx) -> CGExprEvalRes {
         if !ast.kind.is_expr() {
             panic!("Needed an Expr--but found {:#?}", ast);
         }
         
         if let ASTKind::ExprAST(expr) = &ast.kind {
-            return self.__gen_expr(expr, tmp_counter)
+            return self.__gen_expr(expr, fn_ctx);
         }
 
         Err(CodeGenErr::NoContext)
@@ -371,52 +370,49 @@ pub trait CodeGen {
     fn __gen_expr(
         &mut self,
         expr: &Expr,
-        tmp_counter: &mut TempCounter
+        fn_ctx: &mut FnCtx
     ) -> CGExprEvalRes {
         match expr {
-            Expr::LitVal(litexpr) => self.gen_lit_ir_expr(litexpr, tmp_counter),
-            Expr::Binary(binexpr) => self.gen_bin_ir_expr(binexpr, tmp_counter),
+            Expr::LitVal(litexpr) => self.gen_lit_ir_expr(litexpr, fn_ctx),
+            Expr::Binary(binexpr) => self.gen_bin_ir_expr(binexpr, fn_ctx),
+            Expr::Ident(identexpr) => self.gen_ident_ir_expr(identexpr, fn_ctx),
             _ => todo!()
         }
     }
 
-    fn gen_lit_ir_expr(&mut self, lit_expr: &LitValExpr, tmp_counter: &mut TempCounter) -> CGExprEvalRes {
-        let lit_val_tmp: usize = *tmp_counter;
-        *tmp_counter += 1;
+    fn gen_lit_ir_expr(&mut self, lit_expr: &LitValExpr, fn_ctx: &mut FnCtx) -> CGExprEvalRes {
+        let lit_val_tmp: usize = fn_ctx.temp_counter;
+        fn_ctx.temp_counter += 1;
         
         return match lit_expr.result_type {
             LitTypeVariant::I32 => {
-                let i32_value = lit_expr.value.unwrap_i32().unwrap_or_else(|| panic!("No i32 value!"));
-                Ok(
-                        vec![
-                            IRInstr::Mov(
-                                IRLitType::Temp(lit_val_tmp), 
-                                IRLitType::Const(
-                                    IRLitVal::Int32(
-                                        *i32_value
-                                    )
-                                )
-                            )
-                        ]
-                )
+                let i32_value: &i32 = lit_expr.value.unwrap_i32().unwrap_or_else(|| panic!("No i32 value!"));
+                Ok(vec![
+                    IRInstr::Mov(
+                        IRLitType::Temp(lit_val_tmp), 
+                        IRLitType::Const(
+                            IRLitVal::Int32(*i32_value)
+                        )
+                    )
+                ])
             },
             _ => todo!()
         }
     }
 
-    fn gen_bin_ir_expr(&mut self, bin_expr: &BinExpr, tmp_counter: &mut TempCounter) -> CGExprEvalRes {
+    fn gen_bin_ir_expr(&mut self, bin_expr: &BinExpr, fn_ctx: &mut FnCtx) -> CGExprEvalRes {
         let mut irs: Vec<IRInstr> = vec![];
 
-        let left_expr = self.__gen_expr(&bin_expr.left, tmp_counter)?;
-        let right_expr = self.__gen_expr(&bin_expr.right, tmp_counter)?;
+        let left_expr: Vec<IRInstr> = self.__gen_expr(&bin_expr.left, fn_ctx)?;
+        let right_expr: Vec<IRInstr> = self.__gen_expr(&bin_expr.right, fn_ctx)?;
 
-        let left_dest = left_expr.last().unwrap_or_else(|| panic!("No left destination found! Abort!"));
-        let right_dest = right_expr.last().unwrap_or_else(|| panic!("No left destination found! Abort!"));
+        let left_dest: &IRInstr = left_expr.last().unwrap_or_else(|| panic!("No left destination found! Abort!"));
+        let right_dest: &IRInstr = right_expr.last().unwrap_or_else(|| panic!("No left destination found! Abort!"));
 
         let bin_expr_type: IRInstr = match bin_expr.operation {
             ASTOperation::AST_ADD => {
-                let dest: usize = *tmp_counter;
-                *tmp_counter += 1;
+                let dest: usize = fn_ctx.temp_counter;
+                fn_ctx.temp_counter += 1;
 
                 self.gen_ir_add(IRLitType::Temp(dest), left_dest.dest().unwrap(), right_dest.dest().unwrap())
             }
@@ -436,6 +432,7 @@ pub trait CodeGen {
        IRInstr::Add(dest, op1, op2)
     }
 
+    fn gen_ident_ir_expr(&mut self, ident_expr: &IdentExpr, fn_ctx: &mut FnCtx) -> CGExprEvalRes;
 
     // *** IR CODE GENERATION *** //
 

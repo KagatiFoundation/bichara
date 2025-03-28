@@ -39,9 +39,9 @@ use kagc_types::*;
 use kagc_utils::integer::*;
 
 use crate::errors::CodeGenErr;
+use crate::typedefs::CGExprEvalRes;
 use crate::typedefs::CGRes;
-use crate::typedefs::StackOffset;
-use crate::typedefs::TempCounter;
+use crate::typedefs::FnCtx;
 use crate::CodeGen;
 use crate::CodeGenResult;
 
@@ -68,8 +68,6 @@ pub struct Aarch64CodeGen<'aarch64> {
     current_function: Option<FunctionInfo>,
     
     early_return_label_id: usize,
-
-    temp_counter: usize
 }
 
 impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
@@ -646,8 +644,6 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
 
         let mut stack_off: usize = 0;
 
-        let mut local_temp_counter: TempCounter = 0;
-
         let mut virtual_reg: usize = 0;
 
         let params: Vec<IRLitType> = func_info.params.iter().map(|_| {
@@ -659,8 +655,15 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
 
         let mut fn_body: Vec<IR> = vec![];
 
+        let mut fn_ctx: FnCtx = FnCtx {
+            stack_offset: stack_off,
+
+            // local temporary counter starts at 0
+            temp_counter: 0
+        };
+
         for body_ast in ast.left.as_ref().unwrap().linearize() {
-            let body_ir: Vec<IR> = self.gen_ir_from_node(body_ast, &mut stack_off, &mut local_temp_counter)?;
+            let body_ir: Vec<IR> = self.gen_ir_from_node(body_ast, &mut fn_ctx)?;
             fn_body.extend(body_ir);
         }
 
@@ -682,7 +685,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
         )
     }
 
-    fn gen_ir_var_decl(&mut self, ast: &AST, stack_offset: &mut StackOffset, tmp_counter: &mut TempCounter) -> CGRes {
+    fn gen_ir_var_decl(&mut self, ast: &AST, fn_ctx: &mut FnCtx) -> CGRes {
         let ctx_borrow = self.ctx.borrow();
 
         if let Some(Stmt::VarDecl(var_decl)) = ast.kind.as_stmt() {
@@ -700,22 +703,19 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
                 panic!("Variable is not assigned a value!");
             }
 
-            let var_decl_val: Vec<IRInstr> = self.gen_ir_expr(ast.left.as_ref().unwrap(), tmp_counter)?;
+            let var_decl_val: Vec<IRInstr> = self.gen_ir_expr(ast.left.as_ref().unwrap(), fn_ctx)?;
 
             let decl_ir: IR = IR::VarDecl(
                 IRVarDecl {
                     sym_name: var_decl.sym_name.clone(),
                     class: var_sym.class,
-                    offset: Some(*stack_offset),
+                    offset: Some(fn_ctx.stack_offset),
                     value: var_decl_val.last().unwrap().clone().dest().unwrap()
                 }
             );
 
             // increment the stack offset after use
-            *stack_offset += 1;
-
-            // increment the temporary counter after use
-            *tmp_counter += 1;
+            fn_ctx.stack_offset += 1;
 
             let mut result: Vec<IR> = vec![];
 
@@ -728,6 +728,20 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             return Ok(result);
         }
         panic!()
+    }
+
+    fn gen_ident_ir_expr(&mut self, ident_expr: &IdentExpr, fn_ctx: &mut FnCtx) -> CGExprEvalRes {
+        let lit_val_tmp: usize = fn_ctx.temp_counter;
+        fn_ctx.temp_counter += 1;
+
+        let sym: Symbol = self.get_symbol_local_or_global(&ident_expr.sym_name).unwrap();
+
+        Ok(vec![
+            IRInstr::Load {
+                dest: IRLitType::Temp(lit_val_tmp),
+                stack_off: sym.local_offset as usize
+            }
+        ])
     }
 }
 
@@ -743,7 +757,6 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
             function_id: NO_REG,
             early_return_label_id: NO_REG,
             current_function: None,
-            temp_counter: 0
         }
     }
 
@@ -862,6 +875,19 @@ impl<'aarch64> Aarch64CodeGen<'aarch64> {
     fn get_func_name(&mut self, index: usize) -> Option<String> {
         let ctx_borrow = self.ctx.borrow();
         ctx_borrow.get_func_name(index)
+    }
+
+    fn get_symbol_local_or_global(&self, sym_name: &str) -> Option<Symbol> {
+        let ctx_borrow = self.ctx.borrow();
+
+        if self.current_function.is_none() {
+            let sym: Option<&Symbol> = ctx_borrow.sym_table.find(sym_name);
+            Some(sym.unwrap_or_else(|| panic!("Symbol not found with the name: {}", sym_name)).clone())
+        }
+        else {
+            let func_info: &FunctionInfo = self.current_function.as_ref().unwrap();
+            Some(func_info.local_syms.find(sym_name).unwrap_or_else(|| panic!("Symbol not defined inside the function!")).clone())
+        }
     }
 }
 

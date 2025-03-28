@@ -1,3 +1,4 @@
+use kagc_symbol::Symbol;
 use kagc_target::reg::AllocedReg;
 
 #[derive(Debug, Clone)]
@@ -19,10 +20,15 @@ impl IRLitVal {
 
 #[derive(Debug, Clone)]
 pub enum IRLitType {
-    Var(String),
+    Var(Symbol),
     Const(IRLitVal),
     Reg(AllocedReg),
     Temp(usize)
+}
+
+pub struct IRSymbol {
+    pub symbol: Symbol,
+    pub offset: usize
 }
 
 macro_rules! check_instr_type {
@@ -47,7 +53,7 @@ macro_rules! impl_as_irlit_type {
 impl IRLitType {
     pub fn into_str(&self) -> String {
         match self {
-            Self::Var(var) => var.clone(),
+            Self::Var(var) => var.name.clone(),
             Self::Const(irlit_val) => irlit_val.into_str(),
             Self::Reg(reg) => reg.idx.to_string(),
             Self::Temp(tmp) => tmp.to_string()
@@ -61,6 +67,6 @@ impl IRLitType {
 
     impl_as_irlit_type!(as_temp, Temp, usize);
     impl_as_irlit_type!(as_reg, Reg, AllocedReg);
-    impl_as_irlit_type!(as_var, Var, String);
+    impl_as_irlit_type!(as_var, Var, Symbol);
     impl_as_irlit_type!(as_const, Const, IRLitVal);
 }

@@ -29,65 +29,12 @@ use kagc_ast::*;
 use kagc_codegen::{aarch64::aarch64_gen::*, CodeGen};
 use kagc_ctx::CompilerCtx;
 use kagc_ir::ir_asm::aarch64::Aarch64IRToASM;
-use kagc_ir::ir_asm::ir_asm_gen::IRToASM;
 use kagc_lexer::Tokenizer;
 use kagc_parser::Parser;
 use kagc_sema::SemanticAnalyzer;
 use kagc_symbol::*;
 use kagc_target::asm::aarch64::*;
 use kagc_token::Token;
-use kagc_types::{LitType, LitTypeVariant};
-
-fn main2() {
-    let mut tmp_counter: usize = 0;
-
-    let bin_op = AST::new(
-        ASTKind::ExprAST(
-            Expr::Binary(
-                BinExpr { 
-                    operation: ASTOperation::AST_ADD, 
-                    left: Box::new(
-                        Expr::LitVal(
-                            LitValExpr { 
-                                result_type: LitTypeVariant::I32, 
-                                value: LitType::I32(12)
-                            }
-                        )
-                    ), 
-                    right: Box::new(
-                        Expr::LitVal(
-                            LitValExpr { 
-                                result_type: LitTypeVariant::I32, 
-                                value: LitType::I32(3)
-                            }
-                        )
-                    ), 
-                    result_type: LitTypeVariant::I32
-                }
-            )
-        ), 
-        ASTOperation::AST_ADD,
-        None, 
-        None, 
-        LitTypeVariant::I32
-    );
-
-    let var_decl = AST::new(
-        ASTKind::StmtAST(
-            Stmt::VarDecl(
-                VarDeclStmt { 
-                    symtbl_pos: 0, 
-                    sym_name: "number".to_string(), 
-                    class: StorageClass::LOCAL 
-                }
-            )
-        ), 
-        ASTOperation::AST_VAR_DECL, 
-        Some(bin_op), 
-        None, 
-        LitTypeVariant::None
-    );
-}
 
 fn main() {
     // tokenizer

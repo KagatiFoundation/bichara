@@ -296,6 +296,7 @@ impl<'parser> Parser<'parser> {
         let current_file = self.get_current_file_name();
 
         let mut func_params: Symtable<FuncParam> = Symtable::<FuncParam>::new();
+
         if self.current_token.kind != TokenKind::T_RPAREN {
             loop {
                 if let Ok(param) = self.parse_parameter() {
@@ -309,31 +310,41 @@ impl<'parser> Parser<'parser> {
                         None,
                         self.current_function_id
                     ));
+
                     func_params.add_symbol(param.clone());
+
                     self.temp_local_params.add_symbol(param);
                 } 
+
                 let is_tok_comma: bool = self.current_token.kind == TokenKind::T_COMMA;
                 let is_tok_rparen: bool = self.current_token.kind == TokenKind::T_RPAREN;
+
                 if !is_tok_comma && !is_tok_rparen {
                     let __err: Result<_, Box<BErr>> = Err(Box::new(BErr::unexpected_token(
                         current_file.clone(), 
                         vec![TokenKind::T_COMMA, TokenKind::T_RPAREN],
                         self.current_token.clone()
                     )));
+
                     if self.__panic_mode {
                         panic!("{:?}", __err);
                     }
+
                     return __err;
-                } else if is_tok_rparen {
+                } 
+                else if is_tok_rparen {
                     break;
-                } else {
+                } 
+                else {
                     self.token_match(TokenKind::T_COMMA)?;
                 }
             } 
         }
 
         self.token_match(TokenKind::T_RPAREN)?;
+
         let func_return_type: LitTypeVariant = self.__parse_fn_ret_type()?;
+
         self.skip_to_next_token();
 
         let function_id: Option<usize> = self.add_symbol_global(Symbol::new(
@@ -342,6 +353,7 @@ impl<'parser> Parser<'parser> {
             SymbolType::Function,
             func_storage_class,
         ));
+
         // in case the function symbol addition process fails
         if function_id.is_none() {
             return Err(Box::new(BErr::symbol_already_defined(
@@ -398,11 +410,13 @@ impl<'parser> Parser<'parser> {
             func_params,
             self.temp_local_syms.clone()
         );
+        
         // create a new FunctionInfo
         if let Some(ctx_rc) = &mut self.ctx {
             let mut ctx_borrow = ctx_rc.borrow_mut();
             ctx_borrow.func_table.add(func_info);
         }
+
         // reset offset counter after parsing function
         self.local_offset = 0;
 
@@ -446,7 +460,7 @@ impl<'parser> Parser<'parser> {
         let param_name: Token = self.token_match(TokenKind::T_IDENTIFIER)?.clone();
         let _ = self.token_match(TokenKind::T_COLON)?;
         let param_type: LitTypeVariant = self.parse_id_type()?;
-        let param_loc_off: i32 = self.gen_next_local_offset(param_type);
+        let param_loc_off: i32 = self.gen_next_local_offset();
         self.skip_to_next_token();
         Ok(FuncParam {
             lit_type: param_type,
@@ -628,6 +642,7 @@ impl<'parser> Parser<'parser> {
 
         // Track the storage class for this variable.
         let mut var_class: StorageClass = StorageClass::GLOBAL;
+
         if inside_func {
             var_class = StorageClass::LOCAL;
         }
@@ -692,6 +707,7 @@ impl<'parser> Parser<'parser> {
                 default_value = Some(LitType::I32(str_const_label as i32));
             }
         }
+
         // TODO:: CHECK IF THE VARIABLE EXISTS IN THE SAME SCOPE ALREADY!!!
         // Create a symbol.
         let mut sym: Symbol = Symbol::new(
@@ -700,18 +716,22 @@ impl<'parser> Parser<'parser> {
             SymbolType::Variable,
             var_class,
         );
+
         sym.default_value = default_value;
+        
         // calculate offset here
         if inside_func {
-            sym.local_offset = self.gen_next_local_offset(var_type);
+            sym.local_offset = self.gen_next_local_offset();
             sym.func_id = Some(self.current_function_id);
         }
 
         let symbol_add_pos: usize = if inside_func {
             self.add_symbol_local(sym.clone()).unwrap()
-        } else {
+        } 
+        else {
             self.add_symbol_global(sym.clone()).unwrap()
         };
+
         let return_result: ParseResult2 = if let Some(assign_ast_node_res) = assignment_parse_res {
             Ok(AST::new(
                 ASTKind::StmtAST(Stmt::VarDecl(VarDeclStmt {
@@ -740,7 +760,7 @@ impl<'parser> Parser<'parser> {
         return_result
     }
 
-    fn gen_next_local_offset(&mut self, var_type: LitTypeVariant) -> i32 {
+    fn gen_next_local_offset(&mut self) -> i32 {
         let tmp_off: i32 = self.local_offset;
         self.local_offset += 1;
         tmp_off
@@ -798,7 +818,7 @@ impl<'parser> Parser<'parser> {
             SymbolType::Array, 
             array_size,
             self.ident_var_class(),
-            self.gen_next_local_offset(array_type),
+            self.gen_next_local_offset(),
             None,
             self.current_function_id
         );
@@ -833,26 +853,35 @@ impl<'parser> Parser<'parser> {
     // parsing array values
     fn parse_array_assign_values(&mut self) -> Result<Vec<Expr>, Box<BErr>> {
         _ = self.token_match(TokenKind::T_LBRACKET)?;
+
         let mut vals: Vec<Expr> = vec![];
+
         if self.current_token.kind != TokenKind::T_RBRACKET {
             loop {
                 let argu: AST = self.parse_equality()?;
-                vals.push(argu.kind.unwrap_expr());
+
+                vals.push(argu.kind.expr().unwrap());
+
                 let is_tok_comma: bool = self.current_token.kind == TokenKind::T_COMMA;
                 let is_tok_rparen: bool = self.current_token.kind == TokenKind::T_RBRACKET;
+
                 if !is_tok_comma && !is_tok_rparen {
                     let __err: Box<BErr> = Box::new(BErr::unexpected_token(
                         self.get_current_file_name(), 
                         vec![TokenKind::T_COMMA, TokenKind::T_RBRACKET],
                         self.current_token.clone()
                     ));
+
                     if self.__panic_mode {
                         panic!("{:?}", __err);
                     }
+
                     return Err(__err);
-                } else if is_tok_rparen {
+                } 
+                else if is_tok_rparen {
                     break;
-                } else {
+                } 
+                else {
                     self.token_match(TokenKind::T_COMMA)?;
                 }
             }
@@ -953,22 +982,32 @@ impl<'parser> Parser<'parser> {
         tokens: Vec<TokenKind>,
     ) -> ParseResult2 {
         let left: AST = left_side_tree.clone()?;
+
         let current_token_kind: TokenKind = self.current_token.kind;
+
         if !tokens.contains(&current_token_kind) {
             return left_side_tree;
         }
+
         self.skip_to_next_token(); // skip the operator
+
         let ast_op: ASTOperation = ASTOperation::from_token_kind(current_token_kind).unwrap(); // DANGEROUS unwrap CALL
+
         let right: AST = self.parse_equality()?;
-        let left_expr: Expr = left.kind.unwrap_expr();
-        let right_expr: Expr = right.kind.unwrap_expr();
+
+        let left_expr: Expr = left.kind.expr().unwrap();
+
+        let right_expr: Expr = right.kind.expr().unwrap();
+
         Ok(AST::create_leaf(
-            ASTKind::ExprAST(Expr::Binary(BinExpr {
-                operation: ast_op,
-                left: Box::new(left_expr),
-                right: Box::new(right_expr),
-                result_type: LitTypeVariant::None,
-            })),
+            ASTKind::ExprAST(
+                Expr::Binary(BinExpr {
+                    operation: ast_op,
+                    left: Box::new(left_expr),
+                    right: Box::new(right_expr),
+                    result_type: LitTypeVariant::None,
+                })
+            ),
             ast_op,
             LitTypeVariant::None,
             None,
@@ -1122,7 +1161,7 @@ impl<'parser> Parser<'parser> {
         _ = self.token_match(TokenKind::T_RBRACKET)?;
         Ok(AST::create_leaf(
             ASTKind::ExprAST(Expr::Subscript(SubscriptExpr {
-                index: Box::new(array_access_expr.kind.unwrap_expr()),
+                index: Box::new(array_access_expr.kind.expr().unwrap()),
                 symtbl_pos: sym_index,
                 result_type: indexed_symbol.lit_type,
             })),
@@ -1146,7 +1185,7 @@ impl<'parser> Parser<'parser> {
         if curr_token_kind != TokenKind::T_RPAREN {
             loop {
                 let argu: AST = self.parse_equality()?;
-                func_args.push(argu.kind.unwrap_expr());
+                func_args.push(argu.kind.expr().unwrap());
                 let is_tok_comma: bool = self.current_token.kind == TokenKind::T_COMMA;
                 let is_tok_rparen: bool = self.current_token.kind == TokenKind::T_RPAREN;
                 if !is_tok_comma && !is_tok_rparen {

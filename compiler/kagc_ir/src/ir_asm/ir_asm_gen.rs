@@ -23,7 +23,6 @@ SOFTWARE.
 */
 
 use kagc_symbol::StorageClass;
-use kagc_target::reg::*;
 
 use crate::{ir_instr::*, ir_types::*};
 
@@ -45,9 +44,7 @@ pub trait IRToASM {
             }
             IR::Instr(irinstr) => {
                 match irinstr {
-                    IRInstr::Store { source_reg, stack_off } => self.gen_asm_store(*source_reg, *stack_off),
-
-                    IRInstr::Load { target_reg, stack_off } => self.gen_asm_load(*target_reg, *stack_off),
+                    IRInstr::Load { dest, stack_off } => self.gen_asm_load(dest, *stack_off),
                     
                     IRInstr::Mov(irlit_type, irlit_type1) => self.gen_ir_mov_asm(irlit_type, irlit_type1),
                     
@@ -76,10 +73,8 @@ pub trait IRToASM {
     /// Generates AArch64 assembly for a local variable declaration.
     /// Allocates stack space and initializes the variable if needed.
     fn gen_ir_local_var_decl_asm(&mut self, vdecl_ir: &IRVarDecl) -> String;
-
-    fn gen_asm_store(&mut self, idx: RegIdx, stack_off: usize) -> String;
     
-    fn gen_asm_load(&mut self, idx: RegIdx, stack_off: usize) -> String;
+    fn gen_asm_load(&mut self, dest: &IRLitType, stack_off: usize) -> String;
 
     fn gen_leaf_fn_prol(&self, fn_label: &str, stack_size: usize) -> String;
 

@@ -1,5 +1,5 @@
 use kagc_symbol::StorageClass;
-use kagc_target::reg::{AllocedReg, RegIdx};
+use kagc_target::reg::*;
 
 use crate::ir_types::*;
 
@@ -15,28 +15,25 @@ pub enum IRInstr {
     
     Call(String, Vec<IRLitType>, IRLitType),
     
-    Store {
-        source_reg: RegIdx,
+    Load {
+        /// Destination to load to 
+        dest: IRLitType,
+
+        /// Stack offset to load value from
         stack_off: usize
     },
-    
-    /// Restore value from stack onto the register.
-    Load {
-        target_reg: RegIdx,
-        stack_off: usize
-    }
 }
 
 impl IRInstr {
     pub fn dest(&self) -> Option<IRLitType> {
         match self {
             IRInstr::Mov(dst, _) => Some(dst.clone()),
+
             IRInstr::Add(dst, _, _) => Some(dst.clone()),
+
             IRInstr::Call(_, _, _) => Some(IRLitType::Reg(AllocedReg { idx: 0, size: 64 })),
-            IRInstr::Load { target_reg, .. } => {
-                Some(IRLitType::Reg(AllocedReg { size: 64, idx: *target_reg }))
-            }
-            IRInstr::Store { .. } => None, // No destination
+
+            IRInstr::Load { dest, .. } => Some(dest.clone())
         }
     }
 }

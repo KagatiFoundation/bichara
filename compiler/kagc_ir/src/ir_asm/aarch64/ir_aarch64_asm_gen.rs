@@ -36,10 +36,11 @@ impl<KT: Eq + Hash> TempRegMap<KT> {
 /// - `is_leaf`: Indicates whether the function is a leaf function 
 ///             (i.e., it makes no function calls).
 /// - `stack_size`: The amount of stack space allocated for this function.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct ComptFnProps {
     pub is_leaf: bool,
-    pub stack_size: usize
+    pub stack_size: usize,
+    pub liveness_info: HashMap<usize, LiveRange>
 }
 
 /// Handles the translation of IR (Intermediate Representation) to 
@@ -160,6 +161,19 @@ impl<'asmgen> Aarch64IRToASM<'asmgen> {
             panic!("Problem while freeing temporary!");
         }
     }
+
+    fn try_dropping_temp(&mut self, temp: usize) {
+        if let Some(compt_fn_info) = &self.compt_fn_props {
+            if let Some((start, end)) = compt_fn_info.liveness_info.get(&temp) {
+                if (*start + *end) == self.ip {
+                    self.drop_temp(temp);
+                }
+            }
+        }
+        else {
+            panic!("Compile time information not avaailable for function!");
+        }
+    }
 }
 
 impl<'irgen> IRToASM for Aarch64IRToASM<'irgen> {
@@ -191,7 +205,8 @@ impl<'irgen> IRToASM for Aarch64IRToASM<'irgen> {
         self.switch_to_func_scope(
             ComptFnProps { 
                 is_leaf: fn_ir.is_leaf, 
-                stack_size
+                stack_size,
+                liveness_info: temp_liveness
             }
         );
 
@@ -220,17 +235,23 @@ impl<'irgen> IRToASM for Aarch64IRToASM<'irgen> {
     fn gen_ir_local_var_decl_asm(&mut self, vdecl_ir: &IRVarDecl) -> String {
         let mut output_str: String = "".to_string();
 
-        // since we are parsing a local variable, then compile-time function props is not None
-        let fn_props: ComptFnProps = self.compt_fn_props.unwrap();
-        
         let stack_off: usize = vdecl_ir.offset.unwrap_or_else(|| panic!("Local variables must have stack offset!"));
 
         let value_reg: AllocedReg = match &vdecl_ir.value {
-            IRLitType::Temp(temp_value) => self.temp_reg_map.reg_map.get(temp_value).unwrap().clone(),
+            IRLitType::Temp(temp_value) => {
+                let temp_reg: AllocedReg = self.temp_reg_map.reg_map.get(temp_value).unwrap().clone();
+                
+                self.try_dropping_temp(*temp_value);
+
+                temp_reg
+            },
             IRLitType::Reg(reg) => reg.clone(),
             _ => todo!()
         };
 
+        // since we are parsing a local variable, then compile-time function props is not None
+        let fn_props: &ComptFnProps = self.compt_fn_props.as_ref().unwrap_or_else(|| panic!("Compile time information not available for the function!"));
+        
         if !fn_props.is_leaf {
             output_str.push_str(&format!("str {}, [x29, #-{}]", value_reg.name(), (stack_off * 8) + 8));
         }
@@ -252,24 +273,52 @@ impl<'irgen> IRToASM for Aarch64IRToASM<'irgen> {
     }
     
     fn gen_leaf_fn_epl(&self, stack_size: usize) -> String {
-        format!("add sp, sp, #{stack_size}\nret")
+        if stack_size != 0 {
+            format!("add sp, sp, #{stack_size}\nret")
+        }
+        else {
+            "ret".to_string()
+        }
     }
 
     fn gen_non_leaf_fn_prol(&self, fn_label: &str, stack_size: usize) -> String {
-        todo!()
+        let mut output_str: String = "".to_string();
+        
+        output_str.push_str(&format!("\n.global _{fn_label}\n_{fn_label}:"));
+        output_str.push_str(&format!("sub sp, sp, #{stack_size}"));
+        output_str.push_str(&format!("stp x29, x30, [sp, #{}]", stack_size - 16));
+        output_str.push_str(&format!("add x29, sp, #{}", stack_size - 16));
+
+        output_str
     }
     
     fn gen_non_leaf_fn_epl(&self, stack_size: usize) -> String {
-        todo!()
+        let mut output_str: String = "".to_string();
+
+        output_str.push_str(&format!("ldp x29, x30, [sp, #{}]", stack_size - 16));
+        output_str.push_str(&format!("add sp, sp, #{}\nret\n", stack_size));
+
+        output_str
     }
     
-    fn gen_asm_store(&mut self, idx: RegIdx, stack_off: usize) -> String {
-        println!("spill {}", idx);
-        "".to_string()
-    }
-    
-    fn gen_asm_load(&mut self, idx: RegIdx, stack_off: usize) -> String {
-        todo!()
+    fn gen_asm_load(&mut self, dest: &IRLitType, stack_off: usize) -> String {
+        let dest_reg: AllocedReg = self.resolve_register(dest);
+        
+        let (stack_size, is_leaf_fn) = if let Some(func_props) = &self.compt_fn_props {
+            (func_props.stack_size, func_props.is_leaf)
+        }
+        else {
+            panic!("Trying to load value from the stack outside of a function!");
+        };
+
+        let soff: usize = (stack_off * 8) + 8;
+        
+        if is_leaf_fn {
+            format!("LDR {}, [sp, #{}]", dest_reg.name(), stack_size - soff)
+        }
+        else {
+            format!("LDR {}, [x29, #-{}]", dest_reg.name(), soff)
+        }
     }
     
     fn gen_ir_mov_asm(&mut self, dest: &IRLitType, src: &IRLitType) -> String {
@@ -290,7 +339,7 @@ impl<'irgen> IRToASM for Aarch64IRToASM<'irgen> {
 
 impl<'asmgen> Aarch64IRToASM<'asmgen> {
     /// Extract the IRLitType as an operand(String)
-    fn extract_operand(&self, irlit: &IRLitType) -> String {
+    fn extract_operand(&mut self, irlit: &IRLitType) -> String {
         match irlit {
             IRLitType::Const(irlit_val) => {
                 match irlit_val {
@@ -298,31 +347,45 @@ impl<'asmgen> Aarch64IRToASM<'asmgen> {
                     _ => todo!()
                 }
             },
+            
             IRLitType::Reg(src_reg) => src_reg.name(),
+            
             IRLitType::Temp(temp_value) => {
                 let src_reg: AllocedReg = self.temp_reg_map.reg_map.get(temp_value).unwrap().clone();
+                self.try_dropping_temp(*temp_value);
                 src_reg.name()
-            }           
-            _ => todo!()
+            },
+
+            IRLitType::Var(var) => {
+                
+                var.name.clone()
+            }
         }
     }
 
     /// Get the compile time register mapping of a IR literal type
     fn resolve_register(&mut self, irlit: &IRLitType) -> AllocedReg {
-        let mut reg_mgr = self.reg_manager.borrow_mut();
-
         match irlit {
             IRLitType::Temp(temp_value) => {
-                if self.temp_reg_map.reg_map.contains_key(temp_value) {
+                let reg: AllocedReg = if self.temp_reg_map.reg_map.contains_key(temp_value) {
                     self.temp_reg_map.reg_map.get(temp_value).unwrap().clone()
                 }
                 else {
+                    let mut reg_mgr = self.reg_manager.borrow_mut();
                     let alloced_reg: AllocedReg = reg_mgr.allocate_register(64);
+
                     self.temp_reg_map.reg_map.insert(*temp_value, alloced_reg.clone());
+                    
                     alloced_reg
-                }
+                };
+
+                self.try_dropping_temp(*temp_value);
+                
+                reg
             },
+
             IRLitType::Reg(reg) => reg.clone(),
+            
             _ => todo!()
         }
     }
