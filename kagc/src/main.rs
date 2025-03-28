@@ -140,9 +140,9 @@ fn main() {
 
             if !parser_borrow.has_parsing_errors() {
                 // cg.gen_with_ctx(&parse_result);
-                let node_irs = cg.gen_ir(&parse_result);
+                let mut node_irs = cg.gen_ir(&parse_result);
                 let mut asm_gen = Aarch64IRToASM::new(Rc::clone(&ctx), Rc::clone(&rm));
-                let output = asm_gen.gen_asm(&node_irs);
+                let output = asm_gen.gen_asm(&mut node_irs);
                 output.iter().for_each(|op| println!("{op}"));
             }
         }

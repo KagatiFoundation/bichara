@@ -25,17 +25,9 @@ SOFTWARE.
 use kagc_symbol::StorageClass;
 use kagc_target::reg::*;
 
-use crate::{ir_instr::*, ir_types::IRLitType};
+use crate::{ir_instr::*, ir_types::*};
 
 pub trait IRToASM { 
-    fn gen_asm(&mut self, irs: &Vec<IR>) -> Vec<String> {
-        let mut output: Vec<String> = vec![];
-        for ir in irs {
-            output.push(self.gen_asm_from_ir_node(ir));
-        }
-        output
-    }
-
     fn gen_asm_from_ir_node(&mut self, ir: &IR) -> String {
         match ir {
             IR::Func(irfunc) => {
@@ -67,12 +59,22 @@ pub trait IRToASM {
         }
     }
 
+    /// Generates AArch64 assembly for an addition operation.
+    /// The result is stored in `dest`, using `op1` and `op2` as operands.
     fn gen_ir_add_asm(&mut self, dest: &IRLitType, op1: &IRLitType, op2: &IRLitType) -> String;
 
+    /// Generates AArch64 assembly for a move (assignment) operation.
+    /// Moves the value from `src` into `dest`, handling both registers 
+    /// and immediates.
     fn gen_ir_mov_asm(&mut self, dest: &IRLitType, src: &IRLitType) -> String;
 
+    /// Generates AArch64 assembly for a function definition.
+    /// Handles function prologue, body, and epilogue based on 
+    /// IR function structure.
     fn gen_ir_fn_asm(&mut self, fn_ir: &IRFunc) -> String;
     
+    /// Generates AArch64 assembly for a local variable declaration.
+    /// Allocates stack space and initializes the variable if needed.
     fn gen_ir_local_var_decl_asm(&mut self, vdecl_ir: &IRVarDecl) -> String;
 
     fn gen_asm_store(&mut self, idx: RegIdx, stack_off: usize) -> String;
