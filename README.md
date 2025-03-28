@@ -1,57 +1,31 @@
-# bichara
+# Generated Assembly Output
 
-## Poor C-like language Compiler in Rust.
+Given the following source code:
 
-### Run
-```shell
-$ cargo run
-```
-
-### Test
-```shell
-$ cargo test
-```
-
-### Example Input
-No bound check
 ```c
-global integer nums[5];
-global integer value;
-value = nums[0] + 12;
+// Source Code
+
+def main(x: integer) -> void {
+   let num = 1299 + 1299;
+   let num2 = 1299;
+}
 ```
 
-### Output
-```asm
-.data
-.global nums
-nums:
-.word 0
-.word 0
-.word 0
-.word 0
-.word 0
-.data
-.global value
-value: .align 4
-	.word 0
+The compiler generates the following AArch64 assembly:
 
-.text
-mov x5, 0
-mov x2, 0
-adrp x3, nums@PAGE
-add x3, x3, nums@PAGEOFF
-ldr x8, [x3, x2, lsl 3]
-mov x1, 12
-add x8, x8, x1
-adrp x1, value@PAGE
-add x1, x1, value@PAGEOFF
-str x8, [x1]
-mov x0, 0
-mov x16, 1
-svc 0x80
+```assembly
+.global _main
+_main:
+sub sp, sp, #32
+str x0, [sp, #24]
+MOV w8, 1299
+MOV w9, 1299
+ADD w10, w8, w9
+str w10, [sp, #16]
+MOV w11, 1299
+str w11, [sp, #8]
+add sp, sp, #32
+ret
 ```
 
-### This compiler doesn't support array assignment yet
-i.e., for e.g., 'array[1] = 12;' is not supported.
-
-### Go to ./samples for more examples
+This output represents the compiled function with stack management, immediate values, and basic arithmetic operations.
