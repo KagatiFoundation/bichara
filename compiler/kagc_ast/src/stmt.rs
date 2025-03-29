@@ -1,4 +1,5 @@
 use kagc_symbol::StorageClass;
+use kagc_types::LitTypeVariant;
 
 use super::Expr;
 
@@ -46,7 +47,9 @@ pub struct FuncCallStmt {
 
     pub symbol_name: String,
 
-    pub args: Vec<Expr>
+    pub args: Vec<Expr>,
+
+    pub result_type: LitTypeVariant
 }
 
 #[derive(Clone, Debug)]

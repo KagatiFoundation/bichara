@@ -57,6 +57,7 @@ pub trait CodeGen {
             if let Some(right) = node.right.as_ref() {
                 self.gen_ir_from_node(right, fn_ctx)?;
             }
+            Ok(vec![])
         }
         else if node.operation == ASTOperation::AST_FUNCTION {
             return self.gen_ir_fn(node);
@@ -64,7 +65,38 @@ pub trait CodeGen {
         else if node.operation == ASTOperation::AST_VAR_DECL {
             return self.gen_ir_var_decl(node, fn_ctx);
         }
-        Err(CodeGenErr::NoContext)
+        else if node.operation == ASTOperation::AST_FUNC_CALL {
+            return self.__gen_ir_fn_call(node, fn_ctx)
+        }
+        else {
+            panic!("{:#?} not supported right now!", node);
+        }
+    }
+
+    fn __gen_ir_fn_call(&mut self, node: &AST, fn_ctx: &mut FnCtx) -> CGRes {
+        if let ASTKind::ExprAST(Expr::FuncCall(func_call)) = &node.kind {
+            let mut result: Vec<IR> = vec![];
+            
+            self.gen_ir_fn_call_expr(func_call, fn_ctx).iter().for_each(|instrs| {
+                instrs.iter().for_each(|instr| {
+                    result.push(IR::Instr(instr.clone()));
+                });
+            });
+
+            return Ok(result);
+        }
+        else if let ASTKind::StmtAST(Stmt::FuncCall(func_call)) = &node.kind {
+            let mut result: Vec<IR> = vec![];
+            
+            self.gen_ir_fn_call_stmt(func_call, fn_ctx).iter().for_each(|instrs| {
+                instrs.iter().for_each(|instr| {
+                    result.push(IR::Instr(instr.clone()));
+                });
+            });
+
+            return Ok(result);
+        }
+        panic!()
     }
 
     /// Starts the code generation process.
@@ -367,15 +399,16 @@ pub trait CodeGen {
         Err(CodeGenErr::NoContext)
     }
 
-    fn __gen_expr(
-        &mut self,
-        expr: &Expr,
-        fn_ctx: &mut FnCtx
-    ) -> CGExprEvalRes {
+    fn __gen_expr(&mut self, expr: &Expr, fn_ctx: &mut FnCtx) -> CGExprEvalRes {
         match expr {
             Expr::LitVal(litexpr) => self.gen_lit_ir_expr(litexpr, fn_ctx),
+            
             Expr::Binary(binexpr) => self.gen_bin_ir_expr(binexpr, fn_ctx),
+
             Expr::Ident(identexpr) => self.gen_ident_ir_expr(identexpr, fn_ctx),
+
+            Expr::FuncCall(funccallexpr) => self.gen_ir_fn_call_expr(funccallexpr, fn_ctx),
+
             _ => todo!()
         }
     }
@@ -383,21 +416,14 @@ pub trait CodeGen {
     fn gen_lit_ir_expr(&mut self, lit_expr: &LitValExpr, fn_ctx: &mut FnCtx) -> CGExprEvalRes {
         let lit_val_tmp: usize = fn_ctx.temp_counter;
         fn_ctx.temp_counter += 1;
-        
-        return match lit_expr.result_type {
-            LitTypeVariant::I32 => {
-                let i32_value: &i32 = lit_expr.value.unwrap_i32().unwrap_or_else(|| panic!("No i32 value!"));
-                Ok(vec![
-                    IRInstr::Mov(
-                        IRLitType::Temp(lit_val_tmp), 
-                        IRLitType::Const(
-                            IRLitVal::Int32(*i32_value)
-                        )
-                    )
-                ])
-            },
-            _ => todo!()
-        }
+    
+        let ir_lit: IRLitVal = match lit_expr.result_type {
+            LitTypeVariant::I32 => IRLitVal::Int32(*lit_expr.value.unwrap_i32().expect("No i32 value!")),
+            LitTypeVariant::U8 => IRLitVal::U8(*lit_expr.value.unwrap_u8().expect("No u8 value!")),
+            _ => todo!(),
+        };
+    
+        Ok(vec![IRInstr::mov_into_temp(lit_val_tmp, IRLitType::Const(ir_lit))])
     }
 
     fn gen_bin_ir_expr(&mut self, bin_expr: &BinExpr, fn_ctx: &mut FnCtx) -> CGExprEvalRes {
@@ -427,6 +453,10 @@ pub trait CodeGen {
             irs
         )
     }
+
+    fn gen_ir_fn_call_expr(&mut self, func_call_expr: &FuncCallExpr, fn_ctx: &mut FnCtx) -> CGExprEvalRes;
+    
+    fn gen_ir_fn_call_stmt(&mut self, func_call_stmt: &FuncCallStmt, fn_ctx: &mut FnCtx) -> CGExprEvalRes;
 
     fn gen_ir_add(&mut self, dest: IRLitType, op1: IRLitType, op2: IRLitType) -> IRInstr {
        IRInstr::Add(dest, op1, op2)

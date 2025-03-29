@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use kagc_errors::BTypeErr;
-use kagc_types::{LitType, LitTypeVariant, TYPE_PRECEDENCE};
+use kagc_types::*;
 use lazy_static::lazy_static;
 
 use crate::are_compatible_for_operation;

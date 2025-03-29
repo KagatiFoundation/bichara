@@ -23,7 +23,7 @@ SOFTWARE.
 */
 
 use kagc_ast::SourceFile;
-use kagc_symbol::{FunctionInfo, FunctionInfoTable, Symbol, Symtable, INVALID_FUNC_ID};
+use kagc_symbol::*;
 
 use crate::errors::CtxError;
 
@@ -67,6 +67,10 @@ impl<'ctx> CompilerCtx<'ctx> {
 
     pub fn incr_label_count(&mut self) {
         self.label_id += 1;
+    }
+
+    pub fn reset_label_count(&mut self) {
+        self.label_id = 0;
     }
 
     pub fn get_curr_func(&self) -> Option<&FunctionInfo> {
@@ -115,17 +119,6 @@ impl<'ctx> CompilerCtx<'ctx> {
         return self.find_sym_in_table(name, self.sym_table);
     }
 
-    fn find_sym_in_table<'a>(&'a self, name: &str, table: &'a Symtable<Symbol>) -> Result<&Symbol, CtxError> {
-        if let Some(sym_pos) = table.find_symbol(name) {
-            return if let Some(sym) = table.get_symbol(sym_pos) {
-                Ok(sym)
-            } else {
-                Err(CtxError::UndefinedSymbol)
-            };
-        }
-        Err(CtxError::UndefinedSymbol)
-    }
-
     pub fn find_sym_mut(&mut self, name: &str) -> Result<&mut Symbol, CtxError> {
         if let Some(local_sym_pos) = {
             if let Some(func_info) = self.get_curr_func_mut() {
@@ -144,6 +137,15 @@ impl<'ctx> CompilerCtx<'ctx> {
                 return Ok(sym);
             } else {
                 return Err(CtxError::UndefinedSymbol);
+            }
+        }
+        Err(CtxError::UndefinedSymbol)
+    }
+
+    fn find_sym_in_table<'a>(&'a self, name: &str, table: &'a Symtable<Symbol>) -> Result<&Symbol, CtxError> {
+        if let Some(sym_pos) = table.find_symbol(name) {
+            if let Some(sym) = table.get_symbol(sym_pos) {
+                return Ok(sym);
             }
         }
         Err(CtxError::UndefinedSymbol)

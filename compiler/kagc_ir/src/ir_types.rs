@@ -5,15 +5,17 @@ use kagc_target::reg::AllocedReg;
 pub enum IRLitVal {
     Str(String),
     Int64(i64),
-    Int32(i32)
+    Int32(i32),
+    U8(u8)
 }
 
 impl IRLitVal {
     pub fn into_str(&self) -> String {
         match self {
             IRLitVal::Str(value) => value.clone(),
-            IRLitVal::Int64(value) => format!("{}", value),
-            IRLitVal::Int32(value) => format!("{}", value),
+            IRLitVal::Int64(value) => value.to_string(),
+            IRLitVal::Int32(value) => value.to_string(),
+            IRLitVal::U8(value) => value.to_string()
         }
     }
 }

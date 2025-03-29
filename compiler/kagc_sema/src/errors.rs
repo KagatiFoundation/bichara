@@ -28,8 +28,8 @@ use kagc_ast::ASTOperation;
 use kagc_token::Token;
 use kagc_types::LitTypeVariant;
 
+#[derive(Debug)]
 pub enum SAReturnTypeError {
-    /// 
     ExpectedNoReturnValue {
         found: LitTypeVariant
     },
@@ -39,36 +39,45 @@ pub enum SAReturnTypeError {
     }
 }
 
+#[derive(Debug)]
 pub enum SATypeError {
     AssignmentTypeMismatch {
         expected: LitTypeVariant, 
         found: LitTypeVariant
     },
+
     IncompatibleTypes {
         a: LitTypeVariant, 
         b: LitTypeVariant,
         operation: ASTOperation
     },
+
     TypeMismatch {
         expected: LitTypeVariant, 
         found: LitTypeVariant
     },
+
     ReturnType(SAReturnTypeError),
+
     NonCallable {
         sym_name: String
     }
 }
 
+#[derive(Debug)]
 pub enum SAError {
     TypeError(SATypeError),
+
     ArrayLengthError { 
         expected: usize, 
         found: usize 
     },
+
     UndefinedSymbol { 
         sym_name: String, 
         token: Token
     },
+
     None
 }
 

@@ -12,8 +12,14 @@ pub enum IRInstr {
         IRLitType, 
         IRLitType
     ),
-    
-    Call(String, Vec<IRLitType>, IRLitType),
+
+    Call {
+        fn_name: String,
+
+        params: Vec<IRLitType>,
+
+        return_type: IRLitType
+    },
     
     Load {
         /// Destination to load to 
@@ -31,10 +37,17 @@ impl IRInstr {
 
             IRInstr::Add(dst, _, _) => Some(dst.clone()),
 
-            IRInstr::Call(_, _, _) => Some(IRLitType::Reg(AllocedReg { idx: 0, size: 64 })),
+            IRInstr::Call { .. } => Some(IRLitType::Reg(AllocedReg { idx: 0, size: 64 })),
 
             IRInstr::Load { dest, .. } => Some(dest.clone())
         }
+    }
+
+    pub fn mov_into_temp(temp: usize, value: IRLitType) -> Self {
+        Self::Mov(
+            IRLitType::Temp(temp), 
+            value
+        )
     }
 }
 

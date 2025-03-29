@@ -23,7 +23,7 @@ SOFTWARE.
 */
 
 use std::slice::Iter;
-use crate::{sym::SymbolTrait, Symbol};
+use crate::sym::SymbolTrait;
 
 // Maximum number of symbols in program
 pub const NSYMBOLS: usize = 1024;

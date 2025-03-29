@@ -22,11 +22,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use kagc_ast::{ASTOperation, BinExpr, Expr, TYPE_PRECEDENCE_EXPR};
-use kagc_symbol::{Symbol, SymbolType};
-use kagc_types::{is_type_coalescing_possible, LitTypeVariant};
+use kagc_ast::*;
+use kagc_symbol::*;
+use kagc_types::*;
 
-use crate::{errors::{SAError, SATypeError}, typedefs::SAResult};
+use crate::{errors::*, typedefs::SAResult};
 
 pub struct TypeChecker;
 
@@ -38,33 +38,31 @@ impl TypeChecker {
     /// type, and ensures the assigned expression's type matches the declared or 
     /// inferred type. If there's a type mismatch that cannot be reconciled, an 
     /// error is returned.
-    pub fn type_check_var_decl_stmt(var_decl_sym: &mut Symbol, expr: &Expr) -> SAResult {
-        let expr_res_type: LitTypeVariant = Self::infer_type(expr)?;
-
+    pub fn type_check_var_decl_stmt(var_decl_sym: &mut Symbol, expr_type: LitTypeVariant) -> SAResult {
         // This has do be done because variables might be defined without 
         // explicit type annotation. For example, 'let a = 5;'. Thus, the 
         // symbol table has to be updated with this new type information.
         if var_decl_sym.lit_type == LitTypeVariant::None {
             var_decl_sym.lit_type = {
-                match expr_res_type {
+                match expr_type {
                     // implicitly convert no-type-annotated byte-type into an integer
                     LitTypeVariant::U8 => LitTypeVariant::I32,
-                    _ => expr_res_type
+                    _ => expr_type
                 }
             }
         }
         if 
-            var_decl_sym.lit_type != expr_res_type 
-            && !is_type_coalescing_possible(expr_res_type, var_decl_sym.lit_type) 
+            var_decl_sym.lit_type != expr_type 
+            && !is_type_coalescing_possible(expr_type, var_decl_sym.lit_type) 
         {
             return Err(SAError::TypeError(
                 SATypeError::AssignmentTypeMismatch { 
                     expected: var_decl_sym.lit_type, 
-                    found: expr.result_type() 
+                    found: expr_type
                 }
             ));
         }
-        Ok(())
+        Ok(expr_type)
     }
 
     /// this fucktion is bullshit. do not use
@@ -85,7 +83,42 @@ impl TypeChecker {
             let array_type: LitTypeVariant = Self::infer_type(&vals[0])?;
             sym.lit_type = array_type;
         }
-        Ok(())
+        Ok(sym.lit_type)
+    }
+
+    pub fn check_bin_expr_type_compatability(a: LitTypeVariant, b: LitTypeVariant, op: ASTOperation) -> SAResult {
+        match op {
+            ASTOperation::AST_ADD => {
+                // addition operation requires both of the expressions to be integer types
+                if a.is_int_variant() && b.is_int_variant() {
+                    let a_size: usize = a.size();
+                    let b_size: usize = b.size();
+
+                    #[allow(clippy::comparison_chain)]
+                    if a_size > b_size {
+                        return SAResult::Ok(a);
+                    }
+                    else if b_size > a_size {
+                        return SAResult::Ok(b);
+                    }
+                    else {
+                        return SAResult::Ok(a); // both sizes are equal; return any
+                    }
+                }
+                panic!()
+            },
+            _ => {
+                Err(
+                    SAError::TypeError(
+                        SATypeError::IncompatibleTypes { 
+                            a, 
+                            b, 
+                            operation: op
+                        }
+                    )
+                )
+            }
+        }
     }
 
     pub fn is_bin_expr_type_compatibile(bin_expr: &BinExpr) -> bool {

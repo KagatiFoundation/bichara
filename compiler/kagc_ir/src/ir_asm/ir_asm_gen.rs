@@ -50,11 +50,14 @@ pub trait IRToASM {
                     
                     IRInstr::Add(dest, op1, op2) => self.gen_ir_add_asm(dest, op1, op2),
                     
-                    IRInstr::Call(_, params, return_val) => todo!(),
+                    IRInstr::Call { fn_name, params, return_type } => self.gen_ir_fn_call_asm(fn_name.clone(), params, return_type),
                 }
             },
         }
     }
+
+    /// Generates assembly for a function call expression.
+    fn gen_ir_fn_call_asm(&mut self, fn_name: String, params: &[IRLitType], return_type: &IRLitType) -> String;
 
     /// Generates AArch64 assembly for an addition operation.
     /// The result is stored in `dest`, using `op1` and `op2` as operands.

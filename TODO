@@ -1,0 +1,2 @@
+Bugs to Fix:
+[] Semantic analyzer not reporting an undefined symbol error when calling a non-existing function.

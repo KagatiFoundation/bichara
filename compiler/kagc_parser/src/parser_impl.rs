@@ -703,7 +703,7 @@ impl<'parser> Parser<'parser> {
                 }
             }
             else if var_type == LitTypeVariant::Str {
-                let str_const_label: usize = self.ctx.as_ref().unwrap().borrow_mut().label_id - 1;
+                let str_const_label: usize = self.ctx.as_ref().unwrap().borrow_mut().label_id + 1;
                 default_value = Some(LitType::I32(str_const_label as i32));
             }
         }
@@ -1082,17 +1082,21 @@ impl<'parser> Parser<'parser> {
                         )
                     ));
                 }
+                
                 let symbol_name: String = current_token.lexeme.clone();
                 let curr_tok_kind: TokenKind = self.current_token.kind;
+
                 if curr_tok_kind == TokenKind::T_LPAREN {
                     self.parse_func_call_expr(&symbol_name, &current_token)
                 } 
                 else {
                     Ok(AST::create_leaf(
-                        ASTKind::ExprAST(Expr::Ident(IdentExpr {
-                            result_type: LitTypeVariant::None,
-                            sym_name: symbol_name
-                        })),
+                        ASTKind::ExprAST(
+                            Expr::Ident(IdentExpr {
+                                result_type: LitTypeVariant::None, // We don't care about the type of this symbol, yet!
+                                sym_name: symbol_name
+                            }
+                        )),
                         ASTOperation::AST_IDENT,
                         LitTypeVariant::None, // type will be identified at the semantic analysis phases if the symbol is defined
                         None,
@@ -1172,35 +1176,38 @@ impl<'parser> Parser<'parser> {
         ))
     }
 
-    fn parse_func_call_expr(
-        &mut self,
-        called_symbol: &str,
-        sym_token: &Token,
-    ) -> ParseResult2 {
+    fn parse_func_call_expr(&mut self, called_symbol: &str, sym_token: &Token) -> ParseResult2 {
         let current_file: String = self.get_current_file_name();
         _ = self.token_match(TokenKind::T_LPAREN)?;
 
         let curr_token_kind: TokenKind = self.current_token.kind;
         let mut func_args: Vec<Expr> = vec![];
+
         if curr_token_kind != TokenKind::T_RPAREN {
             loop {
                 let argu: AST = self.parse_equality()?;
                 func_args.push(argu.kind.expr().unwrap());
+
                 let is_tok_comma: bool = self.current_token.kind == TokenKind::T_COMMA;
                 let is_tok_rparen: bool = self.current_token.kind == TokenKind::T_RPAREN;
+
                 if !is_tok_comma && !is_tok_rparen {
                     let __err: Result<AST, Box<BErr>> = Err(Box::new(BErr::unexpected_token(
                         current_file.clone(), 
                         vec![TokenKind::T_COMMA, TokenKind::T_RPAREN],
                         self.current_token.clone()
                     )));
+
                     if self.__panic_mode {
                         panic!("{:?}", __err);
                     }
+
                     return __err;
-                } else if is_tok_rparen {
+                } 
+                else if is_tok_rparen {
                     break;
-                } else {
+                } 
+                else {
                     self.token_match(TokenKind::T_COMMA)?;
                 }
             }

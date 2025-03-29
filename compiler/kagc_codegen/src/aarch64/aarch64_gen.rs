@@ -622,7 +622,7 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             self.current_function = Some(finfo.clone());
         }
 
-        let func_info = self.current_function.as_ref().unwrap();
+        let func_info: &FunctionInfo = self.current_function.as_ref().unwrap();
 
         if func_info.storage_class == StorageClass::EXTERN {
             return Ok(
@@ -686,18 +686,8 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
     }
 
     fn gen_ir_var_decl(&mut self, ast: &AST, fn_ctx: &mut FnCtx) -> CGRes {
-        let ctx_borrow = self.ctx.borrow();
-
         if let Some(Stmt::VarDecl(var_decl)) = ast.kind.as_stmt() {
-            let var_sym: Symbol = if self.current_function.is_none() {
-                ctx_borrow.sym_table.get_symbol(var_decl.symtbl_pos).unwrap_or_else(|| panic!("Symbol not found with the index: {}", var_decl.symtbl_pos)).clone()
-            }
-            else {
-                let func_info: &FunctionInfo = self.current_function.as_ref().unwrap();
-                func_info.local_syms.get_symbol(var_decl.symtbl_pos).unwrap_or_else(|| panic!("Symbol not defined inside the function!")).clone()
-            };
-
-            drop(ctx_borrow);
+            let var_sym: Symbol = self.get_symbol_local_or_global(&var_decl.sym_name).unwrap();
 
             if ast.left.is_none() {
                 panic!("Variable is not assigned a value!");
@@ -727,6 +717,8 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             
             return Ok(result);
         }
+
+        // FIND A BETTER SOLUTIN THAN JUST PANICKING
         panic!()
     }
 
@@ -740,6 +732,56 @@ impl<'aarch64> CodeGen for Aarch64CodeGen<'aarch64> {
             IRInstr::Load {
                 dest: IRLitType::Temp(lit_val_tmp),
                 stack_off: sym.local_offset as usize
+            }
+        ])
+    }
+
+    fn gen_ir_fn_call_expr(&mut self, func_call_expr: &FuncCallExpr, fn_ctx: &mut FnCtx) -> CGExprEvalRes {
+        let mut param_instrs: Vec<IRInstr> = vec![];
+        let mut actual_params: Vec<IRLitType> = vec![];
+
+        for param_expr in &func_call_expr.args {
+            let p_instr: Vec<IRInstr> = self.__gen_expr(param_expr, fn_ctx)?;
+
+            if let Some(dest) = p_instr.last().unwrap().clone().dest() {
+                actual_params.push(dest);
+            }
+
+            param_instrs.extend(p_instr);
+        }
+
+        param_instrs.push(
+            IRInstr::Call {
+                fn_name: func_call_expr.symbol_name.clone(),
+                params: actual_params,
+                return_type: IRLitType::Temp(0)
+            }
+        );
+
+        Ok(param_instrs)
+    }
+
+    fn gen_ir_fn_call_stmt(&mut self, func_call_stmt: &FuncCallStmt, fn_ctx: &mut FnCtx) -> CGExprEvalRes {
+        let mut param_instrs: Vec<IR> = vec![];
+        let mut actual_params: Vec<IRLitType> = vec![];
+
+        for param_expr in &func_call_stmt.args {
+            let p_instr: Vec<IRInstr> = self.__gen_expr(param_expr, fn_ctx)?;
+
+            if let Some(dest) = p_instr.last().unwrap().clone().dest() {
+                actual_params.push(dest);
+            }
+
+            p_instr.iter().for_each(|instr| {
+                param_instrs.push(IR::Instr(instr.clone()));
+            });
+        }
+
+        Ok(vec![
+            IRInstr::Call {
+                fn_name: func_call_stmt.symbol_name.clone(),
+                params: actual_params,
+                return_type: IRLitType::Temp(0)
             }
         ])
     }

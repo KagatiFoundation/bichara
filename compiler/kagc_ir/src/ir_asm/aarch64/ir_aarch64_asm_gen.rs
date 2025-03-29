@@ -178,15 +178,14 @@ impl<'asmgen> Aarch64IRToASM<'asmgen> {
 
 impl<'irgen> IRToASM for Aarch64IRToASM<'irgen> {
     fn gen_ir_fn_asm(&mut self, fn_ir: &IRFunc) -> String {
+        if fn_ir.class == StorageClass::EXTERN {
+            return format!(".extern _{}\n", fn_ir.name);
+        }
+
         let mut output_str: String = "".to_string();
 
         // Temporary liveness information of this function
         let temp_liveness: HashMap<usize, LiveRange> = LivenessAnalyzer::analyze_fn_temps(fn_ir);
-
-        if fn_ir.class == StorageClass::EXTERN {
-            output_str.push_str(&format!(".extern _{}\n", fn_ir.name));
-            return  output_str;
-        }
 
         let stack_size: usize = self.compute_stack_size_fn_ir(fn_ir).unwrap();
 
@@ -284,9 +283,9 @@ impl<'irgen> IRToASM for Aarch64IRToASM<'irgen> {
     fn gen_non_leaf_fn_prol(&self, fn_label: &str, stack_size: usize) -> String {
         let mut output_str: String = "".to_string();
         
-        output_str.push_str(&format!("\n.global _{fn_label}\n_{fn_label}:"));
-        output_str.push_str(&format!("sub sp, sp, #{stack_size}"));
-        output_str.push_str(&format!("stp x29, x30, [sp, #{}]", stack_size - 16));
+        output_str.push_str(&format!("\n.global _{fn_label}\n_{fn_label}:\n"));
+        output_str.push_str(&format!("sub sp, sp, #{stack_size}\n"));
+        output_str.push_str(&format!("stp x29, x30, [sp, #{}]\n", stack_size - 16));
         output_str.push_str(&format!("add x29, sp, #{}", stack_size - 16));
 
         output_str
@@ -295,7 +294,7 @@ impl<'irgen> IRToASM for Aarch64IRToASM<'irgen> {
     fn gen_non_leaf_fn_epl(&self, stack_size: usize) -> String {
         let mut output_str: String = "".to_string();
 
-        output_str.push_str(&format!("ldp x29, x30, [sp, #{}]", stack_size - 16));
+        output_str.push_str(&format!("ldp x29, x30, [sp, #{}]\n", stack_size - 16));
         output_str.push_str(&format!("add sp, sp, #{}\nret\n", stack_size));
 
         output_str
@@ -319,6 +318,10 @@ impl<'irgen> IRToASM for Aarch64IRToASM<'irgen> {
         else {
             format!("LDR {}, [x29, #-{}]", dest_reg.name(), soff)
         }
+    }
+
+    fn gen_ir_fn_call_asm(&mut self, fn_name: String, params: &[IRLitType], return_type: &IRLitType) -> String {
+        format!("BL _{fn_name}")
     }
     
     fn gen_ir_mov_asm(&mut self, dest: &IRLitType, src: &IRLitType) -> String {
@@ -344,6 +347,7 @@ impl<'asmgen> Aarch64IRToASM<'asmgen> {
             IRLitType::Const(irlit_val) => {
                 match irlit_val {
                     IRLitVal::Int32(value) => value.to_string(),
+                    IRLitVal::U8(value) => value.to_string(),
                     _ => todo!()
                 }
             },

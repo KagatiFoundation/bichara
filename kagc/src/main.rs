@@ -67,6 +67,7 @@ fn main() {
 
     for sf in &mut source_files {
         let read_res: Result<i32, std::io::Error> = sf.read();
+        
         if let Err(e) = read_res {
             panic!("Error reading a source file: {:?}", e);
         }
@@ -78,21 +79,27 @@ fn main() {
 
     {
         let mut parser_borrow = parsr.borrow_mut();
+
         for sf in &mut source_files {
             let tokens: Vec<Token> = sf.tokens.clone().unwrap();
+
             ctx.borrow_mut().current_file = Some(sf);
+
             let mut parse_result: Vec<AST> = parser_borrow.parse_with_ctx(Rc::clone(&ctx), tokens);
 
-            s_analyzer.start_analysis(&mut parse_result);
-
             if !parser_borrow.has_parsing_errors() {
-                // cg.gen_with_ctx(&parse_result);
-                let mut node_irs = cg.gen_ir(&parse_result);
-                let mut asm_gen = Aarch64IRToASM::new(Rc::clone(&ctx), Rc::clone(&rm));
-                let output = asm_gen.gen_asm(&mut node_irs);
+                s_analyzer.start_analysis(&mut parse_result);
+
+                let mut node_irs: Vec<kagc_ir::ir_instr::IR> = cg.gen_ir(&parse_result);
+                
+                let mut asm_gen: Aarch64IRToASM<'_> = Aarch64IRToASM::new(Rc::clone(&ctx), Rc::clone(&rm));
+                
+                let output: Vec<String> = asm_gen.gen_asm(&mut node_irs);
+                
                 output.iter().for_each(|op| println!("{op}"));
             }
         }
+
         std::mem::drop(parser_borrow);
     }
 }
