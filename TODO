@@ -1,2 +1,6 @@
 Bugs to Fix:
-[] Semantic analyzer not reporting an undefined symbol error when calling a non-existing function.
+[✅] Semantic analyzer not reporting an undefined symbol error when calling a non-existing function.
+
+
+Features to implement:
+[] Allocate registers from x0-x7 only for function parameters.
